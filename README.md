@@ -51,6 +51,8 @@ WorkflowX uses separate typed nodes instead of one dynamic output node. This kee
 | `Set String` | `Get String` | `STRING` |
 | `Set Text` | `Get Text` | `STRING` multiline value |
 | `Set Boolean` | `Get Boolean` | `BOOLEAN` |
+| `Set Sampler` | `Get Sampler` | ComfyUI sampler combo |
+| `Set Scheduler` | `Get Scheduler` | ComfyUI scheduler combo |
 
 Each `Set` node has:
 
@@ -61,6 +63,8 @@ Each `Get` node has:
 
 - `key`: the name to read.
 - hidden internal fields managed by the frontend extension.
+
+`Set Sampler` and `Set Scheduler` use ComfyUI's native sampler and scheduler option lists, so their Get nodes can be connected to sampler/scheduler inputs after those widgets are converted to inputs.
 
 ### Group Configurator
 
@@ -127,11 +131,15 @@ Inside `FasterConfig`:
 
 - `Set Int` key `Steps`, value `4`
 - `Set Float` key `CFG`, value `1.0`
+- `Set Sampler` key `Sampler`, value `euler`
+- `Set Scheduler` key `Scheduler`, value `simple`
 
 Inside `RealConfig`:
 
 - `Set Int` key `Steps`, value `20`
 - `Set Float` key `CFG`, value `2.5`
+- `Set Sampler` key `Sampler`, value `dpmpp_2m`
+- `Set Scheduler` key `Scheduler`, value `karras`
 
 Create two Group Configurators:
 
@@ -142,8 +150,10 @@ Use:
 
 - `Get Int` key `Steps`
 - `Get Float` key `CFG`
+- `Get Sampler` key `Sampler`
+- `Get Scheduler` key `Scheduler`
 
-Selecting `Speed` queues with `Steps = 4`, `CFG = 1.0`. Selecting `Quality` queues with `Steps = 20`, `CFG = 2.5`.
+Selecting `Speed` queues with `Steps = 4`, `CFG = 1.0`, `Sampler = euler`, and `Scheduler = simple`. Selecting `Quality` queues with `Steps = 20`, `CFG = 2.5`, `Sampler = dpmpp_2m`, and `Scheduler = karras`.
 
 ### LoRA On/Off Profiles
 

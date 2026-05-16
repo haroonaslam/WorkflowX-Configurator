@@ -6,7 +6,16 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from nodes import GetBoolean, GetFloat, GetInt, GetString, GetText, NODE_CLASS_MAPPINGS
+from nodes import (
+    GetBoolean,
+    GetFloat,
+    GetInt,
+    GetSampler,
+    GetScheduler,
+    GetString,
+    GetText,
+    NODE_CLASS_MAPPINGS,
+)
 
 
 def workflow(*nodes, groups=None):
@@ -45,7 +54,11 @@ def resolved_digest(type_name, key, config, value):
 
 
 def test_all_nodes_registered():
-    assert len(NODE_CLASS_MAPPINGS) == 12
+    assert len(NODE_CLASS_MAPPINGS) == 16
+    assert "KVGC_SetSampler" in NODE_CLASS_MAPPINGS
+    assert "KVGC_GetSampler" in NODE_CLASS_MAPPINGS
+    assert "KVGC_SetScheduler" in NODE_CLASS_MAPPINGS
+    assert "KVGC_GetScheduler" in NODE_CLASS_MAPPINGS
     assert "KVGC_GroupConfigurator" in NODE_CLASS_MAPPINGS
     assert "KVGC_ConfigSelector" in NODE_CLASS_MAPPINGS
 
@@ -56,6 +69,8 @@ def test_typed_workflow_lookups():
     assert GetString().get_value("name", extra_pnginfo=workflow(set_node(1, "KVGC_SetString", "name", "abc"))) == ("abc",)
     assert GetText().get_value("prompt", extra_pnginfo=workflow(set_node(1, "KVGC_SetText", "prompt", "hello\nworld"))) == ("hello\nworld",)
     assert GetBoolean().get_value("enabled", extra_pnginfo=workflow(set_node(1, "KVGC_SetBoolean", "enabled", True))) == (True,)
+    assert GetSampler().get_value("sampler", extra_pnginfo=workflow(set_node(1, "KVGC_SetSampler", "sampler", "dpmpp_2m"))) == ("dpmpp_2m",)
+    assert GetScheduler().get_value("scheduler", extra_pnginfo=workflow(set_node(1, "KVGC_SetScheduler", "scheduler", "karras"))) == ("karras",)
 
 
 def test_typed_resolved_values_are_used_when_digest_matches():
@@ -64,6 +79,8 @@ def test_typed_resolved_values_are_used_when_digest_matches():
     assert GetString().get_value("name", "abc", "Speed", resolved_digest("String", "name", "Speed", "abc")) == ("abc",)
     assert GetText().get_value("prompt", "hello\nworld", "Speed", resolved_digest("Text", "prompt", "Speed", "hello\nworld")) == ("hello\nworld",)
     assert GetBoolean().get_value("enabled", "true", "Speed", resolved_digest("Boolean", "enabled", "Speed", "true")) == (True,)
+    assert GetSampler().get_value("sampler", "dpmpp_2m", "Speed", resolved_digest("Sampler", "sampler", "Speed", "dpmpp_2m")) == ("dpmpp_2m",)
+    assert GetScheduler().get_value("scheduler", "karras", "Speed", resolved_digest("Scheduler", "scheduler", "Speed", "karras")) == ("karras",)
 
 
 def test_invalid_resolved_digest_falls_back_to_workflow_lookup():
@@ -199,3 +216,15 @@ def test_missing_key_raises_clear_error():
         assert "No Int value found for key 'missing'" in str(exc)
     else:
         raise AssertionError("Expected missing key to raise KeyError")
+
+
+if __name__ == "__main__":
+    tests = [
+        (name, value)
+        for name, value in sorted(globals().items())
+        if name.startswith("test_") and callable(value)
+    ]
+    for name, test in tests:
+        test()
+        print(f"PASS {name}")
+    print(f"{len(tests)} tests passed.")

@@ -10,6 +10,8 @@ const GET_TYPES = Object.freeze({
   KVGC_GetString: "String",
   KVGC_GetText: "Text",
   KVGC_GetBoolean: "Boolean",
+  KVGC_GetSampler: "Sampler",
+  KVGC_GetScheduler: "Scheduler",
 });
 const SET_TYPES_BY_GET_TYPE = Object.freeze({
   KVGC_GetInt: "KVGC_SetInt",
@@ -17,6 +19,8 @@ const SET_TYPES_BY_GET_TYPE = Object.freeze({
   KVGC_GetString: "KVGC_SetString",
   KVGC_GetText: "KVGC_SetText",
   KVGC_GetBoolean: "KVGC_SetBoolean",
+  KVGC_GetSampler: "KVGC_SetSampler",
+  KVGC_GetScheduler: "KVGC_SetScheduler",
 });
 
 const MODES = Object.freeze({

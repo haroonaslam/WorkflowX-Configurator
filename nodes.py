@@ -12,6 +12,37 @@ CATEGORY = "WorkflowX_Configurator"
 MODE_OPTIONS = ("Active", "Bypass", "Mute")
 INACTIVE_WORKFLOW_MODES = {2, 4}
 
+try:
+    import comfy.samplers
+
+    SAMPLER_OPTIONS = comfy.samplers.KSampler.SAMPLERS
+    SCHEDULER_OPTIONS = comfy.samplers.KSampler.SCHEDULERS
+except Exception:
+    SAMPLER_OPTIONS = [
+        "euler",
+        "euler_ancestral",
+        "heun",
+        "dpm_2",
+        "dpm_2_ancestral",
+        "lms",
+        "dpm_fast",
+        "dpm_adaptive",
+        "dpmpp_2s_ancestral",
+        "dpmpp_sde",
+        "dpmpp_2m",
+        "dpmpp_2m_sde",
+        "ddim",
+    ]
+    SCHEDULER_OPTIONS = [
+        "normal",
+        "karras",
+        "exponential",
+        "sgm_uniform",
+        "simple",
+        "ddim_uniform",
+        "beta",
+    ]
+
 
 class _Rect(NamedTuple):
     x: float
@@ -588,6 +619,30 @@ class _BooleanValueMixin(_TypedKeyValueBase):
         return bool(value)
 
 
+class _SamplerValueMixin(_TypedKeyValueBase):
+    TYPE_NAME = "Sampler"
+    DEFAULT_VALUE = SAMPLER_OPTIONS[0] if SAMPLER_OPTIONS else ""
+    VALUE_INPUT = (SAMPLER_OPTIONS,)
+    RETURN_TYPE = SAMPLER_OPTIONS
+    RETURN_NAME = "sampler_name"
+
+    @classmethod
+    def _coerce(cls, value: Any) -> str:
+        return str(value)
+
+
+class _SchedulerValueMixin(_TypedKeyValueBase):
+    TYPE_NAME = "Scheduler"
+    DEFAULT_VALUE = SCHEDULER_OPTIONS[0] if SCHEDULER_OPTIONS else ""
+    VALUE_INPUT = (SCHEDULER_OPTIONS,)
+    RETURN_TYPE = SCHEDULER_OPTIONS
+    RETURN_NAME = "scheduler"
+
+    @classmethod
+    def _coerce(cls, value: Any) -> str:
+        return str(value)
+
+
 class SetInt(_IntValueMixin, _SetBase):
     SET_CLASS_TYPE = "KVGC_SetInt"
 
@@ -636,6 +691,26 @@ class GetBoolean(_BooleanValueMixin, _GetBase):
     SET_CLASS_TYPE = "KVGC_SetBoolean"
     RETURN_TYPES = (_BooleanValueMixin.RETURN_TYPE,)
     RETURN_NAMES = (_BooleanValueMixin.RETURN_NAME,)
+
+
+class SetSampler(_SamplerValueMixin, _SetBase):
+    SET_CLASS_TYPE = "KVGC_SetSampler"
+
+
+class GetSampler(_SamplerValueMixin, _GetBase):
+    SET_CLASS_TYPE = "KVGC_SetSampler"
+    RETURN_TYPES = (_SamplerValueMixin.RETURN_TYPE,)
+    RETURN_NAMES = (_SamplerValueMixin.RETURN_NAME,)
+
+
+class SetScheduler(_SchedulerValueMixin, _SetBase):
+    SET_CLASS_TYPE = "KVGC_SetScheduler"
+
+
+class GetScheduler(_SchedulerValueMixin, _GetBase):
+    SET_CLASS_TYPE = "KVGC_SetScheduler"
+    RETURN_TYPES = (_SchedulerValueMixin.RETURN_TYPE,)
+    RETURN_NAMES = (_SchedulerValueMixin.RETURN_NAME,)
 
 
 class GroupConfigurator:
@@ -712,6 +787,10 @@ NODE_CLASS_MAPPINGS = {
     "KVGC_GetText": GetText,
     "KVGC_SetBoolean": SetBoolean,
     "KVGC_GetBoolean": GetBoolean,
+    "KVGC_SetSampler": SetSampler,
+    "KVGC_GetSampler": GetSampler,
+    "KVGC_SetScheduler": SetScheduler,
+    "KVGC_GetScheduler": GetScheduler,
     "KVGC_GroupConfigurator": GroupConfigurator,
     "KVGC_ConfigSelector": ConfigSelector,
 }
@@ -727,6 +806,10 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "KVGC_GetText": "Get Text",
     "KVGC_SetBoolean": "Set Boolean",
     "KVGC_GetBoolean": "Get Boolean",
+    "KVGC_SetSampler": "Set Sampler",
+    "KVGC_GetSampler": "Get Sampler",
+    "KVGC_SetScheduler": "Set Scheduler",
+    "KVGC_GetScheduler": "Get Scheduler",
     "KVGC_GroupConfigurator": "Group Configurator",
     "KVGC_ConfigSelector": "Config Selector",
 }
