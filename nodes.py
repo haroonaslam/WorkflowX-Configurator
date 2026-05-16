@@ -43,6 +43,13 @@ except Exception:
         "beta",
     ]
 
+try:
+    from comfy.comfy_types.node_typing import IO
+
+    ANY_TYPE = IO.ANY
+except Exception:
+    ANY_TYPE = "*"
+
 
 class _Rect(NamedTuple):
     x: float
@@ -713,6 +720,57 @@ class GetScheduler(_SchedulerValueMixin, _GetBase):
     RETURN_NAMES = (_SchedulerValueMixin.RETURN_NAME,)
 
 
+class SetRelay:
+    CATEGORY = CATEGORY
+    FUNCTION = "set_value"
+    RETURN_TYPES = (ANY_TYPE,)
+    RETURN_NAMES = ("value",)
+
+    @classmethod
+    def INPUT_TYPES(cls) -> dict[str, dict[str, Any]]:
+        return {
+            "required": {
+                "key": ("STRING", {"default": "", "placeholder": "key"}),
+                "value": (ANY_TYPE,),
+            }
+        }
+
+    def set_value(self, key: str, value: Any) -> tuple[Any]:
+        if not _TypedKeyValueBase._normalize_key(key):
+            raise ValueError("Set Relay key cannot be empty.")
+        return (value,)
+
+
+class GetRelay:
+    CATEGORY = CATEGORY
+    FUNCTION = "get_value"
+    RETURN_TYPES = (ANY_TYPE,)
+    RETURN_NAMES = ("value",)
+
+    @classmethod
+    def INPUT_TYPES(cls) -> dict[str, dict[str, Any]]:
+        return {
+            "required": {
+                "key": ("STRING", {"default": "", "placeholder": "key"}),
+            },
+            "optional": {
+                "value": (ANY_TYPE,),
+            },
+        }
+
+    def get_value(self, key: str, value: Any = None) -> tuple[Any]:
+        clean_key = _TypedKeyValueBase._normalize_key(key)
+        if not clean_key:
+            raise ValueError("Get Relay key cannot be empty.")
+        if value is None:
+            raise ValueError(
+                f"No Relay value found for key '{clean_key}'. "
+                "Add a Set Relay with the same key in an active config group, "
+                "or connect the Get Relay value input directly."
+            )
+        return (value,)
+
+
 class GroupConfigurator:
     CATEGORY = CATEGORY
     FUNCTION = "configure"
@@ -769,10 +827,13 @@ class ConfigSelector:
         return {
             "required": {
                 "selected_config": ("STRING", {"default": "", "placeholder": "config name"}),
+                "console_output": (["no", "yes"], {"default": "no"}),
             }
         }
 
-    def select(self, selected_config: str) -> tuple[()]:
+    def select(self, selected_config: str, console_output: str = "no") -> tuple[()]:
+        if str(console_output) not in {"no", "yes"}:
+            raise ValueError("Config Selector console_output must be 'no' or 'yes'.")
         return ()
 
 
@@ -791,6 +852,8 @@ NODE_CLASS_MAPPINGS = {
     "KVGC_GetSampler": GetSampler,
     "KVGC_SetScheduler": SetScheduler,
     "KVGC_GetScheduler": GetScheduler,
+    "KVGC_SetRelay": SetRelay,
+    "KVGC_GetRelay": GetRelay,
     "KVGC_GroupConfigurator": GroupConfigurator,
     "KVGC_ConfigSelector": ConfigSelector,
 }
@@ -810,6 +873,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "KVGC_GetSampler": "Get Sampler",
     "KVGC_SetScheduler": "Set Scheduler",
     "KVGC_GetScheduler": "Get Scheduler",
+    "KVGC_SetRelay": "Set Relay",
+    "KVGC_GetRelay": "Get Relay",
     "KVGC_GroupConfigurator": "Group Configurator",
     "KVGC_ConfigSelector": "Config Selector",
 }

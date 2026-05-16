@@ -4,6 +4,8 @@ const EXTENSION_NAME = "key_config_tools.group_configurator";
 
 const CONFIGURATOR_TYPE = "KVGC_GroupConfigurator";
 const SELECTOR_TYPE = "KVGC_ConfigSelector";
+const SET_RELAY_TYPE = "KVGC_SetRelay";
+const GET_RELAY_TYPE = "KVGC_GetRelay";
 const GET_TYPES = Object.freeze({
   KVGC_GetInt: "Int",
   KVGC_GetFloat: "Float",
@@ -108,6 +110,14 @@ function isConfigurator(node) {
 
 function isSelector(node) {
   return nodeType(node) === SELECTOR_TYPE;
+}
+
+function isSetRelay(node) {
+  return nodeType(node) === SET_RELAY_TYPE;
+}
+
+function isGetRelay(node) {
+  return nodeType(node) === GET_RELAY_TYPE;
 }
 
 function isGetNode(node) {
@@ -228,13 +238,46 @@ function digestResolvedValue(typeName, key, configName, value) {
   return `workflowx:${stableStringify(payload)}`;
 }
 
-function selectedConfigFromSelectors() {
+function selectedSelectorNode() {
   const selectors = allNodes()
     .filter(isSelector)
-    .map((node) => ({ id: Number(node.id ?? 0), value: selectedConfigName(node) }))
+    .map((node) => ({ id: Number(node.id ?? 0), node, value: selectedConfigName(node) }))
     .filter((entry) => entry.value);
   selectors.sort((a, b) => a.id - b.id);
-  return selectors.at(-1)?.value ?? "";
+  return selectors.at(-1)?.node ?? null;
+}
+
+function selectedConfigFromSelectors() {
+  return selectedConfigName(selectedSelectorNode());
+}
+
+function consoleOutputEnabled() {
+  return String(getWidgetValue(selectedSelectorNode(), "console_output", "no") || "no") === "yes";
+}
+
+function groupNamesForNode(node, modes = null) {
+  const names = [];
+  const nodeRect = nodeBounds(node);
+
+  for (const group of allGroups()) {
+    const title = groupTitle(group);
+    if (modes && !Object.hasOwn(modes, title)) continue;
+    if (intersects(nodeRect, groupBounds(group))) {
+      names.push(title);
+    }
+  }
+
+  return names;
+}
+
+function formatDebugGroups(groupNames) {
+  return groupNames.length ? ` group="${groupNames.join(", ")}"` : ' group="global"';
+}
+
+function logResolution(message) {
+  if (consoleOutputEnabled()) {
+    console.info(`[WorkflowX_Configurator] ${message}`);
+  }
 }
 
 function groupModeForNode(node, modes) {
@@ -299,6 +342,7 @@ function resolveGetNodeValue(getNode) {
       id: Number(node.id ?? 0),
       priority,
       value: valueForSetNode(node),
+      groupNames: groupNamesForNode(node, modes),
     });
   }
 
@@ -319,7 +363,8 @@ function resolveGetNodeValue(getNode) {
     configName: selectedConfig,
     typeName: GET_TYPES[getType],
     key,
-    value: bestCandidates.at(-1).value,
+    setType,
+    ...bestCandidates.at(-1),
   };
 }
 
@@ -327,6 +372,9 @@ function materializeGetValuesBeforeQueue() {
   for (const getNode of allNodes().filter(isGetNode)) {
     const resolved = resolveGetNodeValue(getNode);
     if (!resolved) {
+      logResolution(
+        `Get ${GET_TYPES[nodeType(getNode)]} key="${String(getWidgetValue(getNode, "key", "") || "").trim()}" unresolved`,
+      );
       setWidgetValueSilently(getNode, "resolved_value", "");
       setWidgetValueSilently(getNode, "resolved_config", "");
       setWidgetValueSilently(getNode, "resolved_digest", "");
@@ -343,7 +391,114 @@ function materializeGetValuesBeforeQueue() {
     setWidgetValueSilently(getNode, "resolved_value", value);
     setWidgetValueSilently(getNode, "resolved_config", resolved.configName);
     setWidgetValueSilently(getNode, "resolved_digest", digest);
+
+    logResolution(
+      `Get ${resolved.typeName} key="${resolved.key}" resolved from ${resolved.setType} node ${resolved.id}${formatDebugGroups(resolved.groupNames)} value=${JSON.stringify(value)} config="${resolved.configName || "none"}"`,
+    );
   }
+}
+
+function relayKey(node) {
+  return String(getWidgetValue(node, "key", "") || "").trim();
+}
+
+function resolveRelaySource(getNode, promptOutput) {
+  const key = relayKey(getNode);
+  if (!key || !promptOutput) return null;
+
+  const selectedConfig = selectedConfigFromSelectors();
+  const config = selectedConfig ? configsByName().get(selectedConfig) : null;
+  const modes = config?.modes ?? null;
+
+  const candidates = [];
+  for (const node of allNodes()) {
+    if (!isSetRelay(node)) continue;
+    if (relayKey(node) !== key) continue;
+    if (!promptOutput[String(node.id)]) continue;
+
+    let priority = 0;
+    if (modes) {
+      priority = priorityForSetNode(node, modes);
+      if (priority === null) continue;
+    }
+
+    candidates.push({
+      id: Number(node.id ?? 0),
+      priority,
+      node,
+      groupNames: groupNamesForNode(node, modes),
+    });
+  }
+
+  if (!candidates.length) return null;
+
+  const bestPriority = Math.min(...candidates.map((candidate) => candidate.priority));
+  const bestCandidates = candidates
+    .filter((candidate) => candidate.priority === bestPriority)
+    .sort((a, b) => a.id - b.id);
+
+  if (bestCandidates.length > 1) {
+    console.warn(
+      `[WorkflowX_Configurator] Multiple active Set Relay nodes found for key "${key}"; using node id ${bestCandidates.at(-1).id}.`,
+    );
+  }
+
+  return bestCandidates.at(-1);
+}
+
+function materializeRelayLinksInPrompt(promptResult) {
+  const output = promptResult?.output;
+  if (!output) return promptResult;
+
+  for (const getNode of allNodes().filter(isGetRelay)) {
+    const getOutput = output[String(getNode.id)];
+    if (!getOutput) continue;
+
+    const source = resolveRelaySource(getNode, output);
+    if (!source) {
+      console.warn(
+        `[WorkflowX_Configurator] No active Set Relay found for key "${relayKey(getNode)}"; keeping any existing Get Relay input.`,
+      );
+      continue;
+    }
+
+    getOutput.inputs ??= {};
+    getOutput.inputs.value = [String(source.node.id), 0];
+
+    logResolution(
+      `Get Relay key="${relayKey(getNode)}" resolved from Set Relay node ${source.id}${formatDebugGroups(source.groupNames)} output_slot=0`,
+    );
+  }
+
+  return promptResult;
+}
+
+function installGraphToPromptPatch() {
+  if (app.__workflowXRelayGraphToPromptPatched || typeof app.graphToPrompt !== "function") {
+    return;
+  }
+
+  const originalGraphToPrompt = app.graphToPrompt.bind(app);
+  app.graphToPrompt = async function (...args) {
+    const shouldMaterializeRelays = app.__workflowXRelayQueueing === true;
+    if (shouldMaterializeRelays) {
+      const selectedConfig = selectedConfigFromSelectors();
+      if (selectedConfig) {
+        applyConfig(selectedConfig);
+      }
+    }
+
+    try {
+      const promptResult = await originalGraphToPrompt(...args);
+      return shouldMaterializeRelays
+        ? materializeRelayLinksInPrompt(promptResult)
+        : promptResult;
+    } finally {
+      app.__workflowXRelayQueueing = false;
+    }
+  };
+
+  app.__workflowXRelayGraphToPromptPatched = true;
 }
 
 function updateComboValues(widget, values) {
@@ -593,7 +748,13 @@ function refreshAll() {
 app.registerExtension({
   name: EXTENSION_NAME,
 
+  async setup() {
+    installGraphToPromptPatch();
+  },
+
   async beforeRegisterNodeDef(nodeTypeDef, nodeData) {
+    installGraphToPromptPatch();
+
     if (nodeData.name === SELECTOR_TYPE) {
       const originalOnNodeCreated = nodeTypeDef.prototype.onNodeCreated;
       nodeTypeDef.prototype.onNodeCreated = function () {
@@ -615,6 +776,21 @@ app.registerExtension({
           key.__workflowXBeforeQueued = true;
           key.beforeQueued = () => {
             materializeGetValuesBeforeQueue();
+          };
+        }
+      };
+    }
+
+    if (nodeData.name === GET_RELAY_TYPE) {
+      const originalOnNodeCreated = nodeTypeDef.prototype.onNodeCreated;
+      nodeTypeDef.prototype.onNodeCreated = function () {
+        originalOnNodeCreated?.apply(this, arguments);
+
+        const key = findWidget(this, "key");
+        if (key && !key.__workflowXRelayBeforeQueued) {
+          key.__workflowXRelayBeforeQueued = true;
+          key.beforeQueued = () => {
+            app.__workflowXRelayQueueing = true;
           };
         }
       };

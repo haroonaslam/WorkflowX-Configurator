@@ -1,8 +1,10 @@
 # WorkflowX Configurator
 
-WorkflowX Configurator is a ComfyUI custom node package for switching workflow profiles without rewiring your graph. It combines typed key/value nodes with group-level `Active`, `Bypass`, and `Mute` presets so one selector can flip between fast drafts, quality renders, LoRA variants, or any other named workflow configuration.
+![WorkflowX Configurator banner](docs/images/Generated%20image%201.png)
 
-![WorkflowX Configurator overview](docs/images/workflow-overview.png)
+WorkflowX Configurator turns sprawling ComfyUI graphs into selectable workflow profiles: reuse the same key names in different groups, switch one config, and the right value or relay source is picked at queue time. Instead of duplicating samplers, rewiring LoRA chains, or fighting nodes that can only store one global value, WorkflowX lets fast drafts, quality renders, model variants, and LoRA experiments live side by side while one selector decides which path is active.
+
+![WorkflowX Configurator overview](docs/images/Screenshot%202026-05-17%20001702.png)
 
 ## What It Does
 
@@ -40,9 +42,7 @@ Restart ComfyUI, then hard refresh the browser.
 
 WorkflowX uses separate typed nodes instead of one dynamic output node. This keeps ComfyUI socket validation predictable.
 
-![Set nodes](docs/images/set-nodes.png)
-
-![Get nodes](docs/images/get-nodes.png)
+![Primitive Set nodes](docs/images/set%20primitive.png)
 
 | Setter | Getter | Output type |
 | --- | --- | --- |
@@ -53,6 +53,7 @@ WorkflowX uses separate typed nodes instead of one dynamic output node. This kee
 | `Set Boolean` | `Get Boolean` | `BOOLEAN` |
 | `Set Sampler` | `Get Sampler` | ComfyUI sampler combo |
 | `Set Scheduler` | `Get Scheduler` | ComfyUI scheduler combo |
+| `Set Relay` | `Get Relay` | wildcard runtime value |
 
 Each `Set` node has:
 
@@ -66,11 +67,37 @@ Each `Get` node has:
 
 `Set Sampler` and `Set Scheduler` use ComfyUI's native sampler and scheduler option lists, so their Get nodes can be connected to sampler/scheduler inputs after those widgets are converted to inputs.
 
+![Sampler and scheduler nodes](docs/images/samper%20scheduler.png)
+
+### Set Relay / Get Relay
+
+`Set Relay` and `Get Relay` route live ComfyUI graph values by key. They are for runtime objects such as `MODEL`, `CLIP`, `VAE`, `LATENT`, `CONDITIONING`, `IMAGE`, or `MASK`.
+
+![Relay nodes](docs/images/relay.png)
+
+Relays are different from typed Set/Get nodes:
+
+- typed Set/Get nodes store serialized widget values.
+- Relay nodes route an actual graph connection into the queued prompt.
+- one Relay carries one output value.
+
+For checkpoint switching, use three relay keys:
+
+- checkpoint `MODEL` output -> `Set Relay` key `base_model`
+- checkpoint `CLIP` output -> `Set Relay` key `base_clip`
+- checkpoint `VAE` output -> `Set Relay` key `base_vae`
+
+Then use matching `Get Relay` nodes wherever those values are needed.
+
+For LoRA switching, place the LoRA loader inside a configured group, then connect its `MODEL` output into `Set Relay` key `pLora`. A downstream `Get Relay` key `pLora` can feed another LoRA loader or a sampler model input. The LoRA loader's checkpoint, epoch, strength, and other settings are preserved because the relay routes the loader's output object.
+
+Relay routing uses the same scope rules as typed values. The selected source is patched into the queued prompt only; visible canvas links are not changed.
+
 ### Group Configurator
 
 `Group Configurator` defines one named profile, such as `Speed`, `Quality`, or `Realism`.
 
-![Group Configurator nodes](docs/images/group-configurator.png)
+![Group Configurator nodes](docs/images/Group%20Configurator.png)
 
 It shows:
 
@@ -88,11 +115,12 @@ Mode meanings:
 
 `Config Selector` lists all `Group Configurator` names as toggles. Turning one on turns the others off and applies that config immediately.
 
-![Config Selector node](docs/images/config-selector.png)
+![Config Selector node](docs/images/config%20selector.png)
 
 It shows:
 
 - `Refresh configs`: rescan configurator nodes after adding, deleting, or renaming them.
+- `console_output`: choose `yes` to log queue-time Set/Get and Relay resolution details in the browser console.
 - one toggle per config name.
 
 ## Lookup Rules
@@ -117,6 +145,8 @@ ComfyUI canvas state and serialized workflow metadata can briefly disagree after
 5. If the frontend fields are missing, the backend falls back to workflow metadata lookup.
 
 This is why you can run `Speed`, switch to `Quality`, then queue again without refreshing the browser.
+
+Set `console_output` to `yes` on `Config Selector` when debugging large workflows. Queue-time logs include the Get key, selected Set node id, group/global scope, resolved value for typed Get nodes, and selected Relay source node id for Relay nodes.
 
 ## Example Scenarios
 

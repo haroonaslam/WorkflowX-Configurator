@@ -15,6 +15,9 @@ from nodes import (
     GetString,
     GetText,
     NODE_CLASS_MAPPINGS,
+    ConfigSelector,
+    GetRelay,
+    SetRelay,
 )
 
 
@@ -54,13 +57,42 @@ def resolved_digest(type_name, key, config, value):
 
 
 def test_all_nodes_registered():
-    assert len(NODE_CLASS_MAPPINGS) == 16
+    assert len(NODE_CLASS_MAPPINGS) == 18
     assert "KVGC_SetSampler" in NODE_CLASS_MAPPINGS
     assert "KVGC_GetSampler" in NODE_CLASS_MAPPINGS
     assert "KVGC_SetScheduler" in NODE_CLASS_MAPPINGS
     assert "KVGC_GetScheduler" in NODE_CLASS_MAPPINGS
+    assert "KVGC_SetRelay" in NODE_CLASS_MAPPINGS
+    assert "KVGC_GetRelay" in NODE_CLASS_MAPPINGS
     assert "KVGC_GroupConfigurator" in NODE_CLASS_MAPPINGS
     assert "KVGC_ConfigSelector" in NODE_CLASS_MAPPINGS
+
+
+def test_relay_nodes_pass_through_materialized_values():
+    payload = {"kind": "MODEL"}
+    assert SetRelay().set_value("model", payload) == (payload,)
+    assert GetRelay().get_value("model", payload) == (payload,)
+
+
+def test_config_selector_accepts_console_output_choice():
+    assert ConfigSelector().select("Speed") == ()
+    assert ConfigSelector().select("Speed", "yes") == ()
+
+    try:
+        ConfigSelector().select("Speed", "maybe")
+    except ValueError as exc:
+        assert "console_output must be 'no' or 'yes'" in str(exc)
+    else:
+        raise AssertionError("Expected invalid console_output to raise ValueError")
+
+
+def test_get_relay_requires_materialized_or_connected_value():
+    try:
+        GetRelay().get_value("missing")
+    except ValueError as exc:
+        assert "No Relay value found for key 'missing'" in str(exc)
+    else:
+        raise AssertionError("Expected missing relay value to raise ValueError")
 
 
 def test_typed_workflow_lookups():

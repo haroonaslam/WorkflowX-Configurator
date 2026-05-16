@@ -1,7 +1,9 @@
 # README Image Assets
 
-- `workflow-overview.png`
-- `set-nodes.png`
-- `get-nodes.png`
-- `group-configurator.png`
-- `config-selector.png`
+- `Generated image 1.png` - README banner
+- `Screenshot 2026-05-17 001702.png` - full workflow overview
+- `set primitive.png` - primitive Set/Get example
+- `samper scheduler.png` - sampler and scheduler Set/Get example
+- `relay.png` - Set Relay / Get Relay example
+- `Group Configurator.png` - group profile UI
+- `config selector.png` - selector UI
