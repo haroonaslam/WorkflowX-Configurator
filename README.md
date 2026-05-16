@@ -2,7 +2,7 @@
 
 ![WorkflowX Configurator banner](docs/images/Generated%20image%201.png)
 
-WorkflowX Configurator turns sprawling ComfyUI graphs into selectable workflow profiles: reuse the same key names in different groups, switch one config, and the right value or relay source is picked at queue time. Instead of duplicating samplers, rewiring LoRA chains, or fighting nodes that can only store one global value, WorkflowX lets fast drafts, quality renders, model variants, and LoRA experiments live side by side while one selector decides which path is active.
+WorkflowX Configurator turns sprawling ComfyUI graphs into selectable workflow profiles: reuse the same key names in different groups, switch one config, and the right value or relay source is picked at queue time. Instead of duplicating samplers, rewiring LoRA chains, or fighting nodes that can only store one global value, WorkflowX lets fast drafts, quality renders, model variants, and LoRA experiments live side by side while one selector decides which path is active. It can be used for multiple scenarios where you want to have one workflow to easily switch values of any node by preconfigure once or to switch between different profiles instead of creating separate workflows.
 
 ![WorkflowX Configurator overview](docs/images/Screenshot%202026-05-17%20001702.png)
 
@@ -23,6 +23,7 @@ WorkflowX_Configurator
 
 ## Installation
 
+Simply git clone into ComfyUI `custom_nodes` directory OR
 Copy this folder into your ComfyUI `custom_nodes` directory:
 
 ```text
