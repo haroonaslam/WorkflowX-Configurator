@@ -1,6 +1,8 @@
 import { app } from "../../scripts/app.js";
+import { api } from "../../scripts/api.js";
 
 const EXTENSION_NAME = "key_config_tools.group_configurator";
+const DEBUG_LOG_ROUTE = "/workflowx_configurator/debug_log";
 
 const CONFIGURATOR_TYPE = "KVGC_GroupConfigurator";
 const SELECTOR_TYPE = "KVGC_ConfigSelector";
@@ -277,6 +279,13 @@ function formatDebugGroups(groupNames) {
 function logResolution(message) {
   if (consoleOutputEnabled()) {
     console.info(`[WorkflowX_Configurator] ${message}`);
+    api
+      .fetchApi(DEBUG_LOG_ROUTE, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message }),
+      })
+      .catch(() => {});
   }
 }
 
