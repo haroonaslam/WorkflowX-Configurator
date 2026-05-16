@@ -14,6 +14,7 @@ WorkflowX Configurator turns sprawling ComfyUI graphs into selectable workflow p
 - Lets one `Config Selector` choose exactly one configuration at a time.
 - Applies group modes immediately in the canvas.
 - Materializes Get values just before queueing, so repeated config switches do not require a browser refresh.
+- One variable name removes any if/else logic routing. Simply the active path feeds the variable.
 
 The package appears in ComfyUI's add-node menu under:
 
