@@ -1,0 +1,19 @@
+[project]
+name = "workflowx-configurator"
+version = "1.0.0"
+description = "Workflow-local configuration profiles, typed Set/Get nodes, relay routing, and group-based mode switching for ComfyUI."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+classifiers = [
+  "Operating System :: OS Independent",
+]
+
+[project.urls]
+Repository = "https://github.com/haroonaslam/WorkflowX-Configurator"
+Documentation = "https://github.com/haroonaslam/WorkflowX-Configurator#readme"
+"Bug Tracker" = "https://github.com/haroonaslam/WorkflowX-Configurator/issues"
+
+[tool.comfy]
+PublisherId = "haxzero"
+DisplayName = "WorkflowX Configurator"
