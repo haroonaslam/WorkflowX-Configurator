@@ -521,6 +521,14 @@ function updateComboValues(widget, values) {
   }
 }
 
+function recomputeNodeHeightPreservingWidth(node) {
+  const computed = node.computeSize?.() ?? node.size;
+  if (!computed) return;
+
+  const current = node.size ?? computed;
+  node.setSize?.([Math.max(current[0], computed[0]), computed[1]]);
+}
+
 function refreshSelectorNode(node) {
   hideSelectorBackingWidgets(node);
   ensureRefreshButton(node, "refresh_configs");
@@ -630,7 +638,7 @@ function syncSelectorToggles(node) {
   }
 
   if ((node.widgets?.length ?? 0) !== beforeCount) {
-    node.setSize?.(node.computeSize?.() ?? node.size);
+    recomputeNodeHeightPreservingWidth(node);
     markCanvasDirty();
   }
 }
@@ -695,7 +703,7 @@ function syncConfiguratorRows(node) {
   }
 
   if ((node.widgets?.length ?? 0) !== beforeCount) {
-    node.setSize?.(node.computeSize?.() ?? node.size);
+    recomputeNodeHeightPreservingWidth(node);
     markCanvasDirty();
   }
 }
