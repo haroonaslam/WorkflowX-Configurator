@@ -24,8 +24,9 @@ WorkflowX_Configurator
 
 ## Installation
 
-Simply git clone into ComfyUI `custom_nodes` directory OR
-Copy this folder into your ComfyUI `custom_nodes` directory:
+WorkflowX Configurator is available through ComfyUI Manager. Open Manager, search for `WorkflowX Configurator`, install it, then restart ComfyUI.
+
+You can also install it manually by cloning this repository into your ComfyUI `custom_nodes` directory, or by copying this folder there:
 
 ```text
 ComfyUI/
