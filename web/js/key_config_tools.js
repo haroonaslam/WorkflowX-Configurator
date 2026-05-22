@@ -299,6 +299,18 @@ function applyConfig(configName) {
   return true;
 }
 
+function applySelectedConfigAndAdvancedOverrides() {
+  const selector = selectedSelectorNode();
+  const selectedConfig = selectedConfigName(selector);
+  if (!selectedConfig) return false;
+
+  const applied = applyConfig(selectedConfig);
+  if (isAdvancedSelector(selector)) {
+    applyAdvancedSelectorState(selector);
+  }
+  return applied;
+}
+
 function stableStringify(value) {
   if (value === null || typeof value !== "object") {
     return JSON.stringify(value);
@@ -465,6 +477,8 @@ function resolveGetNodeValue(getNode) {
 }
 
 function materializeGetValuesBeforeQueue() {
+  applySelectedConfigAndAdvancedOverrides();
+
   for (const getNode of allNodes().filter(isGetNode)) {
     const resolved = resolveGetNodeValue(getNode);
     if (!resolved) {
@@ -578,10 +592,7 @@ function installGraphToPromptPatch() {
   app.graphToPrompt = async function (...args) {
     const shouldMaterializeRelays = app.__workflowXRelayQueueing === true;
     if (shouldMaterializeRelays) {
-      const selectedConfig = selectedConfigFromSelectors();
-      if (selectedConfig) {
-        applyConfig(selectedConfig);
-      }
+      applySelectedConfigAndAdvancedOverrides();
     }
 
     try {
@@ -638,6 +649,23 @@ function addTextRow(node, name, label, markerName) {
   return widget;
 }
 
+function roundedRectPath(ctx, x, y, width, height, radius) {
+  if (typeof ctx.roundRect === "function") {
+    ctx.roundRect(x, y, width, height, radius);
+    return;
+  }
+
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + width - radius, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+  ctx.lineTo(x + width, y + height - radius);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+  ctx.lineTo(x + radius, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+}
+
 function refreshSelectorNode(node) {
   hideSelectorBackingWidgets(node);
   ensureRefreshButton(node, "refresh_configs");
@@ -691,10 +719,7 @@ function selectConfig(node, configName, apply = true) {
   markCanvasDirty();
 
   if (apply) {
-    applyConfig(configName);
-    if (isAdvancedSelector(node)) {
-      applyAdvancedSelectorState(node);
-    }
+    applySelectedConfigAndAdvancedOverrides();
   }
 
   return true;
@@ -795,24 +820,72 @@ function applyAdvancedSelectorState(node) {
   }
 }
 
+function writeAdvancedToggleState(node, sectionName, groupName, value, targetMode) {
+  const state = readAdvancedState(node);
+  state[sectionName] ??= {};
+  state[sectionName][groupName] = value === true;
+  writeAdvancedState(node, state);
+  applyModeToGroup(groupName, value === true ? "Active" : targetMode);
+  markCanvasDirty();
+}
+
 function addAdvancedToggle(node, sectionName, groupName, targetMode, value) {
   const widgetName = `advanced:${sectionName}:${groupName}`;
-  const widget = node.addWidget(
-    "toggle",
-    widgetName,
+  const widget = {
+    name: widgetName,
+    type: "workflowx_switch",
+    label: groupName,
     value,
-    (nextValue) => {
-      const state = readAdvancedState(node);
-      state[sectionName] ??= {};
-      state[sectionName][groupName] = nextValue === true;
-      writeAdvancedState(node, state);
-      applyModeToGroup(groupName, nextValue === true ? "Active" : targetMode);
-      markCanvasDirty();
+    serialize: false,
+    computeSize: () => [node.size?.[0] ?? 240, 30],
+    callback(nextValue) {
+      this.value = nextValue === true;
+      writeAdvancedToggleState(node, sectionName, groupName, this.value, targetMode);
     },
-  );
-  widget.label = groupName;
+    mouse(event, _pos, _node) {
+      if (event.type !== "pointerdown" && event.type !== "mousedown") return false;
+      this.callback?.(!this.value);
+      return true;
+    },
+    draw(ctx, _node, width, y, height) {
+      const enabled = this.value === true;
+      const switchWidth = 54;
+      const switchHeight = 22;
+      const switchX = Math.max(width - switchWidth - 12, 120);
+      const switchY = y + (height - switchHeight) * 0.5;
+      const radius = switchHeight * 0.5;
+      const knobRadius = 8;
+      const knobX = enabled
+        ? switchX + switchWidth - radius
+        : switchX + radius;
+
+      ctx.save();
+      ctx.font = "12px sans-serif";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = "#d1d5db";
+      ctx.fillText(this.label, 15, y + height * 0.5);
+
+      ctx.beginPath();
+      roundedRectPath(ctx, switchX, switchY, switchWidth, switchHeight, radius);
+      ctx.fillStyle = enabled ? "#22c55e" : "#6b7280";
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(knobX, switchY + radius, knobRadius, 0, Math.PI * 2);
+      ctx.fillStyle = "#ffffff";
+      ctx.fill();
+
+      ctx.font = "bold 9px sans-serif";
+      ctx.fillStyle = "#ffffff";
+      ctx.textAlign = "center";
+      ctx.fillText(enabled ? "ON" : "OFF", switchX + switchWidth * 0.5, switchY + radius);
+      ctx.restore();
+    },
+  };
   widget.serialize = false;
   widget.__workflowXAdvancedWidget = true;
+  node.widgets ??= [];
+  node.widgets.push(widget);
 }
 
 function syncAdvancedSelectorRows(node) {
