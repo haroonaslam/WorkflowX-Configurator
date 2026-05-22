@@ -9,7 +9,9 @@ logger = logging.getLogger(__name__)
 
 
 CATEGORY = "WorkflowX_Configurator"
-MODE_OPTIONS = ("Active", "Bypass", "Mute")
+MODE_OPTIONS = ("Active", "Bypass", "Mute", "Ignore")
+SCOPE_OPTIONS = ("Group Configurator", "Selector Mute", "Selector Bypass", "Ignore")
+SELECTOR_TYPES = {"KVGC_ConfigSelector", "KVGC_ConfigSelectorAdvanced"}
 INACTIVE_WORKFLOW_MODES = {2, 4}
 
 try:
@@ -205,7 +207,7 @@ class _TypedKeyValueBase:
     def _selected_config_name(cls, nodes: list[dict[str, Any]]) -> str:
         selectors: list[tuple[int, str]] = []
         for node in nodes:
-            if node.get("type") != "KVGC_ConfigSelector":
+            if node.get("type") not in SELECTOR_TYPES:
                 continue
 
             widgets_values = cls._widget_values(node)
@@ -294,7 +296,9 @@ class _TypedKeyValueBase:
                 continue
 
             if cls._rects_intersect(node_rect, group_rect):
-                modes.append(context.config_modes[title])
+                mode = context.config_modes[title]
+                if mode != "Ignore":
+                    modes.append(mode)
 
         return modes
 
@@ -837,6 +841,109 @@ class ConfigSelector:
         return ()
 
 
+class ConfigSelectorAdvanced:
+    CATEGORY = CATEGORY
+    FUNCTION = "select"
+    RETURN_TYPES = ()
+
+    @classmethod
+    def INPUT_TYPES(cls) -> dict[str, dict[str, Any]]:
+        return {
+            "required": {
+                "selected_config": ("STRING", {"default": "", "placeholder": "config name"}),
+                "console_output": (["no", "yes"], {"default": "no"}),
+            },
+            "optional": {
+                "advanced_state": (
+                    "STRING",
+                    {
+                        "default": "{}",
+                        "tooltip": "Managed by the frontend extension. Stores advanced selector mute and bypass switch states.",
+                    },
+                )
+            },
+        }
+
+    def select(
+        self,
+        selected_config: str,
+        console_output: str = "no",
+        advanced_state: str = "{}",
+    ) -> tuple[()]:
+        if str(console_output) not in {"no", "yes"}:
+            raise ValueError("Config Selector Advanced console_output must be 'no' or 'yes'.")
+
+        try:
+            parsed = json.loads(advanced_state or "{}")
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Config Selector Advanced advanced_state is invalid JSON: {exc}") from exc
+
+        if not isinstance(parsed, dict):
+            raise ValueError("Config Selector Advanced advanced_state must be a JSON object.")
+
+        for section_name, section in parsed.items():
+            if section_name not in {"mute", "bypass"}:
+                raise ValueError(
+                    "Config Selector Advanced advanced_state contains invalid section: "
+                    + str(section_name)
+                )
+            if not isinstance(section, dict):
+                raise ValueError(
+                    "Config Selector Advanced advanced_state sections must be JSON objects."
+                )
+            invalid_values = {
+                group_name: value
+                for group_name, value in section.items()
+                if not isinstance(group_name, str) or not isinstance(value, bool)
+            }
+            if invalid_values:
+                raise ValueError(
+                    "Config Selector Advanced advanced_state values must be booleans keyed by group name."
+                )
+
+        return ()
+
+
+class GroupScopes:
+    CATEGORY = CATEGORY
+    FUNCTION = "configure"
+    RETURN_TYPES = ()
+
+    @classmethod
+    def INPUT_TYPES(cls) -> dict[str, dict[str, Any]]:
+        return {
+            "optional": {
+                "scopes_json": (
+                    "STRING",
+                    {
+                        "default": "{}",
+                        "tooltip": "Managed by the frontend extension. Maps group names to selector/configurator scope.",
+                    },
+                )
+            },
+        }
+
+    def configure(self, scopes_json: str = "{}") -> tuple[()]:
+        try:
+            parsed = json.loads(scopes_json or "{}")
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Group Scopes scopes_json is invalid JSON: {exc}") from exc
+
+        if not isinstance(parsed, dict):
+            raise ValueError("Group Scopes scopes_json must be a JSON object.")
+
+        invalid_scopes = {
+            scope for scope in parsed.values() if scope not in SCOPE_OPTIONS
+        }
+        if invalid_scopes:
+            raise ValueError(
+                "Group Scopes scopes_json contains invalid scope(s): "
+                + ", ".join(sorted(map(str, invalid_scopes)))
+            )
+
+        return ()
+
+
 NODE_CLASS_MAPPINGS = {
     "KVGC_SetInt": SetInt,
     "KVGC_GetInt": GetInt,
@@ -856,6 +963,8 @@ NODE_CLASS_MAPPINGS = {
     "KVGC_GetRelay": GetRelay,
     "KVGC_GroupConfigurator": GroupConfigurator,
     "KVGC_ConfigSelector": ConfigSelector,
+    "KVGC_ConfigSelectorAdvanced": ConfigSelectorAdvanced,
+    "KVGC_GroupScopes": GroupScopes,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -877,4 +986,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "KVGC_GetRelay": "Get Relay",
     "KVGC_GroupConfigurator": "Group Configurator",
     "KVGC_ConfigSelector": "Config Selector",
+    "KVGC_ConfigSelectorAdvanced": "Config Selector Advanced",
+    "KVGC_GroupScopes": "Group Scopes",
 }

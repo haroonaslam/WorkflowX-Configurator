@@ -14,8 +14,11 @@ from nodes import (
     GetScheduler,
     GetString,
     GetText,
+    GroupConfigurator,
+    GroupScopes,
     NODE_CLASS_MAPPINGS,
     ConfigSelector,
+    ConfigSelectorAdvanced,
     GetRelay,
     SetRelay,
 )
@@ -38,6 +41,17 @@ def selector_node(node_id, selected_config):
     return {"id": node_id, "type": "KVGC_ConfigSelector", "widgets_values": [selected_config]}
 
 
+def advanced_selector_node(node_id, selected_config, advanced_state=None):
+    widgets_values = [selected_config, "no"]
+    if advanced_state is not None:
+        widgets_values.append(json.dumps(advanced_state))
+    return {
+        "id": node_id,
+        "type": "KVGC_ConfigSelectorAdvanced",
+        "widgets_values": widgets_values,
+    }
+
+
 def configurator_node(node_id, config_name, config_modes):
     return {
         "id": node_id,
@@ -57,7 +71,7 @@ def resolved_digest(type_name, key, config, value):
 
 
 def test_all_nodes_registered():
-    assert len(NODE_CLASS_MAPPINGS) == 18
+    assert len(NODE_CLASS_MAPPINGS) == 20
     assert "KVGC_SetSampler" in NODE_CLASS_MAPPINGS
     assert "KVGC_GetSampler" in NODE_CLASS_MAPPINGS
     assert "KVGC_SetScheduler" in NODE_CLASS_MAPPINGS
@@ -66,6 +80,8 @@ def test_all_nodes_registered():
     assert "KVGC_GetRelay" in NODE_CLASS_MAPPINGS
     assert "KVGC_GroupConfigurator" in NODE_CLASS_MAPPINGS
     assert "KVGC_ConfigSelector" in NODE_CLASS_MAPPINGS
+    assert "KVGC_ConfigSelectorAdvanced" in NODE_CLASS_MAPPINGS
+    assert "KVGC_GroupScopes" in NODE_CLASS_MAPPINGS
 
 
 def test_relay_nodes_pass_through_materialized_values():
@@ -84,6 +100,55 @@ def test_config_selector_accepts_console_output_choice():
         assert "console_output must be 'no' or 'yes'" in str(exc)
     else:
         raise AssertionError("Expected invalid console_output to raise ValueError")
+
+
+def test_group_configurator_accepts_ignore_mode():
+    assert GroupConfigurator().configure(
+        "Speed",
+        json.dumps({"Utility": "Ignore", "Draft": "Active"}),
+    ) == ()
+
+
+def test_group_configurator_rejects_invalid_modes():
+    try:
+        GroupConfigurator().configure("Speed", json.dumps({"Utility": "Disable"}))
+    except ValueError as exc:
+        assert "invalid mode" in str(exc)
+    else:
+        raise AssertionError("Expected invalid mode to raise ValueError")
+
+
+def test_config_selector_advanced_accepts_persisted_state():
+    state = {"mute": {"Draft": False}, "bypass": {"Utility": True}}
+    assert ConfigSelectorAdvanced().select("Speed", "yes", json.dumps(state)) == ()
+
+
+def test_config_selector_advanced_rejects_invalid_state():
+    try:
+        ConfigSelectorAdvanced().select("Speed", "no", json.dumps({"mute": {"Draft": "off"}}))
+    except ValueError as exc:
+        assert "values must be booleans" in str(exc)
+    else:
+        raise AssertionError("Expected invalid advanced_state to raise ValueError")
+
+
+def test_group_scopes_accepts_valid_scope_json():
+    assert GroupScopes().configure(
+        json.dumps({
+            "Draft": "Group Configurator",
+            "Utility": "Selector Bypass",
+            "Notes": "Ignore",
+        })
+    ) == ()
+
+
+def test_group_scopes_rejects_invalid_scope_names():
+    try:
+        GroupScopes().configure(json.dumps({"Draft": "Hidden"}))
+    except ValueError as exc:
+        assert "invalid scope" in str(exc)
+    else:
+        raise AssertionError("Expected invalid scope to raise ValueError")
 
 
 def test_get_relay_requires_materialized_or_connected_value():
@@ -192,6 +257,20 @@ def test_switching_selected_config_changes_lookup_value():
     assert GetFloat().get_value("CFG", extra_pnginfo=real) == (2.5,)
 
 
+def test_advanced_selector_participates_in_selected_config_lookup():
+    data = workflow(
+        advanced_selector_node(100, "Realism"),
+        configurator_node(101, "Realism", {"FasterConfig": "Mute", "RealConfig": "Active"}),
+        set_node(10, "KVGC_SetInt", "Steps", 4, pos=[20, 20], size=[100, 60]),
+        set_node(20, "KVGC_SetInt", "Steps", 20, pos=[20, 220], size=[100, 60]),
+        groups=[
+            group("FasterConfig", [0, 0, 300, 140]),
+            group("RealConfig", [0, 200, 300, 140]),
+        ],
+    )
+    assert GetInt().get_value("Steps", extra_pnginfo=data) == (20,)
+
+
 def test_selected_config_ignores_stale_workflow_modes():
     data = workflow(
         selector_node(100, "Realism"),
@@ -204,6 +283,20 @@ def test_selected_config_ignores_stale_workflow_modes():
         ],
     )
     assert GetInt().get_value("Steps", extra_pnginfo=data) == (20,)
+
+
+def test_ignore_mode_treats_group_as_global_for_lookup():
+    data = workflow(
+        selector_node(100, "Realism"),
+        configurator_node(101, "Realism", {"IgnoredConfig": "Ignore", "RealConfig": "Active"}),
+        set_node(10, "KVGC_SetInt", "Steps", 4, pos=[20, 20], size=[100, 60]),
+        set_node(20, "KVGC_SetInt", "Steps", 20, pos=[20, 220], size=[100, 60]),
+        groups=[
+            group("IgnoredConfig", [0, 0, 300, 140]),
+            group("RealConfig", [0, 200, 300, 140]),
+        ],
+    )
+    assert GetInt().get_value("Steps", extra_pnginfo=data) == (4,)
 
 
 def test_global_set_node_wins_over_active_group_set_node():

@@ -6,6 +6,8 @@ const DEBUG_LOG_ROUTE = "/workflowx_configurator/debug_log";
 
 const CONFIGURATOR_TYPE = "KVGC_GroupConfigurator";
 const SELECTOR_TYPE = "KVGC_ConfigSelector";
+const ADVANCED_SELECTOR_TYPE = "KVGC_ConfigSelectorAdvanced";
+const GROUP_SCOPES_TYPE = "KVGC_GroupScopes";
 const SET_RELAY_TYPE = "KVGC_SetRelay";
 const GET_RELAY_TYPE = "KVGC_GetRelay";
 const GET_TYPES = Object.freeze({
@@ -33,7 +35,11 @@ const MODES = Object.freeze({
   Bypass: 4,
 });
 
-const MODE_NAMES = Object.freeze(Object.keys(MODES));
+const MODE_NAMES = Object.freeze(["Active", "Bypass", "Mute", "Ignore"]);
+const SCOPE_NAMES = Object.freeze(["Group Configurator", "Selector Mute", "Selector Bypass", "Ignore"]);
+const CONFIGURATOR_SCOPE = "Group Configurator";
+const SELECTOR_MUTE_SCOPE = "Selector Mute";
+const SELECTOR_BYPASS_SCOPE = "Selector Bypass";
 
 function getGraph() {
   return app.graph;
@@ -111,7 +117,15 @@ function isConfigurator(node) {
 }
 
 function isSelector(node) {
-  return nodeType(node) === SELECTOR_TYPE;
+  return nodeType(node) === SELECTOR_TYPE || nodeType(node) === ADVANCED_SELECTOR_TYPE;
+}
+
+function isAdvancedSelector(node) {
+  return nodeType(node) === ADVANCED_SELECTOR_TYPE;
+}
+
+function isGroupScopes(node) {
+  return nodeType(node) === GROUP_SCOPES_TYPE;
 }
 
 function isSetRelay(node) {
@@ -124,6 +138,65 @@ function isGetRelay(node) {
 
 function isGetNode(node) {
   return Object.hasOwn(GET_TYPES, nodeType(node));
+}
+
+function groupScopesNodes() {
+  return allNodes().filter(isGroupScopes);
+}
+
+function hasDuplicateGroupScopes() {
+  return groupScopesNodes().length > 1;
+}
+
+function workflowScopes() {
+  const nodes = groupScopesNodes();
+  if (nodes.length !== 1) {
+    if (nodes.length > 1 && !app.__workflowXDuplicateScopesWarningShown) {
+      console.warn(
+        "[WorkflowX_Configurator] Multiple Group Scopes nodes found; scope filtering is disabled until only one remains.",
+      );
+      app.__workflowXDuplicateScopesWarningShown = true;
+    }
+    return null;
+  }
+
+  app.__workflowXDuplicateScopesWarningShown = false;
+  const rawScopes = readScopeChoices(nodes[0]);
+  return Object.fromEntries(
+    Object.entries(rawScopes).filter(([, scope]) => SCOPE_NAMES.includes(scope)),
+  );
+}
+
+function groupsForScope(scopeName) {
+  const groups = uniqueGroupTitles();
+  const scopes = workflowScopes();
+  if (!scopes) {
+    return scopeName === CONFIGURATOR_SCOPE ? groups : [];
+  }
+  return groups.filter((groupName) => scopes[groupName] === scopeName);
+}
+
+function readJsonWidget(node, name) {
+  const raw = String(getWidgetValue(node, name, "{}") || "{}");
+  try {
+    const parsed = JSON.parse(raw);
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+      ? parsed
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeJsonWidget(node, name, value) {
+  const widget = findWidget(node, name);
+  if (widget) {
+    widget.__workflowXInternalWrite = true;
+  }
+  setWidgetValue(node, name, JSON.stringify(value));
+  if (widget) {
+    widget.__workflowXInternalWrite = false;
+  }
 }
 
 function configsByName() {
@@ -140,26 +213,37 @@ function configsByName() {
 }
 
 function readConfigModes(node) {
-  const raw = String(getWidgetValue(node, "config_json", "{}") || "{}");
-  try {
-    const parsed = JSON.parse(raw);
-    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
-      ? parsed
-      : {};
-  } catch {
-    return {};
-  }
+  return readJsonWidget(node, "config_json");
 }
 
 function writeConfigModes(node, modes) {
-  const widget = findWidget(node, "config_json");
-  if (widget) {
-    widget.__workflowXInternalWrite = true;
-  }
-  setWidgetValue(node, "config_json", JSON.stringify(modes));
-  if (widget) {
-    widget.__workflowXInternalWrite = false;
-  }
+  writeJsonWidget(node, "config_json", modes);
+}
+
+function readAdvancedState(node) {
+  const parsed = readJsonWidget(node, "advanced_state");
+  return {
+    mute:
+      typeof parsed.mute === "object" && parsed.mute !== null && !Array.isArray(parsed.mute)
+        ? parsed.mute
+        : {},
+    bypass:
+      typeof parsed.bypass === "object" && parsed.bypass !== null && !Array.isArray(parsed.bypass)
+        ? parsed.bypass
+        : {},
+  };
+}
+
+function writeAdvancedState(node, state) {
+  writeJsonWidget(node, "advanced_state", state);
+}
+
+function readScopeChoices(node) {
+  return readJsonWidget(node, "scopes_json");
+}
+
+function writeScopeChoices(node, scopes) {
+  writeJsonWidget(node, "scopes_json", scopes);
 }
 
 function nodeBounds(node) {
@@ -179,12 +263,12 @@ function intersects(a, b) {
 }
 
 function nodeInsideGroup(node, group) {
-  if (isConfigurator(node) || isSelector(node)) return false;
+  if (isConfigurator(node) || isSelector(node) || isGroupScopes(node)) return false;
   return intersects(nodeBounds(node), groupBounds(group));
 }
 
 function applyModeToGroup(groupName, modeName) {
-  if (!MODE_NAMES.includes(modeName)) return 0;
+  if (!Object.hasOwn(MODES, modeName)) return 0;
 
   let changed = 0;
   const mode = MODES[modeName];
@@ -263,7 +347,7 @@ function groupNamesForNode(node, modes = null) {
 
   for (const group of allGroups()) {
     const title = groupTitle(group);
-    if (modes && !Object.hasOwn(modes, title)) continue;
+    if (modes && (!Object.hasOwn(modes, title) || modes[title] === "Ignore")) continue;
     if (intersects(nodeRect, groupBounds(group))) {
       names.push(title);
     }
@@ -298,7 +382,10 @@ function groupModeForNode(node, modes) {
     if (!Object.hasOwn(modes, title)) continue;
 
     if (intersects(nodeRect, groupBounds(group))) {
-      matchedModes.push(modes[title]);
+      const mode = modes[title];
+      if (mode !== "Ignore") {
+        matchedModes.push(mode);
+      }
     }
   }
 
@@ -529,10 +616,35 @@ function recomputeNodeHeightPreservingWidth(node) {
   node.setSize?.([Math.max(current[0], computed[0]), computed[1]]);
 }
 
+function addTextRow(node, name, label, markerName) {
+  node.widgets ??= [];
+  const widget = {
+    name,
+    type: "text",
+    value: label,
+    serialize: false,
+    computeSize: () => [node.size?.[0] ?? 220, 24],
+    draw(ctx, _node, _width, y, height) {
+      ctx.save();
+      ctx.fillStyle = name.includes("warning") ? "#f2a93b" : "#9ca3af";
+      ctx.font = "bold 12px sans-serif";
+      ctx.textBaseline = "middle";
+      ctx.fillText(label, 15, y + height * 0.5);
+      ctx.restore();
+    },
+  };
+  widget[markerName] = true;
+  node.widgets.push(widget);
+  return widget;
+}
+
 function refreshSelectorNode(node) {
   hideSelectorBackingWidgets(node);
   ensureRefreshButton(node, "refresh_configs");
   syncSelectorToggles(node);
+  if (isAdvancedSelector(node)) {
+    syncAdvancedSelectorRows(node);
+  }
 }
 
 function hideGetBackingWidgets(node) {
@@ -580,6 +692,9 @@ function selectConfig(node, configName, apply = true) {
 
   if (apply) {
     applyConfig(configName);
+    if (isAdvancedSelector(node)) {
+      applyAdvancedSelectorState(node);
+    }
   }
 
   return true;
@@ -643,11 +758,110 @@ function syncSelectorToggles(node) {
   }
 }
 
+function normalizeAdvancedSection(section, visibleGroups, canvasGroups) {
+  let changed = false;
+
+  for (const groupName of visibleGroups) {
+    if (typeof section[groupName] !== "boolean") {
+      section[groupName] = false;
+      changed = true;
+    }
+  }
+
+  for (const groupName of Object.keys(section)) {
+    if (!canvasGroups.includes(groupName)) {
+      delete section[groupName];
+      changed = true;
+    }
+  }
+
+  return changed;
+}
+
+function applyAdvancedSelectorState(node) {
+  const state = readAdvancedState(node);
+  let changed = 0;
+
+  for (const groupName of groupsForScope(SELECTOR_MUTE_SCOPE)) {
+    changed += applyModeToGroup(groupName, state.mute[groupName] === true ? "Active" : "Mute");
+  }
+
+  for (const groupName of groupsForScope(SELECTOR_BYPASS_SCOPE)) {
+    changed += applyModeToGroup(groupName, state.bypass[groupName] === true ? "Active" : "Bypass");
+  }
+
+  if (changed) {
+    markCanvasDirty();
+  }
+}
+
+function addAdvancedToggle(node, sectionName, groupName, targetMode, value) {
+  const widgetName = `advanced:${sectionName}:${groupName}`;
+  const widget = node.addWidget(
+    "toggle",
+    widgetName,
+    value,
+    (nextValue) => {
+      const state = readAdvancedState(node);
+      state[sectionName] ??= {};
+      state[sectionName][groupName] = nextValue === true;
+      writeAdvancedState(node, state);
+      applyModeToGroup(groupName, nextValue === true ? "Active" : targetMode);
+      markCanvasDirty();
+    },
+  );
+  widget.label = groupName;
+  widget.serialize = false;
+  widget.__workflowXAdvancedWidget = true;
+}
+
+function syncAdvancedSelectorRows(node) {
+  const canvasGroups = uniqueGroupTitles();
+  const muteGroups = groupsForScope(SELECTOR_MUTE_SCOPE);
+  const bypassGroups = groupsForScope(SELECTOR_BYPASS_SCOPE);
+  const state = readAdvancedState(node);
+  let changed = false;
+
+  state.mute ??= {};
+  state.bypass ??= {};
+  changed = normalizeAdvancedSection(state.mute, muteGroups, canvasGroups) || changed;
+  changed = normalizeAdvancedSection(state.bypass, bypassGroups, canvasGroups) || changed;
+
+  if (changed) {
+    writeAdvancedState(node, state);
+  }
+
+  const beforeCount = node.widgets?.length ?? 0;
+  node.widgets = (node.widgets ?? []).filter((widget) => !widget.__workflowXAdvancedWidget);
+
+  if (muteGroups.length) {
+    addTextRow(node, "section:advanced_mute", "Group Mute", "__workflowXAdvancedWidget");
+    for (const groupName of muteGroups) {
+      addAdvancedToggle(node, "mute", groupName, "Mute", state.mute[groupName] === true);
+    }
+  }
+
+  if (bypassGroups.length) {
+    addTextRow(node, "section:advanced_bypass", "Group Bypass", "__workflowXAdvancedWidget");
+    for (const groupName of bypassGroups) {
+      addAdvancedToggle(node, "bypass", groupName, "Bypass", state.bypass[groupName] === true);
+    }
+  }
+
+  if ((node.widgets?.length ?? 0) !== beforeCount) {
+    recomputeNodeHeightPreservingWidth(node);
+    markCanvasDirty();
+  }
+
+  applyAdvancedSelectorState(node);
+}
+
 function syncConfiguratorRows(node) {
   hideBackingConfigWidget(node);
   ensureRefreshButton(node, "refresh_groups");
 
-  const groups = uniqueGroupTitles();
+  const canvasGroups = uniqueGroupTitles();
+  const groups = groupsForScope(CONFIGURATOR_SCOPE);
   const modes = readConfigModes(node);
   let changed = false;
 
@@ -659,7 +873,7 @@ function syncConfiguratorRows(node) {
   }
 
   for (const existingName of Object.keys(modes)) {
-    if (!groups.includes(existingName)) {
+    if (!canvasGroups.includes(existingName)) {
       delete modes[existingName];
       changed = true;
     }
@@ -708,6 +922,72 @@ function syncConfiguratorRows(node) {
   }
 }
 
+function syncGroupScopesRows(node) {
+  hideGroupScopesBackingWidget(node);
+  ensureRefreshButton(node, "refresh_scopes");
+
+  const groups = uniqueGroupTitles();
+  const scopes = readScopeChoices(node);
+  let changed = false;
+
+  for (const groupName of groups) {
+    if (!SCOPE_NAMES.includes(scopes[groupName])) {
+      scopes[groupName] = CONFIGURATOR_SCOPE;
+      changed = true;
+    }
+  }
+
+  for (const existingName of Object.keys(scopes)) {
+    if (!groups.includes(existingName)) {
+      delete scopes[existingName];
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    writeScopeChoices(node, scopes);
+  }
+
+  const beforeCount = node.widgets?.length ?? 0;
+  node.widgets = (node.widgets ?? []).filter(
+    (widget) => !widget.__workflowXScopeWidget && !widget.__workflowXScopeWarning,
+  );
+
+  if (hasDuplicateGroupScopes()) {
+    addTextRow(
+      node,
+      "warning:duplicate_group_scopes",
+      "Duplicate Group Scopes nodes; scopes ignored",
+      "__workflowXScopeWarning",
+    );
+  }
+
+  for (const groupName of groups) {
+    const widgetName = `scope:${groupName}`;
+    const widget = node.addWidget(
+      "combo",
+      widgetName,
+      scopes[groupName] ?? CONFIGURATOR_SCOPE,
+      (value) => {
+        const updated = readScopeChoices(node);
+        updated[groupName] = value;
+        writeScopeChoices(node, updated);
+        refreshConfiguratorNodes();
+        refreshSelectorNodes();
+      },
+      { values: SCOPE_NAMES },
+    );
+    widget.label = groupName;
+    widget.serialize = false;
+    widget.__workflowXScopeWidget = true;
+  }
+
+  if ((node.widgets?.length ?? 0) !== beforeCount) {
+    recomputeNodeHeightPreservingWidth(node);
+    markCanvasDirty();
+  }
+}
+
 function hideBackingConfigWidget(node) {
   const configJson = findWidget(node, "config_json");
   if (!configJson || configJson.__workflowXHidden) return;
@@ -732,16 +1012,44 @@ function hideSelectorBackingWidgets(node) {
     selected.draw = () => {};
   }
 
+  const advancedState = findWidget(node, "advanced_state");
+  if (advancedState && !advancedState.__workflowXHidden) {
+    advancedState.__workflowXHidden = true;
+    advancedState.type = "hidden";
+    advancedState.options ??= {};
+    advancedState.options.serialize = true;
+    advancedState.computeSize = () => [0, 0];
+    advancedState.draw = () => {};
+  }
+
   const enabled = findWidget(node, "enabled");
   if (enabled) {
     node.widgets = (node.widgets ?? []).filter((widget) => widget !== enabled);
   }
 }
 
+function hideGroupScopesBackingWidget(node) {
+  const scopesJson = findWidget(node, "scopes_json");
+  if (!scopesJson || scopesJson.__workflowXHidden) return;
+
+  scopesJson.__workflowXHidden = true;
+  scopesJson.type = "hidden";
+  scopesJson.name = "scopes_json";
+  scopesJson.options ??= {};
+  scopesJson.options.serialize = true;
+  scopesJson.computeSize = () => [0, 0];
+  scopesJson.draw = () => {};
+}
+
 function ensureRefreshButton(node, name) {
   if (findWidget(node, name)) return;
 
-  const label = name === "refresh_groups" ? "Refresh groups" : "Refresh configs";
+  let label = "Refresh configs";
+  if (name === "refresh_groups") {
+    label = "Refresh groups";
+  } else if (name === "refresh_scopes") {
+    label = "Refresh scopes";
+  }
   const widget = node.addWidget("button", name, label, () => {
     refreshAll();
   });
@@ -754,7 +1062,14 @@ function refreshConfiguratorNodes() {
   }
 }
 
+function refreshGroupScopesNodes() {
+  for (const node of groupScopesNodes()) {
+    syncGroupScopesRows(node);
+  }
+}
+
 function refreshAll() {
+  refreshGroupScopesNodes();
   refreshConfiguratorNodes();
   refreshSelectorNodes();
   for (const node of allNodes().filter(isGetNode)) {
@@ -772,7 +1087,7 @@ app.registerExtension({
   async beforeRegisterNodeDef(nodeTypeDef, nodeData) {
     installGraphToPromptPatch();
 
-    if (nodeData.name === SELECTOR_TYPE) {
+    if (nodeData.name === SELECTOR_TYPE || nodeData.name === ADVANCED_SELECTOR_TYPE) {
       const originalOnNodeCreated = nodeTypeDef.prototype.onNodeCreated;
       nodeTypeDef.prototype.onNodeCreated = function () {
         originalOnNodeCreated?.apply(this, arguments);
@@ -833,6 +1148,16 @@ app.registerExtension({
         }
 
         syncConfiguratorRows(this);
+      };
+    }
+
+    if (nodeData.name === GROUP_SCOPES_TYPE) {
+      const originalOnNodeCreated = nodeTypeDef.prototype.onNodeCreated;
+      nodeTypeDef.prototype.onNodeCreated = function () {
+        originalOnNodeCreated?.apply(this, arguments);
+
+        hideGroupScopesBackingWidget(this);
+        syncGroupScopesRows(this);
       };
     }
   },

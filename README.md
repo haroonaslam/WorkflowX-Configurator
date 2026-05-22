@@ -39,6 +39,8 @@ ComfyUI/
 
 Restart ComfyUI, then hard refresh the browser.
 
+ComfyUI Manager installs published Registry releases. Git changes do not become Manager updates until the Registry version is bumped and published.
+
 ## Nodes
 
 ### Typed Set/Get Nodes
@@ -106,13 +108,14 @@ It shows:
 
 - `config_name`: the profile name.
 - `Refresh groups`: rescan ComfyUI group frames after adding, deleting, or renaming groups.
-- one dropdown per named group, with `Active`, `Bypass`, and `Mute`.
+- one dropdown per configured group, with `Active`, `Bypass`, `Mute`, and `Ignore`.
 
 Mode meanings:
 
 - `Active`: nodes in the group are normal and eligible for config-scoped Set/Get values.
 - `Bypass`: nodes in the group are bypassed in the canvas and ignored for config-scoped Set/Get values.
 - `Mute`: nodes in the group are muted in the canvas and ignored for config-scoped Set/Get values.
+- `Ignore`: WorkflowX leaves the canvas state unchanged and treats values in the group as unscoped/global for lookup.
 
 ### Config Selector
 
@@ -126,6 +129,26 @@ It shows:
 - `console_output`: choose `yes` to log queue-time Set/Get and Relay resolution details in the browser console.
 - one toggle per config name.
 
+### Config Selector Advanced
+
+`Config Selector Advanced` has the same config toggles as `Config Selector`, plus optional scoped group controls:
+
+- `Group Mute`: groups assigned to selector mute scope. Toggle off mutes the group, toggle on returns it to active.
+- `Group Bypass`: groups assigned to selector bypass scope. Toggle off bypasses the group, toggle on returns it to active.
+
+Advanced selector toggle states are saved with the workflow and applied when changed.
+
+### Group Scopes
+
+`Group Scopes` decides where each canvas group appears. It shows one dropdown per group:
+
+- `Group Configurator`: show the group in Group Configurator nodes.
+- `Selector Mute`: show the group in Config Selector Advanced's Group Mute section.
+- `Selector Bypass`: show the group in Config Selector Advanced's Group Bypass section.
+- `Ignore`: hide the group from both Group Configurator and Config Selector Advanced sections.
+
+If no Group Scopes node is configured, WorkflowX keeps the original fallback: all groups appear in Group Configurator and none appear in the advanced selector sections. If more than one Group Scopes node exists, scope filtering is disabled and the fallback behavior is used until duplicates are removed.
+
 ## Lookup Rules
 
 WorkflowX uses a global-first scope model.
@@ -133,7 +156,8 @@ WorkflowX uses a global-first scope model.
 1. If a matching `Set` node is outside configured groups, it is treated as global and wins.
 2. If no global Set exists, WorkflowX uses matching Set nodes inside groups marked `Active` by the selected config.
 3. Set nodes inside groups marked `Mute` or `Bypass` are ignored.
-4. If duplicates remain at the chosen priority, WorkflowX logs a warning and uses the Set node with the highest node id.
+4. Groups marked `Ignore` are treated as unscoped/global for lookup and do not force canvas mode changes.
+5. If duplicates remain at the chosen priority, WorkflowX logs a warning and uses the Set node with the highest node id.
 
 This means you can intentionally place a global `Set Int Steps` outside config groups to override every profile, or place separate `Set Int Steps` nodes inside groups to make each profile choose its own value.
 
@@ -141,7 +165,7 @@ This means you can intentionally place a global `Set Int Steps` outside config g
 
 ComfyUI canvas state and serialized workflow metadata can briefly disagree after switching configs. To avoid stale values, WorkflowX resolves every Get node immediately before queueing:
 
-1. The frontend reads the currently selected Config Selector toggle.
+1. The frontend reads the currently selected Config Selector or Config Selector Advanced toggle.
 2. It evaluates Set/Get candidates from the live graph.
 3. It writes the resolved value into hidden fields on each Get node.
 4. The backend validates those hidden fields and returns the materialized value.
