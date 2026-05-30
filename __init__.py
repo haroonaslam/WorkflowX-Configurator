@@ -1,10 +1,34 @@
-from .nodes import NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS
-
 import logging
+
+from .nodes import (
+    NODE_CLASS_MAPPINGS as WORKFLOWX_NODE_CLASS_MAPPINGS,
+    NODE_DISPLAY_NAME_MAPPINGS as WORKFLOWX_NODE_DISPLAY_NAME_MAPPINGS,
+)
+from .afj_awesome_flex_json_v2 import (
+    NODE_CLASS_MAPPINGS as AFJ_NODE_CLASS_MAPPINGS,
+    NODE_DISPLAY_NAME_MAPPINGS as AFJ_NODE_DISPLAY_NAME_MAPPINGS,
+    register_visual_builder_routes,
+)
+from .xflows_manager import (
+    NODE_CLASS_MAPPINGS as XFLOWS_NODE_CLASS_MAPPINGS,
+    NODE_DISPLAY_NAME_MAPPINGS as XFLOWS_NODE_DISPLAY_NAME_MAPPINGS,
+)
 
 WEB_DIRECTORY = "./web/js"
 DEBUG_LOG_ROUTE = "/workflowx_configurator/debug_log"
 logger = logging.getLogger("WorkflowX_Configurator")
+
+NODE_CLASS_MAPPINGS = {
+    **WORKFLOWX_NODE_CLASS_MAPPINGS,
+    **AFJ_NODE_CLASS_MAPPINGS,
+    **XFLOWS_NODE_CLASS_MAPPINGS,
+}
+
+NODE_DISPLAY_NAME_MAPPINGS = {
+    **WORKFLOWX_NODE_DISPLAY_NAME_MAPPINGS,
+    **AFJ_NODE_DISPLAY_NAME_MAPPINGS,
+    **XFLOWS_NODE_DISPLAY_NAME_MAPPINGS,
+}
 
 
 def _register_debug_log_route() -> None:
@@ -35,5 +59,26 @@ def _register_debug_log_route() -> None:
 
 
 _register_debug_log_route()
+
+
+def _register_afj_routes() -> None:
+    try:
+        from server import PromptServer
+    except Exception as exc:
+        logger.warning("[AFJ] Could not import PromptServer for routes: %s", exc)
+        return
+
+    prompt_server = getattr(PromptServer, "instance", None)
+    app = getattr(prompt_server, "app", None)
+    if app is None:
+        return
+
+    try:
+        register_visual_builder_routes(app)
+    except Exception as exc:
+        logger.warning("[AFJ] Could not register API routes: %s", exc)
+
+
+_register_afj_routes()
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]

@@ -22,6 +22,15 @@ The package appears in ComfyUI's add-node menu under:
 WorkflowX_Configurator
 ```
 
+## Bundled Tools
+
+This repository also packages:
+
+- `XFlows`, an advanced workflow manager sidebar.
+- `AFJ - Visual Builder`, `AFJ - Template Randomizer`, and `AFJ - Prompt Template Importer`.
+
+These tools keep their existing node names, frontend extension IDs, and backend route prefixes for compatibility.
+
 ## Installation
 
 WorkflowX Configurator is available through ComfyUI Manager. Open Manager, search for `WorkflowX Configurator`, install it, then restart ComfyUI.
@@ -34,7 +43,10 @@ ComfyUI/
     WorkflowX-Configurator/
       __init__.py
       nodes.py
+      xflows_manager.py
+      afj_awesome_flex_json_v2/
       web/js/key_config_tools.js
+      web/js/xflows.js
 ```
 
 Restart ComfyUI, then hard refresh the browser.

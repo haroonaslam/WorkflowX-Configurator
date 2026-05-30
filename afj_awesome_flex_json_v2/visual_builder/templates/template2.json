@@ -1,0 +1,508 @@
+{
+  "tree": {
+    "id": "group_1",
+    "node_type": "group",
+    "key": "prompt",
+    "label": "prompt",
+    "expanded": true,
+    "children": [
+      {
+        "id": "group_2",
+        "node_type": "group",
+        "key": "meta",
+        "label": "meta",
+        "expanded": true,
+        "children": [
+          {
+            "id": "field_3",
+            "node_type": "field",
+            "key": "quality",
+            "label": "quality",
+            "value": "ultra photorealistic",
+            "expanded": false,
+            "preset_path": "lighting.quality",
+            "origin_preset_path": "lighting.quality"
+          },
+          {
+            "id": "field_4",
+            "node_type": "field",
+            "key": "resolution",
+            "label": "resolution",
+            "value": "4k",
+            "expanded": false,
+            "preset_path": "quality.resolution",
+            "origin_preset_path": "quality.resolution"
+          },
+          {
+            "id": "field_5",
+            "node_type": "field",
+            "key": "camera",
+            "label": "camera",
+            "value": "iPhone 15 Pro Max",
+            "expanded": false
+          },
+          {
+            "id": "field_6",
+            "node_type": "field",
+            "key": "lens",
+            "label": "lens",
+            "value": "24mm wide",
+            "expanded": false
+          },
+          {
+            "id": "field_7",
+            "node_type": "field",
+            "key": "aspect_ratio",
+            "label": "aspect_ratio",
+            "value": "9:16",
+            "expanded": false,
+            "preset_path": "camera.aspect_ratio",
+            "origin_preset_path": "camera.aspect_ratio"
+          },
+          {
+            "id": "field_8",
+            "node_type": "field",
+            "key": "style",
+            "label": "style",
+            "value": "raw iphone selfie, direct flash, harsh highlights, deep shadows, subtle grain, nightlife realism",
+            "expanded": false
+          },
+          {
+            "id": "field_e27f7313-4635-4597-b45c-9b958cbc9672",
+            "node_type": "field",
+            "key": "DOF",
+            "label": "DOF",
+            "value": "shallow depth of field",
+            "expanded": false
+          }
+        ],
+        "origin_preset_path": "meta"
+      },
+      {
+        "id": "group_9",
+        "node_type": "group",
+        "key": "character_lock",
+        "label": "character_lock",
+        "expanded": false,
+        "children": [
+          {
+            "id": "field_10",
+            "node_type": "field",
+            "key": "age",
+            "label": "age",
+            "value": "mid 20s (clearly adult, 21+)",
+            "expanded": false,
+            "preset_path": "subject.identity.age",
+            "origin_preset_path": "subject.identity.age"
+          },
+          {
+            "id": "field_11",
+            "node_type": "field",
+            "key": "ethnicity",
+            "label": "ethnicity",
+            "value": "mixed mediterranean / latina",
+            "expanded": false,
+            "preset_path": "subject.identity.ethnicity",
+            "origin_preset_path": "subject.identity.ethnicity"
+          },
+          {
+            "id": "group_12",
+            "node_type": "group",
+            "key": "hair",
+            "label": "hair",
+            "expanded": false,
+            "children": [
+              {
+                "id": "field_13",
+                "node_type": "field",
+                "key": "color",
+                "label": "color",
+                "value": "dark brown",
+                "expanded": false
+              },
+              {
+                "id": "field_14",
+                "node_type": "field",
+                "key": "style",
+                "label": "style",
+                "value": "long wet waves",
+                "expanded": false
+              }
+            ],
+            "origin_preset_path": "character_lock.hair"
+          },
+          {
+            "id": "field_15",
+            "node_type": "field",
+            "key": "eyes",
+            "label": "eyes",
+            "value": "hazel",
+            "expanded": false,
+            "preset_path": "subject.properties.face.eyes",
+            "origin_preset_path": "subject.properties.face.eyes"
+          },
+          {
+            "id": "group_16",
+            "node_type": "group",
+            "key": "body",
+            "label": "body",
+            "expanded": false,
+            "children": [
+              {
+                "id": "field_17",
+                "node_type": "field",
+                "key": "type",
+                "label": "type",
+                "value": "curvy hourglass",
+                "expanded": false
+              },
+              {
+                "id": "field_18",
+                "node_type": "field",
+                "key": "chest",
+                "label": "chest",
+                "value": "full natural",
+                "expanded": false
+              },
+              {
+                "id": "field_19",
+                "node_type": "field",
+                "key": "waist",
+                "label": "waist",
+                "value": "tight",
+                "expanded": false,
+                "preset_path": "subject.properties.body.waist",
+                "origin_preset_path": "subject.properties.body.waist"
+              },
+              {
+                "id": "field_20",
+                "node_type": "field",
+                "key": "hips",
+                "label": "hips",
+                "value": "round",
+                "expanded": false,
+                "preset_path": "subject.properties.body.hips",
+                "origin_preset_path": "subject.properties.body.hips"
+              }
+            ],
+            "origin_preset_path": "character_lock.body"
+          },
+          {
+            "id": "group_21",
+            "node_type": "group",
+            "key": "skin",
+            "label": "skin",
+            "expanded": false,
+            "children": [
+              {
+                "id": "field_22",
+                "node_type": "field",
+                "key": "tone",
+                "label": "tone",
+                "value": "warm tan",
+                "expanded": false,
+                "preset_path": "subject.properties.skin.tone",
+                "origin_preset_path": "subject.properties.skin.tone"
+              },
+              {
+                "id": "field_23",
+                "node_type": "field",
+                "key": "texture",
+                "label": "texture",
+                "value": "real pores, flash shine",
+                "expanded": false,
+                "preset_path": "subject.properties.skin.texture",
+                "origin_preset_path": "subject.properties.skin.texture"
+              }
+            ],
+            "origin_preset_path": "character_lock.skin"
+          }
+        ],
+        "origin_preset_path": "character_lock"
+      },
+      {
+        "id": "group_24",
+        "node_type": "group",
+        "key": "scene",
+        "label": "scene",
+        "expanded": false,
+        "children": [
+          {
+            "id": "field_25",
+            "node_type": "field",
+            "key": "location",
+            "label": "location",
+            "value": "dark hotel balcony",
+            "expanded": false
+          },
+          {
+            "id": "field_26",
+            "node_type": "field",
+            "key": "time",
+            "label": "time",
+            "value": "night",
+            "expanded": false
+          },
+          {
+            "id": "field_27",
+            "node_type": "field",
+            "key": "atmosphere",
+            "label": "atmosphere",
+            "value": "city lights blurred below, private risky mood",
+            "expanded": false
+          }
+        ],
+        "origin_preset_path": "scene"
+      },
+      {
+        "id": "group_28",
+        "node_type": "group",
+        "key": "subject",
+        "label": "subject",
+        "expanded": false,
+        "children": [
+          {
+            "id": "field_29",
+            "node_type": "field",
+            "key": "action",
+            "label": "action",
+            "value": "selfie with flash",
+            "expanded": false,
+            "preset_path": "subject.pose.action",
+            "origin_preset_path": "subject.pose.action"
+          },
+          {
+            "id": "group_30",
+            "node_type": "group",
+            "key": "pose",
+            "label": "pose",
+            "expanded": false,
+            "children": [
+              {
+                "id": "field_31",
+                "node_type": "field",
+                "key": "angle",
+                "label": "angle",
+                "value": "slightly above eye level",
+                "expanded": false,
+                "preset_path": "camera.angle",
+                "origin_preset_path": "camera.angle"
+              },
+              {
+                "id": "field_32",
+                "node_type": "field",
+                "key": "expression",
+                "label": "expression",
+                "value": "cold dominant stare, lips parted",
+                "expanded": false,
+                "preset_path": "subject.properties.expression",
+                "origin_preset_path": "subject.properties.expression"
+              }
+            ],
+            "origin_preset_path": "subject.pose"
+          },
+          {
+            "id": "group_33",
+            "node_type": "group",
+            "key": "outfit",
+            "label": "outfit",
+            "expanded": false,
+            "children": [
+              {
+                "id": "group_34",
+                "node_type": "group",
+                "key": "top",
+                "label": "top",
+                "expanded": false,
+                "children": [
+                  {
+                    "id": "field_35",
+                    "node_type": "field",
+                    "key": "type",
+                    "label": "type",
+                    "value": "minimal bikini top",
+                    "expanded": false
+                  },
+                  {
+                    "id": "field_36",
+                    "node_type": "field",
+                    "key": "color",
+                    "label": "color",
+                    "value": "black",
+                    "expanded": false
+                  },
+                  {
+                    "id": "field_37",
+                    "node_type": "field",
+                    "key": "fabric",
+                    "label": "fabric",
+                    "value": "opaque matte fabric with wet-look surface sheen",
+                    "expanded": false
+                  },
+                  {
+                    "id": "field_38",
+                    "node_type": "field",
+                    "key": "coverage",
+                    "label": "coverage",
+                    "value": "fully opaque, no nipple visibility",
+                    "expanded": false
+                  },
+                  {
+                    "id": "field_39",
+                    "node_type": "field",
+                    "key": "visibility",
+                    "label": "visibility",
+                    "value": "suggestive but non-explicit",
+                    "expanded": false
+                  }
+                ],
+                "origin_preset_path": "subject.outfit.top"
+              },
+              {
+                "id": "group_40",
+                "node_type": "group",
+                "key": "bottom",
+                "label": "bottom",
+                "expanded": false,
+                "children": [
+                  {
+                    "id": "field_41",
+                    "node_type": "field",
+                    "key": "type",
+                    "label": "type",
+                    "value": "matching bikini bottom",
+                    "expanded": false
+                  },
+                  {
+                    "id": "field_42",
+                    "node_type": "field",
+                    "key": "color",
+                    "label": "color",
+                    "value": "black",
+                    "expanded": false
+                  },
+                  {
+                    "id": "field_43",
+                    "node_type": "field",
+                    "key": "fabric",
+                    "label": "fabric",
+                    "value": "opaque matte fabric with wet-look surface sheen",
+                    "expanded": false
+                  },
+                  {
+                    "id": "field_44",
+                    "node_type": "field",
+                    "key": "coverage",
+                    "label": "coverage",
+                    "value": "fully opaque, non-explicit",
+                    "expanded": false
+                  }
+                ],
+                "origin_preset_path": "subject.outfit.bottom"
+              }
+            ],
+            "origin_preset_path": "subject.outfit"
+          }
+        ],
+        "origin_preset_path": "subject"
+      },
+      {
+        "id": "group_45",
+        "node_type": "group",
+        "key": "lighting",
+        "label": "lighting",
+        "expanded": false,
+        "children": [
+          {
+            "id": "field_46",
+            "node_type": "field",
+            "key": "type",
+            "label": "type",
+            "value": "iphone flash + distant city glow",
+            "expanded": false,
+            "preset_path": "lighting.type",
+            "origin_preset_path": "lighting.type"
+          },
+          {
+            "id": "field_47",
+            "node_type": "field",
+            "key": "effect",
+            "label": "effect",
+            "value": "harsh flash highlights, dramatic contrast",
+            "expanded": false
+          }
+        ],
+        "origin_preset_path": "lighting"
+      },
+      {
+        "id": "group_48",
+        "node_type": "group",
+        "key": "photography_rules",
+        "label": "photography_rules",
+        "expanded": false,
+        "children": [
+          {
+            "id": "field_49",
+            "node_type": "field",
+            "key": "iphone_only_look",
+            "label": "iphone_only_look",
+            "value": "true",
+            "expanded": false
+          },
+          {
+            "id": "field_50",
+            "node_type": "field",
+            "key": "suggestive_not_explicit",
+            "label": "suggestive_not_explicit",
+            "value": "true",
+            "expanded": false
+          },
+          {
+            "id": "field_51",
+            "node_type": "field",
+            "key": "thirst_trap_energy",
+            "label": "thirst_trap_energy",
+            "value": "true",
+            "expanded": false
+          },
+          {
+            "id": "field_52",
+            "node_type": "field",
+            "key": "realism",
+            "label": "realism",
+            "value": "very high",
+            "expanded": false,
+            "preset_path": "style.realism",
+            "origin_preset_path": "style.realism"
+          },
+          {
+            "id": "field_53",
+            "node_type": "field",
+            "key": "no_male_presence",
+            "label": "no_male_presence",
+            "value": "true",
+            "expanded": false
+          },
+          {
+            "id": "field_54",
+            "node_type": "field",
+            "key": "no_visible_nudity",
+            "label": "no_visible_nudity",
+            "value": "true",
+            "expanded": false
+          },
+          {
+            "id": "field_55",
+            "node_type": "field",
+            "key": "no_text_or_logos",
+            "label": "no_text_or_logos",
+            "value": "true",
+            "expanded": false
+          }
+        ],
+        "origin_preset_path": "photography_rules"
+      }
+    ]
+  },
+  "randomizer_checked": []
+}

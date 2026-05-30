@@ -1,0 +1,3268 @@
+{
+  "tree": {
+    "id": "group_1ec0803a-3295-4599-91f7-d18839b74d04",
+    "node_type": "group",
+    "key": "prompt",
+    "label": "prompt",
+    "expanded": true,
+    "children": [
+      {
+        "id": "array_3bf55977-10f7-4967-9c1c-32e99f9965f0",
+        "node_type": "array",
+        "key": "subjects",
+        "label": "subjects",
+        "expanded": false,
+        "item_template": {
+          "id": "group_76c13583-1160-41eb-82cb-0cc8a54a3f33",
+          "node_type": "group",
+          "key": "subject",
+          "label": "subject",
+          "expanded": false,
+          "children": [
+            {
+              "id": "group_0898ef9b-6c55-4f1b-bf79-176f07ec94eb",
+              "node_type": "group",
+              "key": "common",
+              "label": "common",
+              "expanded": false,
+              "children": [
+                {
+                  "id": "field_30e59f69-9f81-41ee-811e-3201f32caa75",
+                  "node_type": "field",
+                  "key": "id",
+                  "label": "id",
+                  "value": "",
+                  "expanded": false
+                },
+                {
+                  "id": "field_434af6af-8163-4ff9-aba7-4176e5b84290",
+                  "node_type": "field",
+                  "key": "name",
+                  "label": "name",
+                  "value": "",
+                  "expanded": false
+                }
+              ]
+            },
+            {
+              "id": "group_341bbab2-c97e-44e1-97ca-543eddd9bea3",
+              "node_type": "group",
+              "key": "identity",
+              "label": "identity",
+              "expanded": false,
+              "children": [
+                {
+                  "id": "field_8754b131-4b6e-4cb3-8e15-92a9b3096e75",
+                  "node_type": "field",
+                  "key": "age",
+                  "label": "age",
+                  "value": "",
+                  "expanded": false,
+                  "origin_preset_path": "subject.identity.age",
+                  "preset_path": "subject.identity.age"
+                },
+                {
+                  "id": "field_50e880bc-aac0-4fa5-a5fd-d41bf7dbafae",
+                  "node_type": "field",
+                  "key": "ethnicity",
+                  "label": "ethnicity",
+                  "value": "",
+                  "expanded": false,
+                  "origin_preset_path": "subject.identity.ethnicity",
+                  "preset_path": "subject.identity.ethnicity"
+                }
+              ],
+              "origin_preset_path": "subject.identity"
+            },
+            {
+              "id": "group_ca2025ae-12c6-4224-b852-e0eb2c131a7a",
+              "node_type": "group",
+              "key": "dress",
+              "label": "dress",
+              "expanded": false,
+              "children": [
+                {
+                  "id": "group_5cd9d2c6-c96a-4cc9-ba2a-82f662f69332",
+                  "node_type": "group",
+                  "key": "top",
+                  "label": "top",
+                  "expanded": false,
+                  "children": [
+                    {
+                      "id": "field_2fa34264-5ce1-43da-8a18-6bd572ba0fa6",
+                      "node_type": "field",
+                      "key": "type",
+                      "label": "type",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.dress.top.type",
+                      "preset_path": "subject.dress.top.type"
+                    },
+                    {
+                      "id": "field_f5e1cb41-d412-47ee-bb13-a0feff7b5f76",
+                      "node_type": "field",
+                      "key": "style",
+                      "label": "style",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.dress.top.style",
+                      "preset_path": "subject.dress.top.style"
+                    },
+                    {
+                      "id": "field_58c4ec65-032b-436e-b099-9e5bf8b60ba2",
+                      "node_type": "field",
+                      "key": "fit",
+                      "label": "fit",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.dress.top.fit",
+                      "preset_path": "subject.dress.top.fit"
+                    },
+                    {
+                      "id": "field_a2b83c6c-3198-4511-a93b-18b5b185dc35",
+                      "node_type": "field",
+                      "key": "color",
+                      "label": "color",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.dress.top.color",
+                      "preset_path": "subject.dress.top.color"
+                    },
+                    {
+                      "id": "field_cd483f0a-849a-4516-8c32-57e35e87b79d",
+                      "node_type": "field",
+                      "key": "fabric",
+                      "label": "fabric",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.dress.top.fabric",
+                      "preset_path": "subject.dress.top.fabric"
+                    },
+                    {
+                      "id": "field_fbfcb488-36e5-430c-94ef-e97210ed8622",
+                      "node_type": "field",
+                      "key": "condition",
+                      "label": "condition",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.dress.top.condition",
+                      "preset_path": "subject.dress.top.condition"
+                    }
+                  ],
+                  "origin_preset_path": "subject.dress.top"
+                },
+                {
+                  "id": "group_f9f514a7-cbe4-43f3-9a91-49342b19b70f",
+                  "node_type": "group",
+                  "key": "bottom",
+                  "label": "bottom",
+                  "expanded": false,
+                  "children": [
+                    {
+                      "id": "field_6dcbf179-7abd-47ee-b693-4331177457fe",
+                      "node_type": "field",
+                      "key": "type",
+                      "label": "type",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.dress.bottom.type",
+                      "preset_path": "subject.dress.bottom.type"
+                    },
+                    {
+                      "id": "field_c53bf77a-93b9-465c-82d9-7a88c28b628d",
+                      "node_type": "field",
+                      "key": "style",
+                      "label": "style",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.dress.bottom.style",
+                      "preset_path": "subject.dress.bottom.style"
+                    },
+                    {
+                      "id": "field_c4a00ba3-2868-4751-8617-e97da366ea29",
+                      "node_type": "field",
+                      "key": "fit",
+                      "label": "fit",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.dress.bottom.fit",
+                      "preset_path": "subject.dress.bottom.fit"
+                    },
+                    {
+                      "id": "field_80df82b8-d447-465b-b2de-2dd70191ef53",
+                      "node_type": "field",
+                      "key": "color",
+                      "label": "color",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.dress.bottom.color",
+                      "preset_path": "subject.dress.bottom.color"
+                    },
+                    {
+                      "id": "field_3c5d4ac0-0278-493b-b263-ea3b5299965b",
+                      "node_type": "field",
+                      "key": "fabric",
+                      "label": "fabric",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.dress.bottom.fabric",
+                      "preset_path": "subject.dress.bottom.fabric"
+                    },
+                    {
+                      "id": "field_b8c06cf7-e47f-4efd-8551-a7a1124b7a4a",
+                      "node_type": "field",
+                      "key": "condition",
+                      "label": "condition",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.dress.bottom.condition",
+                      "preset_path": "subject.dress.bottom.condition"
+                    }
+                  ],
+                  "origin_preset_path": "subject.dress.bottom"
+                },
+                {
+                  "id": "field_001249b9-a290-421b-92b0-905042a269cc",
+                  "node_type": "field",
+                  "key": "layering",
+                  "label": "layering",
+                  "value": "",
+                  "expanded": false,
+                  "origin_preset_path": "subject.dress.layering",
+                  "preset_path": "subject.dress.layering"
+                },
+                {
+                  "id": "field_90482b42-9230-41f1-b8b0-52c973ed6296",
+                  "node_type": "field",
+                  "key": "accessories",
+                  "label": "accessories",
+                  "value": "",
+                  "expanded": false,
+                  "origin_preset_path": "subject.dress.accessories",
+                  "preset_path": "subject.dress.accessories"
+                },
+                {
+                  "id": "field_ed75d87c-0563-4213-b7bc-432da6540214",
+                  "node_type": "field",
+                  "key": "footwear",
+                  "label": "footwear",
+                  "value": "",
+                  "expanded": false,
+                  "origin_preset_path": "subject.dress.footwear",
+                  "preset_path": "subject.dress.footwear"
+                },
+                {
+                  "id": "field_be645779-f197-4a8e-8f7d-6866a5ee5aac",
+                  "node_type": "field",
+                  "key": "head_covering",
+                  "label": "head_covering",
+                  "value": "",
+                  "expanded": false,
+                  "origin_preset_path": "subject.dress.head_covering",
+                  "preset_path": "subject.dress.head_covering"
+                },
+                {
+                  "id": "field_baf068db-7b6c-44eb-a7ef-d5d2856bf2b8",
+                  "node_type": "field",
+                  "key": "additional_information",
+                  "label": "additional_information",
+                  "value": "",
+                  "expanded": false
+                }
+              ],
+              "origin_preset_path": "subject.dress"
+            },
+            {
+              "id": "group_cbb7f0cd-4b4b-4147-9097-bb55786e6857",
+              "node_type": "group",
+              "key": "pose",
+              "label": "pose",
+              "expanded": false,
+              "children": [
+                {
+                  "id": "group_2805f178-c65a-4999-92c4-b534ffe5f680",
+                  "node_type": "group",
+                  "key": "orientation",
+                  "label": "orientation",
+                  "expanded": false,
+                  "children": [
+                    {
+                      "id": "field_067ff856-4851-46e1-90e0-62dd594595ae",
+                      "node_type": "field",
+                      "key": "body_profile",
+                      "label": "body_profile",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.pose.orientation.body_profile",
+                      "preset_path": "subject.pose.orientation.body_profile"
+                    },
+                    {
+                      "id": "field_44159dae-3719-4334-975f-665982171f9e",
+                      "node_type": "field",
+                      "key": "face_profile",
+                      "label": "face_profile",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.pose.orientation.face_profile",
+                      "preset_path": "subject.pose.orientation.face_profile"
+                    }
+                  ],
+                  "origin_preset_path": "subject.pose.orientation"
+                },
+                {
+                  "id": "field_622bcd41-ac1e-4663-87ab-8487a08c7567",
+                  "node_type": "field",
+                  "key": "action",
+                  "label": "action",
+                  "value": "",
+                  "expanded": false,
+                  "origin_preset_path": "subject.pose.action",
+                  "preset_path": "subject.pose.action"
+                },
+                {
+                  "id": "field_79a63e05-ebff-4c93-a8f4-a7b51e07bdc5",
+                  "node_type": "field",
+                  "key": "common_pose",
+                  "label": "common_pose",
+                  "value": "",
+                  "expanded": false,
+                  "origin_preset_path": "subject.pose.common_pose",
+                  "preset_path": "subject.pose.common_pose"
+                },
+                {
+                  "id": "field_a33dad4c-c75e-42a7-bcf6-e199d96f54be",
+                  "node_type": "field",
+                  "key": "weight_distribution",
+                  "label": "weight_distribution",
+                  "value": "",
+                  "expanded": false,
+                  "origin_preset_path": "subject.pose.weight_distribution",
+                  "preset_path": "subject.pose.weight_distribution"
+                },
+                {
+                  "id": "field_f6bab5e8-f3b2-4e3e-ba2e-15b84bb875ba",
+                  "node_type": "field",
+                  "key": "body_tension",
+                  "label": "body_tension",
+                  "value": "",
+                  "expanded": false,
+                  "origin_preset_path": "subject.pose.body_tension",
+                  "preset_path": "subject.pose.body_tension"
+                },
+                {
+                  "id": "field_6cfe5eb3-2934-4772-881a-d485057c819c",
+                  "node_type": "field",
+                  "key": "contact_points",
+                  "label": "contact_points",
+                  "value": "",
+                  "expanded": false,
+                  "origin_preset_path": "subject.pose.contact_points",
+                  "preset_path": "subject.pose.contact_points"
+                },
+                {
+                  "id": "group_a999aed5-4171-4287-bbd8-db7cd3149038",
+                  "node_type": "group",
+                  "key": "body_parts",
+                  "label": "body_parts",
+                  "expanded": false,
+                  "children": [
+                    {
+                      "id": "field_81bea324-1f83-4a23-8485-33d167239e09",
+                      "node_type": "field",
+                      "key": "head",
+                      "label": "head",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.pose.body_parts.head",
+                      "preset_path": "subject.pose.body_parts.head"
+                    },
+                    {
+                      "id": "field_affd5c00-e71a-4f7c-8efc-4a66dcc5727e",
+                      "node_type": "field",
+                      "key": "torso",
+                      "label": "torso",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.pose.body_parts.torso",
+                      "preset_path": "subject.pose.body_parts.torso"
+                    },
+                    {
+                      "id": "field_670e92bd-1682-4473-8689-9985ea5215f9",
+                      "node_type": "field",
+                      "key": "arms",
+                      "label": "arms",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.pose.body_parts.arms",
+                      "preset_path": "subject.pose.body_parts.arms"
+                    },
+                    {
+                      "id": "field_8e38dd90-0ea7-4f30-bb7d-b47b7cfbf0c6",
+                      "node_type": "field",
+                      "key": "hands",
+                      "label": "hands",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.pose.body_parts.hands",
+                      "preset_path": "subject.pose.body_parts.hands"
+                    },
+                    {
+                      "id": "field_45dc46ad-c3c9-4f33-9648-d2f80ee09fd6",
+                      "node_type": "field",
+                      "key": "legs",
+                      "label": "legs",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.pose.body_parts.legs",
+                      "preset_path": "subject.pose.body_parts.legs"
+                    },
+                    {
+                      "id": "field_6350765f-ee66-4094-9b88-3b85cce851bb",
+                      "node_type": "field",
+                      "key": "feet",
+                      "label": "feet",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.pose.body_parts.feet",
+                      "preset_path": "subject.pose.body_parts.feet"
+                    },
+                    {
+                      "id": "field_1fe61473-6646-41f7-b577-e973e4779668",
+                      "node_type": "field",
+                      "key": "left_arm",
+                      "label": "left_arm",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.pose.body_parts.left_arm",
+                      "preset_path": "subject.pose.body_parts.left_arm"
+                    },
+                    {
+                      "id": "field_23ab8aa2-6069-4ed5-8236-482708ffe64b",
+                      "node_type": "field",
+                      "key": "right_arm",
+                      "label": "right_arm",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.pose.body_parts.right_arm",
+                      "preset_path": "subject.pose.body_parts.right_arm"
+                    },
+                    {
+                      "id": "field_3359fac9-70a3-4ff5-af93-c3eab1aa65fd",
+                      "node_type": "field",
+                      "key": "left_hand",
+                      "label": "left_hand",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.pose.body_parts.left_hand",
+                      "preset_path": "subject.pose.body_parts.left_hand"
+                    },
+                    {
+                      "id": "field_098ecd0d-c0c9-4364-823d-e85107f3b3be",
+                      "node_type": "field",
+                      "key": "right_hand",
+                      "label": "right_hand",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.pose.body_parts.right_hand",
+                      "preset_path": "subject.pose.body_parts.right_hand"
+                    },
+                    {
+                      "id": "field_21a8af31-08d8-4737-8f8c-355c8b77ab62",
+                      "node_type": "field",
+                      "key": "left_leg",
+                      "label": "left_leg",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.pose.body_parts.left_leg",
+                      "preset_path": "subject.pose.body_parts.left_leg"
+                    },
+                    {
+                      "id": "field_0d722a14-2a7c-416a-aefa-05176e7d058d",
+                      "node_type": "field",
+                      "key": "right_leg",
+                      "label": "right_leg",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.pose.body_parts.right_leg",
+                      "preset_path": "subject.pose.body_parts.right_leg"
+                    },
+                    {
+                      "id": "field_309915ec-45da-4fe9-a871-4cc149673d16",
+                      "node_type": "field",
+                      "key": "left_foot",
+                      "label": "left_foot",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.pose.body_parts.left_foot",
+                      "preset_path": "subject.pose.body_parts.left_foot"
+                    },
+                    {
+                      "id": "field_030e8abe-56e1-4af6-b995-e8acdee04602",
+                      "node_type": "field",
+                      "key": "right_foot",
+                      "label": "right_foot",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.pose.body_parts.right_foot",
+                      "preset_path": "subject.pose.body_parts.right_foot"
+                    }
+                  ],
+                  "origin_preset_path": "subject.pose.body_parts"
+                },
+                {
+                  "id": "field_93ca6cd7-b1af-48bc-ab7e-dc22354d21b5",
+                  "node_type": "field",
+                  "key": "eye_gaze",
+                  "label": "eye_gaze",
+                  "value": "",
+                  "expanded": false,
+                  "origin_preset_path": "subject.pose.eye_gaze",
+                  "preset_path": "subject.pose.eye_gaze"
+                },
+                {
+                  "id": "field_94d8c228-0a2b-46be-9fb9-0cf4a8af6f62",
+                  "node_type": "field",
+                  "key": "additional_information",
+                  "label": "additional_information",
+                  "value": "",
+                  "expanded": false
+                }
+              ],
+              "origin_preset_path": "subject.pose"
+            },
+            {
+              "id": "group_9f861c83-efad-4c1c-a20d-def4ebfb3e3b",
+              "node_type": "group",
+              "key": "properties",
+              "label": "properties",
+              "expanded": false,
+              "children": [
+                {
+                  "id": "group_e74bd327-a707-4c38-99b6-64e4bc01e9c5",
+                  "node_type": "group",
+                  "key": "body",
+                  "label": "body",
+                  "expanded": false,
+                  "children": [
+                    {
+                      "id": "field_7c002e8f-236b-4f3c-b0b7-138be11b606d",
+                      "node_type": "field",
+                      "key": "type",
+                      "label": "type",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.properties.body.type",
+                      "preset_path": "subject.properties.body.type"
+                    },
+                    {
+                      "id": "field_37a2d3df-cdcf-466c-a11a-8d10bcb095ef",
+                      "node_type": "field",
+                      "key": "height",
+                      "label": "height",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.properties.body.height",
+                      "preset_path": "subject.properties.body.height"
+                    },
+                    {
+                      "id": "field_db1f4729-6da0-46db-af11-ff146a8fa3f0",
+                      "node_type": "field",
+                      "key": "bust",
+                      "label": "bust",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.properties.body.bust",
+                      "preset_path": "subject.properties.body.bust"
+                    },
+                    {
+                      "id": "field_82070683-1fb9-4142-a39c-981ed8308971",
+                      "node_type": "field",
+                      "key": "flanks",
+                      "label": "flanks",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.properties.body.flanks",
+                      "preset_path": "subject.properties.body.flanks"
+                    },
+                    {
+                      "id": "field_4334f1c3-da9d-45e1-938e-ec15f4a8880e",
+                      "node_type": "field",
+                      "key": "waist",
+                      "label": "waist",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.properties.body.waist",
+                      "preset_path": "subject.properties.body.waist"
+                    },
+                    {
+                      "id": "field_4b1d859f-5ac9-406a-85c6-ba1f8ee043b3",
+                      "node_type": "field",
+                      "key": "hips",
+                      "label": "hips",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.properties.body.hips",
+                      "preset_path": "subject.properties.body.hips"
+                    },
+                    {
+                      "id": "field_71c28445-6e97-4a0a-a006-2b732de66d3a",
+                      "node_type": "field",
+                      "key": "legs",
+                      "label": "legs",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.properties.body.legs",
+                      "preset_path": "subject.properties.body.legs"
+                    },
+                    {
+                      "id": "field_1c0d737b-5199-49e5-8422-b27612a6a6a5",
+                      "node_type": "field",
+                      "key": "muscle_definition",
+                      "label": "muscle_definition",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.properties.body.muscle_definition",
+                      "preset_path": "subject.properties.body.muscle_definition"
+                    },
+                    {
+                      "id": "field_4545ec93-a03f-4386-bc3e-cb2869ccbad1",
+                      "node_type": "field",
+                      "key": "hands",
+                      "label": "hands",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.properties.body.hands",
+                      "preset_path": "subject.properties.body.hands"
+                    },
+                    {
+                      "id": "field_85159685-475b-4dbe-9921-02f57ebd288a",
+                      "node_type": "field",
+                      "key": "feet",
+                      "label": "feet",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.properties.body.feet",
+                      "preset_path": "subject.properties.body.feet"
+                    }
+                  ],
+                  "origin_preset_path": "subject.properties.body"
+                },
+                {
+                  "id": "group_a8fd0f87-d8d3-40a7-8ece-ca2fce41e87c",
+                  "node_type": "group",
+                  "key": "skin",
+                  "label": "skin",
+                  "expanded": false,
+                  "children": [
+                    {
+                      "id": "field_ed171301-5ac1-48b4-b861-224d245c0074",
+                      "node_type": "field",
+                      "key": "tone",
+                      "label": "tone",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.properties.skin.tone",
+                      "preset_path": "subject.properties.skin.tone"
+                    },
+                    {
+                      "id": "field_ccf59941-efee-45e5-8901-5233cda13232",
+                      "node_type": "field",
+                      "key": "texture",
+                      "label": "texture",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.properties.skin.texture",
+                      "preset_path": "subject.properties.skin.texture"
+                    },
+                    {
+                      "id": "field_076cce3b-8ece-46fd-844b-68c41b992a8d",
+                      "node_type": "field",
+                      "key": "details",
+                      "label": "details",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.properties.skin.details",
+                      "preset_path": "subject.properties.skin.details"
+                    }
+                  ],
+                  "origin_preset_path": "subject.properties.skin"
+                },
+                {
+                  "id": "group_3854ce90-8edb-4e55-9268-add9a53eee05",
+                  "node_type": "group",
+                  "key": "hair",
+                  "label": "hair",
+                  "expanded": false,
+                  "children": [
+                    {
+                      "id": "field_a328fb91-3a3a-4ed5-a664-90dde4b1bdec",
+                      "node_type": "field",
+                      "key": "style",
+                      "label": "style",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.properties.hair.style",
+                      "preset_path": "subject.properties.hair.style"
+                    },
+                    {
+                      "id": "field_771f1827-02bd-49b5-954b-3a3f541e44a6",
+                      "node_type": "field",
+                      "key": "color",
+                      "label": "color",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.properties.hair.color",
+                      "preset_path": "subject.properties.hair.color"
+                    },
+                    {
+                      "id": "field_4a9684b9-51e4-4f41-915f-44fafa7c1aef",
+                      "node_type": "field",
+                      "key": "characteristics",
+                      "label": "characteristics",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.properties.hair.characteristics",
+                      "preset_path": "subject.properties.hair.characteristics"
+                    },
+                    {
+                      "id": "field_c0a070b6-2436-4f9d-a805-8e3086ae25f0",
+                      "node_type": "field",
+                      "key": "temple",
+                      "label": "temple",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.properties.hair.temple",
+                      "preset_path": "subject.properties.hair.temple"
+                    },
+                    {
+                      "id": "field_83072447-f466-4896-9fd6-857a7bfe3fe6",
+                      "node_type": "field",
+                      "key": "apex",
+                      "label": "apex",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.properties.hair.apex",
+                      "preset_path": "subject.properties.hair.apex"
+                    }
+                  ],
+                  "origin_preset_path": "subject.properties.hair"
+                },
+                {
+                  "id": "group_03727a74-3691-4c07-99c2-21c92350215d",
+                  "node_type": "group",
+                  "key": "face",
+                  "label": "face",
+                  "expanded": false,
+                  "children": [
+                    {
+                      "id": "field_927edb61-44de-4a37-b16e-a06aa2d38df6",
+                      "node_type": "field",
+                      "key": "structure",
+                      "label": "structure",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.properties.face.structure",
+                      "preset_path": "subject.properties.face.structure"
+                    },
+                    {
+                      "id": "field_388785ab-521f-4e07-9a24-1b411ffddafb",
+                      "node_type": "field",
+                      "key": "temple_width",
+                      "label": "temple_width",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.properties.face.temple_width",
+                      "preset_path": "subject.properties.face.temple_width"
+                    },
+                    {
+                      "id": "field_9702ea97-adc8-4679-9abd-0502ff57598d",
+                      "node_type": "field",
+                      "key": "mid_face_width",
+                      "label": "mid_face_width",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.properties.face.mid_face_width",
+                      "preset_path": "subject.properties.face.mid_face_width"
+                    },
+                    {
+                      "id": "field_b41a531d-3ed3-4beb-816b-d79509e67831",
+                      "node_type": "field",
+                      "key": "cheeks",
+                      "label": "cheeks",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.properties.face.cheeks",
+                      "preset_path": "subject.properties.face.cheeks"
+                    },
+                    {
+                      "id": "field_cf7fe4bc-8a79-4e52-b0dc-b30e34e89d54",
+                      "node_type": "field",
+                      "key": "chin",
+                      "label": "chin",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.properties.face.chin",
+                      "preset_path": "subject.properties.face.chin"
+                    },
+                    {
+                      "id": "field_0a51431d-2692-4e2d-afa5-798cc6b80aa7",
+                      "node_type": "field",
+                      "key": "eyes",
+                      "label": "eyes",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.properties.face.eyes",
+                      "preset_path": "subject.properties.face.eyes"
+                    },
+                    {
+                      "id": "field_222aa408-b284-496e-a468-f75abb53004a",
+                      "node_type": "field",
+                      "key": "eye_color",
+                      "label": "eye_color",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.properties.face.eye_color",
+                      "preset_path": "subject.properties.face.eye_color"
+                    },
+                    {
+                      "id": "field_68966dbf-f17e-4afd-b6a2-dae479bc9276",
+                      "node_type": "field",
+                      "key": "nose",
+                      "label": "nose",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.properties.face.nose",
+                      "preset_path": "subject.properties.face.nose"
+                    },
+                    {
+                      "id": "field_2c58e342-2199-4de1-bdb7-57ce688ffd98",
+                      "node_type": "field",
+                      "key": "lips",
+                      "label": "lips",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.properties.face.lips",
+                      "preset_path": "subject.properties.face.lips"
+                    },
+                    {
+                      "id": "field_ab080251-660a-4022-ab7f-3a0315c4bcc5",
+                      "node_type": "field",
+                      "key": "eyebrows",
+                      "label": "eyebrows",
+                      "value": "",
+                      "expanded": false,
+                      "origin_preset_path": "subject.properties.face.eyebrows",
+                      "preset_path": "subject.properties.face.eyebrows"
+                    }
+                  ],
+                  "origin_preset_path": "subject.properties.face"
+                },
+                {
+                  "id": "field_62a8335c-07f4-43a1-993e-6f6a22adebc4",
+                  "node_type": "field",
+                  "key": "expression",
+                  "label": "expression",
+                  "value": "",
+                  "expanded": false,
+                  "origin_preset_path": "subject.properties.expression",
+                  "preset_path": "subject.properties.expression"
+                }
+              ],
+              "origin_preset_path": "subject.properties"
+            }
+          ]
+        },
+        "items": [
+          {
+            "id": "group_f954d42a-1740-4707-9d46-abddf91015b4",
+            "node_type": "group",
+            "key": "subject",
+            "label": "subject",
+            "expanded": true,
+            "children": [
+              {
+                "id": "group_1ad3abac-7b37-41af-9d81-b3c35d744103",
+                "node_type": "group",
+                "key": "common",
+                "label": "common",
+                "expanded": true,
+                "children": [
+                  {
+                    "id": "field_546520ce-aab6-46ad-9108-10d6f05223c3",
+                    "node_type": "field",
+                    "key": "id",
+                    "label": "id",
+                    "value": "",
+                    "expanded": false
+                  },
+                  {
+                    "id": "field_9374cbdb-32ce-418c-8da0-3439d57c4d27",
+                    "node_type": "field",
+                    "key": "name",
+                    "label": "name",
+                    "value": "haroon",
+                    "expanded": false
+                  }
+                ]
+              },
+              {
+                "id": "group_25dacba1-286a-4430-a83c-b861c12e7483",
+                "node_type": "group",
+                "key": "identity",
+                "label": "identity",
+                "expanded": false,
+                "children": [
+                  {
+                    "id": "field_9f84827c-4042-4aba-8bdf-4f3b0a9f65c8",
+                    "node_type": "field",
+                    "key": "age",
+                    "label": "age",
+                    "value": "early 20s",
+                    "expanded": false,
+                    "origin_preset_path": "subject.identity.age",
+                    "preset_path": "subject.identity.age"
+                  },
+                  {
+                    "id": "field_37dc5a2b-2f67-4cf9-85e4-9de832333934",
+                    "node_type": "field",
+                    "key": "ethnicity",
+                    "label": "ethnicity",
+                    "value": "",
+                    "expanded": false,
+                    "origin_preset_path": "subject.identity.ethnicity",
+                    "preset_path": "subject.identity.ethnicity"
+                  }
+                ],
+                "origin_preset_path": "subject.identity"
+              },
+              {
+                "id": "group_7f6a5800-f2e4-46c4-8215-663a3fead79a",
+                "node_type": "group",
+                "key": "dress",
+                "label": "dress",
+                "expanded": false,
+                "children": [
+                  {
+                    "id": "group_c4f21b76-6beb-4bca-b239-5ed98d228128",
+                    "node_type": "group",
+                    "key": "top",
+                    "label": "top",
+                    "expanded": false,
+                    "children": [
+                      {
+                        "id": "field_b0324e63-001d-4fd1-a578-f11e4ea69495",
+                        "node_type": "field",
+                        "key": "type",
+                        "label": "type",
+                        "value": "t-shirt",
+                        "expanded": false,
+                        "origin_preset_path": "subject.dress.top.type",
+                        "preset_path": "subject.dress.top.type"
+                      },
+                      {
+                        "id": "field_e4a88a80-3a32-4afa-a987-2855526531e8",
+                        "node_type": "field",
+                        "key": "style",
+                        "label": "style",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.dress.top.style",
+                        "preset_path": "subject.dress.top.style"
+                      },
+                      {
+                        "id": "field_3c2fa647-7974-40fe-ae09-d3365001f35b",
+                        "node_type": "field",
+                        "key": "fit",
+                        "label": "fit",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.dress.top.fit",
+                        "preset_path": "subject.dress.top.fit"
+                      },
+                      {
+                        "id": "field_a38dd1f2-b9e8-4b2c-9ffa-cb13324619bc",
+                        "node_type": "field",
+                        "key": "color",
+                        "label": "color",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.dress.top.color",
+                        "preset_path": "subject.dress.top.color"
+                      },
+                      {
+                        "id": "field_d5583457-1217-44c3-b6b9-8d43069b333f",
+                        "node_type": "field",
+                        "key": "fabric",
+                        "label": "fabric",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.dress.top.fabric",
+                        "preset_path": "subject.dress.top.fabric"
+                      },
+                      {
+                        "id": "field_55ce1a0d-5da7-42ce-aa97-c92ddfb32384",
+                        "node_type": "field",
+                        "key": "condition",
+                        "label": "condition",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.dress.top.condition",
+                        "preset_path": "subject.dress.top.condition"
+                      }
+                    ],
+                    "origin_preset_path": "subject.dress.top"
+                  },
+                  {
+                    "id": "group_3ff05ab2-b655-4b88-a6ef-c1372a181054",
+                    "node_type": "group",
+                    "key": "bottom",
+                    "label": "bottom",
+                    "expanded": false,
+                    "children": [
+                      {
+                        "id": "field_12f2918e-b8d7-4f45-b66b-49e752e6d5c6",
+                        "node_type": "field",
+                        "key": "type",
+                        "label": "type",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.dress.bottom.type",
+                        "preset_path": "subject.dress.bottom.type"
+                      },
+                      {
+                        "id": "field_67853313-43a1-4f39-90e4-8ce3f83f8846",
+                        "node_type": "field",
+                        "key": "style",
+                        "label": "style",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.dress.bottom.style",
+                        "preset_path": "subject.dress.bottom.style"
+                      },
+                      {
+                        "id": "field_c2ec327d-7c8a-4276-8ff5-b2c49c59bde5",
+                        "node_type": "field",
+                        "key": "fit",
+                        "label": "fit",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.dress.bottom.fit",
+                        "preset_path": "subject.dress.bottom.fit"
+                      },
+                      {
+                        "id": "field_6e3294af-ffbb-492a-8eca-bc253b925d76",
+                        "node_type": "field",
+                        "key": "color",
+                        "label": "color",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.dress.bottom.color",
+                        "preset_path": "subject.dress.bottom.color"
+                      },
+                      {
+                        "id": "field_17cfdf04-83db-48ae-92da-5daba0940b43",
+                        "node_type": "field",
+                        "key": "fabric",
+                        "label": "fabric",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.dress.bottom.fabric",
+                        "preset_path": "subject.dress.bottom.fabric"
+                      },
+                      {
+                        "id": "field_9f14962f-065b-4096-8e01-a9d7c850dfbe",
+                        "node_type": "field",
+                        "key": "condition",
+                        "label": "condition",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.dress.bottom.condition",
+                        "preset_path": "subject.dress.bottom.condition"
+                      }
+                    ],
+                    "origin_preset_path": "subject.dress.bottom"
+                  },
+                  {
+                    "id": "field_d8c061f8-862c-48d8-9783-320c43c73420",
+                    "node_type": "field",
+                    "key": "layering",
+                    "label": "layering",
+                    "value": "",
+                    "expanded": false,
+                    "origin_preset_path": "subject.dress.layering",
+                    "preset_path": "subject.dress.layering"
+                  },
+                  {
+                    "id": "field_8bd2dfac-0909-4100-a055-2d3811d79e10",
+                    "node_type": "field",
+                    "key": "accessories",
+                    "label": "accessories",
+                    "value": "",
+                    "expanded": false,
+                    "origin_preset_path": "subject.dress.accessories",
+                    "preset_path": "subject.dress.accessories"
+                  },
+                  {
+                    "id": "field_fe1c765c-7df1-45d7-995e-eaccbf73fc14",
+                    "node_type": "field",
+                    "key": "footwear",
+                    "label": "footwear",
+                    "value": "",
+                    "expanded": false,
+                    "origin_preset_path": "subject.dress.footwear",
+                    "preset_path": "subject.dress.footwear"
+                  },
+                  {
+                    "id": "field_fb5079c3-639a-4180-a276-3fbe14a1de05",
+                    "node_type": "field",
+                    "key": "head_covering",
+                    "label": "head_covering",
+                    "value": "",
+                    "expanded": false,
+                    "origin_preset_path": "subject.dress.head_covering",
+                    "preset_path": "subject.dress.head_covering"
+                  },
+                  {
+                    "id": "field_f765f472-02fe-4117-abea-7cfa8115d7c6",
+                    "node_type": "field",
+                    "key": "additional_information",
+                    "label": "additional_information",
+                    "value": "",
+                    "expanded": false
+                  }
+                ],
+                "origin_preset_path": "subject.dress"
+              },
+              {
+                "id": "group_5d3ffc5e-7ad2-4f4c-90d8-f6ecd8784b74",
+                "node_type": "group",
+                "key": "pose",
+                "label": "pose",
+                "expanded": false,
+                "children": [
+                  {
+                    "id": "group_628e2a31-9aec-4e65-8c8f-ff4d5531b2b5",
+                    "node_type": "group",
+                    "key": "orientation",
+                    "label": "orientation",
+                    "expanded": false,
+                    "children": [
+                      {
+                        "id": "field_faca8845-d624-426b-b497-7bbe4cbb3f55",
+                        "node_type": "field",
+                        "key": "body_profile",
+                        "label": "body_profile",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.pose.orientation.body_profile",
+                        "preset_path": "subject.pose.orientation.body_profile"
+                      },
+                      {
+                        "id": "field_01042945-a0ad-4fff-8727-f5018926c6f5",
+                        "node_type": "field",
+                        "key": "face_profile",
+                        "label": "face_profile",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.pose.orientation.face_profile",
+                        "preset_path": "subject.pose.orientation.face_profile"
+                      }
+                    ],
+                    "origin_preset_path": "subject.pose.orientation"
+                  },
+                  {
+                    "id": "field_96593da7-cb52-438e-a7e5-01670a0653a3",
+                    "node_type": "field",
+                    "key": "action",
+                    "label": "action",
+                    "value": "",
+                    "expanded": false,
+                    "origin_preset_path": "subject.pose.action",
+                    "preset_path": "subject.pose.action"
+                  },
+                  {
+                    "id": "field_cc06e70d-228b-4c0b-b649-6a05aa603e38",
+                    "node_type": "field",
+                    "key": "common_pose",
+                    "label": "common_pose",
+                    "value": "",
+                    "expanded": false,
+                    "origin_preset_path": "subject.pose.common_pose",
+                    "preset_path": "subject.pose.common_pose"
+                  },
+                  {
+                    "id": "field_1f890749-81f0-47c1-be00-96dc5db5f374",
+                    "node_type": "field",
+                    "key": "weight_distribution",
+                    "label": "weight_distribution",
+                    "value": "",
+                    "expanded": false,
+                    "origin_preset_path": "subject.pose.weight_distribution",
+                    "preset_path": "subject.pose.weight_distribution"
+                  },
+                  {
+                    "id": "field_554e824c-c2cf-4e32-8981-a180d1b135be",
+                    "node_type": "field",
+                    "key": "body_tension",
+                    "label": "body_tension",
+                    "value": "",
+                    "expanded": false,
+                    "origin_preset_path": "subject.pose.body_tension",
+                    "preset_path": "subject.pose.body_tension"
+                  },
+                  {
+                    "id": "field_75326bf1-4eba-4d73-881f-926842d83d2e",
+                    "node_type": "field",
+                    "key": "contact_points",
+                    "label": "contact_points",
+                    "value": "",
+                    "expanded": false,
+                    "origin_preset_path": "subject.pose.contact_points",
+                    "preset_path": "subject.pose.contact_points"
+                  },
+                  {
+                    "id": "group_420014d1-d55b-4f36-8414-9d8b463d0b31",
+                    "node_type": "group",
+                    "key": "body_parts",
+                    "label": "body_parts",
+                    "expanded": false,
+                    "children": [
+                      {
+                        "id": "field_f61913bc-56fc-4366-97b3-fef9b8e260c1",
+                        "node_type": "field",
+                        "key": "head",
+                        "label": "head",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.pose.body_parts.head",
+                        "preset_path": "subject.pose.body_parts.head"
+                      },
+                      {
+                        "id": "field_ce696846-b737-4807-94f6-4d66d679003c",
+                        "node_type": "field",
+                        "key": "torso",
+                        "label": "torso",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.pose.body_parts.torso",
+                        "preset_path": "subject.pose.body_parts.torso"
+                      },
+                      {
+                        "id": "field_dbc58b52-49db-4083-a0c4-2be4eb14e403",
+                        "node_type": "field",
+                        "key": "arms",
+                        "label": "arms",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.pose.body_parts.arms",
+                        "preset_path": "subject.pose.body_parts.arms"
+                      },
+                      {
+                        "id": "field_71d407e5-fcca-40e2-a776-277e5af951a3",
+                        "node_type": "field",
+                        "key": "hands",
+                        "label": "hands",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.pose.body_parts.hands",
+                        "preset_path": "subject.pose.body_parts.hands"
+                      },
+                      {
+                        "id": "field_a1e4390d-7ea8-4bce-98d2-e1be986a0551",
+                        "node_type": "field",
+                        "key": "legs",
+                        "label": "legs",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.pose.body_parts.legs",
+                        "preset_path": "subject.pose.body_parts.legs"
+                      },
+                      {
+                        "id": "field_a5b84aa9-aba3-4230-a3ff-837ab8db1337",
+                        "node_type": "field",
+                        "key": "feet",
+                        "label": "feet",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.pose.body_parts.feet",
+                        "preset_path": "subject.pose.body_parts.feet"
+                      },
+                      {
+                        "id": "field_cb51e79b-f402-4e3f-80c4-83899281af56",
+                        "node_type": "field",
+                        "key": "left_arm",
+                        "label": "left_arm",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.pose.body_parts.left_arm",
+                        "preset_path": "subject.pose.body_parts.left_arm"
+                      },
+                      {
+                        "id": "field_a9f21839-03e9-48fa-8feb-da4ab8051bce",
+                        "node_type": "field",
+                        "key": "right_arm",
+                        "label": "right_arm",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.pose.body_parts.right_arm",
+                        "preset_path": "subject.pose.body_parts.right_arm"
+                      },
+                      {
+                        "id": "field_be509e33-016b-4c4d-9d5f-64e2fdd0ca2f",
+                        "node_type": "field",
+                        "key": "left_hand",
+                        "label": "left_hand",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.pose.body_parts.left_hand",
+                        "preset_path": "subject.pose.body_parts.left_hand"
+                      },
+                      {
+                        "id": "field_c4dc7c9c-bb66-4c24-a0fc-60d672ea957e",
+                        "node_type": "field",
+                        "key": "right_hand",
+                        "label": "right_hand",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.pose.body_parts.right_hand",
+                        "preset_path": "subject.pose.body_parts.right_hand"
+                      },
+                      {
+                        "id": "field_e3b00768-29d4-4c80-a89b-a80a357ce9ac",
+                        "node_type": "field",
+                        "key": "left_leg",
+                        "label": "left_leg",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.pose.body_parts.left_leg",
+                        "preset_path": "subject.pose.body_parts.left_leg"
+                      },
+                      {
+                        "id": "field_6f4e3d9d-b2ed-4999-8435-2227a4d55bb9",
+                        "node_type": "field",
+                        "key": "right_leg",
+                        "label": "right_leg",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.pose.body_parts.right_leg",
+                        "preset_path": "subject.pose.body_parts.right_leg"
+                      },
+                      {
+                        "id": "field_79b018f7-0497-4ddf-bfbf-282823071dc2",
+                        "node_type": "field",
+                        "key": "left_foot",
+                        "label": "left_foot",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.pose.body_parts.left_foot",
+                        "preset_path": "subject.pose.body_parts.left_foot"
+                      },
+                      {
+                        "id": "field_9c2158a7-1c4f-4e34-ae38-2064f1966f53",
+                        "node_type": "field",
+                        "key": "right_foot",
+                        "label": "right_foot",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.pose.body_parts.right_foot",
+                        "preset_path": "subject.pose.body_parts.right_foot"
+                      }
+                    ],
+                    "origin_preset_path": "subject.pose.body_parts"
+                  },
+                  {
+                    "id": "field_ac316a2a-6529-4112-83cb-9bfb57b74939",
+                    "node_type": "field",
+                    "key": "eye_gaze",
+                    "label": "eye_gaze",
+                    "value": "",
+                    "expanded": false,
+                    "origin_preset_path": "subject.pose.eye_gaze",
+                    "preset_path": "subject.pose.eye_gaze"
+                  },
+                  {
+                    "id": "field_04c85039-97cd-4c9e-955f-58655bff0986",
+                    "node_type": "field",
+                    "key": "additional_information",
+                    "label": "additional_information",
+                    "value": "",
+                    "expanded": false
+                  }
+                ],
+                "origin_preset_path": "subject.pose"
+              },
+              {
+                "id": "group_73863544-5b19-432a-84ba-564ea8e5b981",
+                "node_type": "group",
+                "key": "properties",
+                "label": "properties",
+                "expanded": true,
+                "children": [
+                  {
+                    "id": "group_b91f54cb-5447-4a01-ac8e-5f259a760620",
+                    "node_type": "group",
+                    "key": "body",
+                    "label": "body",
+                    "expanded": false,
+                    "children": [
+                      {
+                        "id": "field_3ca41078-0789-421a-a078-5f4d90171a06",
+                        "node_type": "field",
+                        "key": "type",
+                        "label": "type",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.body.type",
+                        "preset_path": "subject.properties.body.type"
+                      },
+                      {
+                        "id": "field_b1e542f5-b424-4d3c-8f10-a7335a696393",
+                        "node_type": "field",
+                        "key": "height",
+                        "label": "height",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.body.height",
+                        "preset_path": "subject.properties.body.height"
+                      },
+                      {
+                        "id": "field_bc1b9c6f-efea-4f96-b217-20f9e085bb75",
+                        "node_type": "field",
+                        "key": "bust",
+                        "label": "bust",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.body.bust",
+                        "preset_path": "subject.properties.body.bust"
+                      },
+                      {
+                        "id": "field_892249d2-8852-4ada-9be2-794cdb993f33",
+                        "node_type": "field",
+                        "key": "flanks",
+                        "label": "flanks",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.body.flanks",
+                        "preset_path": "subject.properties.body.flanks"
+                      },
+                      {
+                        "id": "field_18a9ede3-4592-4ed6-acd1-acf68e2a9ba9",
+                        "node_type": "field",
+                        "key": "waist",
+                        "label": "waist",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.body.waist",
+                        "preset_path": "subject.properties.body.waist"
+                      },
+                      {
+                        "id": "field_c2161cb8-482c-47d6-b431-ba1cf3b86d32",
+                        "node_type": "field",
+                        "key": "hips",
+                        "label": "hips",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.body.hips",
+                        "preset_path": "subject.properties.body.hips"
+                      },
+                      {
+                        "id": "field_8b29bfa5-a8d0-4cee-8215-5ecbb5c5ac05",
+                        "node_type": "field",
+                        "key": "legs",
+                        "label": "legs",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.body.legs",
+                        "preset_path": "subject.properties.body.legs"
+                      },
+                      {
+                        "id": "field_bc279f5e-0683-4dc1-9a52-ea2a61899207",
+                        "node_type": "field",
+                        "key": "muscle_definition",
+                        "label": "muscle_definition",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.body.muscle_definition",
+                        "preset_path": "subject.properties.body.muscle_definition"
+                      },
+                      {
+                        "id": "field_0d5f5657-f2bd-4e3c-ab8c-b52b0c048367",
+                        "node_type": "field",
+                        "key": "hands",
+                        "label": "hands",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.body.hands",
+                        "preset_path": "subject.properties.body.hands"
+                      },
+                      {
+                        "id": "field_70c2c292-5947-43f7-9d55-279493ed6075",
+                        "node_type": "field",
+                        "key": "feet",
+                        "label": "feet",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.body.feet",
+                        "preset_path": "subject.properties.body.feet"
+                      }
+                    ],
+                    "origin_preset_path": "subject.properties.body"
+                  },
+                  {
+                    "id": "group_8ebf69f5-22b1-40cf-82c7-65e432144774",
+                    "node_type": "group",
+                    "key": "skin",
+                    "label": "skin",
+                    "expanded": true,
+                    "children": [
+                      {
+                        "id": "field_faf0386c-2956-4c20-ae4c-d3c5171011ae",
+                        "node_type": "field",
+                        "key": "tone",
+                        "label": "tone",
+                        "value": "medium skin tone, balanced undertones",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.skin.tone",
+                        "preset_path": "subject.properties.skin.tone"
+                      },
+                      {
+                        "id": "field_6e2cf905-f055-4e07-8dbb-df58a53b431a",
+                        "node_type": "field",
+                        "key": "texture",
+                        "label": "texture",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.skin.texture",
+                        "preset_path": "subject.properties.skin.texture"
+                      },
+                      {
+                        "id": "field_1a01f191-527b-4831-be6a-b1a9de8c91a2",
+                        "node_type": "field",
+                        "key": "details",
+                        "label": "details",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.skin.details",
+                        "preset_path": "subject.properties.skin.details"
+                      }
+                    ],
+                    "origin_preset_path": "subject.properties.skin"
+                  },
+                  {
+                    "id": "group_82397362-5b4a-4a45-a0f3-04928e5e5156",
+                    "node_type": "group",
+                    "key": "hair",
+                    "label": "hair",
+                    "expanded": false,
+                    "children": [
+                      {
+                        "id": "field_deb6c777-a9c6-47af-a4a0-a0212524ee61",
+                        "node_type": "field",
+                        "key": "style",
+                        "label": "style",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.hair.style",
+                        "preset_path": "subject.properties.hair.style"
+                      },
+                      {
+                        "id": "field_676bb2d8-6119-4a96-91ca-797bc5f8be94",
+                        "node_type": "field",
+                        "key": "color",
+                        "label": "color",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.hair.color",
+                        "preset_path": "subject.properties.hair.color"
+                      },
+                      {
+                        "id": "field_da2f1d97-7e33-4e39-99e1-b32fcb90fd7b",
+                        "node_type": "field",
+                        "key": "characteristics",
+                        "label": "characteristics",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.hair.characteristics",
+                        "preset_path": "subject.properties.hair.characteristics"
+                      },
+                      {
+                        "id": "field_efa1dd7f-0c92-4cc9-aa70-d0011ffe971e",
+                        "node_type": "field",
+                        "key": "temple",
+                        "label": "temple",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.hair.temple",
+                        "preset_path": "subject.properties.hair.temple"
+                      },
+                      {
+                        "id": "field_bb7adf1d-2f83-447f-b0c8-91e0d8967f21",
+                        "node_type": "field",
+                        "key": "apex",
+                        "label": "apex",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.hair.apex",
+                        "preset_path": "subject.properties.hair.apex"
+                      }
+                    ],
+                    "origin_preset_path": "subject.properties.hair"
+                  },
+                  {
+                    "id": "group_d1d27129-6502-4b57-8fb3-89d3909e5814",
+                    "node_type": "group",
+                    "key": "face",
+                    "label": "face",
+                    "expanded": false,
+                    "children": [
+                      {
+                        "id": "field_b967b71d-eb54-4e59-98af-36b928245628",
+                        "node_type": "field",
+                        "key": "structure",
+                        "label": "structure",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.face.structure",
+                        "preset_path": "subject.properties.face.structure"
+                      },
+                      {
+                        "id": "field_e02e5d49-30c7-45d8-ba50-90d2f803810a",
+                        "node_type": "field",
+                        "key": "temple_width",
+                        "label": "temple_width",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.face.temple_width",
+                        "preset_path": "subject.properties.face.temple_width"
+                      },
+                      {
+                        "id": "field_11b817d4-8580-4f5d-9097-1056f513e9a8",
+                        "node_type": "field",
+                        "key": "mid_face_width",
+                        "label": "mid_face_width",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.face.mid_face_width",
+                        "preset_path": "subject.properties.face.mid_face_width"
+                      },
+                      {
+                        "id": "field_1d5b9989-513d-41b2-93c9-c48e5ed6576a",
+                        "node_type": "field",
+                        "key": "cheeks",
+                        "label": "cheeks",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.face.cheeks",
+                        "preset_path": "subject.properties.face.cheeks"
+                      },
+                      {
+                        "id": "field_9a4d70c7-4e16-4496-a018-20ca4eb3a5bf",
+                        "node_type": "field",
+                        "key": "chin",
+                        "label": "chin",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.face.chin",
+                        "preset_path": "subject.properties.face.chin"
+                      },
+                      {
+                        "id": "field_011297ef-7221-4aab-8f4d-d8d09e56bbd9",
+                        "node_type": "field",
+                        "key": "eyes",
+                        "label": "eyes",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.face.eyes",
+                        "preset_path": "subject.properties.face.eyes"
+                      },
+                      {
+                        "id": "field_6f53778b-5295-429d-815a-8c58a0d8681a",
+                        "node_type": "field",
+                        "key": "eye_color",
+                        "label": "eye_color",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.face.eye_color",
+                        "preset_path": "subject.properties.face.eye_color"
+                      },
+                      {
+                        "id": "field_558204d2-89df-4335-9bcb-93b93632cdfc",
+                        "node_type": "field",
+                        "key": "nose",
+                        "label": "nose",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.face.nose",
+                        "preset_path": "subject.properties.face.nose"
+                      },
+                      {
+                        "id": "field_aa1d0519-9868-4643-bffe-783ddae58f93",
+                        "node_type": "field",
+                        "key": "lips",
+                        "label": "lips",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.face.lips",
+                        "preset_path": "subject.properties.face.lips"
+                      },
+                      {
+                        "id": "field_a5285889-253b-4204-85cf-11987ac2f11b",
+                        "node_type": "field",
+                        "key": "eyebrows",
+                        "label": "eyebrows",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.face.eyebrows",
+                        "preset_path": "subject.properties.face.eyebrows"
+                      }
+                    ],
+                    "origin_preset_path": "subject.properties.face"
+                  },
+                  {
+                    "id": "field_3a9ea4ac-4f8f-4992-a2e2-bf47b5f12db4",
+                    "node_type": "field",
+                    "key": "expression",
+                    "label": "expression",
+                    "value": "",
+                    "expanded": false,
+                    "origin_preset_path": "subject.properties.expression",
+                    "preset_path": "subject.properties.expression"
+                  }
+                ],
+                "origin_preset_path": "subject.properties"
+              }
+            ]
+          },
+          {
+            "id": "group_c14f9300-e74c-4e84-b5e3-82be93293e12",
+            "node_type": "group",
+            "key": "subject",
+            "label": "subject",
+            "expanded": true,
+            "children": [
+              {
+                "id": "group_d1fd3204-7993-4888-8e40-c2952b1dd712",
+                "node_type": "group",
+                "key": "common",
+                "label": "common",
+                "expanded": false,
+                "children": [
+                  {
+                    "id": "field_ea90bb9a-9008-4bc1-8943-ba554fb5783d",
+                    "node_type": "field",
+                    "key": "id",
+                    "label": "id",
+                    "value": "",
+                    "expanded": false
+                  },
+                  {
+                    "id": "field_cd1da9ce-9dd4-4960-a164-27ad6f077962",
+                    "node_type": "field",
+                    "key": "name",
+                    "label": "name",
+                    "value": "shumila",
+                    "expanded": false
+                  }
+                ]
+              },
+              {
+                "id": "group_96224277-a969-4ad5-ba58-5d86d7e311b9",
+                "node_type": "group",
+                "key": "identity",
+                "label": "identity",
+                "expanded": false,
+                "children": [
+                  {
+                    "id": "field_a8a09980-ca16-4799-9048-7ab75097a6a5",
+                    "node_type": "field",
+                    "key": "age",
+                    "label": "age",
+                    "value": "late teen 16-18 years old",
+                    "expanded": false,
+                    "origin_preset_path": "subject.identity.age",
+                    "preset_path": "subject.identity.age"
+                  },
+                  {
+                    "id": "field_16fe7840-a098-408b-8dfd-172b2ab538e8",
+                    "node_type": "field",
+                    "key": "ethnicity",
+                    "label": "ethnicity",
+                    "value": "",
+                    "expanded": false,
+                    "origin_preset_path": "subject.identity.ethnicity",
+                    "preset_path": "subject.identity.ethnicity"
+                  }
+                ],
+                "origin_preset_path": "subject.identity"
+              },
+              {
+                "id": "group_ed05e4a6-b4d5-41b7-8895-6d5ad1440714",
+                "node_type": "group",
+                "key": "dress",
+                "label": "dress",
+                "expanded": false,
+                "children": [
+                  {
+                    "id": "group_7966f29b-77e3-4871-be4c-9fa73011947d",
+                    "node_type": "group",
+                    "key": "top",
+                    "label": "top",
+                    "expanded": false,
+                    "children": [
+                      {
+                        "id": "field_2ae2565b-aeca-4793-a420-4194ed0c2ea5",
+                        "node_type": "field",
+                        "key": "type",
+                        "label": "type",
+                        "value": "blouse, soft feminine fabric",
+                        "expanded": false,
+                        "origin_preset_path": "subject.dress.top.type",
+                        "preset_path": "subject.dress.top.type"
+                      },
+                      {
+                        "id": "field_771f0920-adf0-4eb2-a7e7-8fe5f7522c86",
+                        "node_type": "field",
+                        "key": "style",
+                        "label": "style",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.dress.top.style",
+                        "preset_path": "subject.dress.top.style"
+                      },
+                      {
+                        "id": "field_87e4e242-1ae6-41ff-a088-adadfabd15ea",
+                        "node_type": "field",
+                        "key": "fit",
+                        "label": "fit",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.dress.top.fit",
+                        "preset_path": "subject.dress.top.fit"
+                      },
+                      {
+                        "id": "field_e138a2f9-4a02-4c1a-8ed8-44918146a596",
+                        "node_type": "field",
+                        "key": "color",
+                        "label": "color",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.dress.top.color",
+                        "preset_path": "subject.dress.top.color"
+                      },
+                      {
+                        "id": "field_83e02086-1724-4469-9a54-1acdeb357ca6",
+                        "node_type": "field",
+                        "key": "fabric",
+                        "label": "fabric",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.dress.top.fabric",
+                        "preset_path": "subject.dress.top.fabric"
+                      },
+                      {
+                        "id": "field_a6fc582b-ae21-4078-9ddc-d46d53df91ef",
+                        "node_type": "field",
+                        "key": "condition",
+                        "label": "condition",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.dress.top.condition",
+                        "preset_path": "subject.dress.top.condition"
+                      }
+                    ],
+                    "origin_preset_path": "subject.dress.top"
+                  },
+                  {
+                    "id": "group_9ee3c29c-4ed8-4e77-b7ef-24755ac0b5d5",
+                    "node_type": "group",
+                    "key": "bottom",
+                    "label": "bottom",
+                    "expanded": false,
+                    "children": [
+                      {
+                        "id": "field_4ea70a73-3b22-4760-80ba-cae28840cbc8",
+                        "node_type": "field",
+                        "key": "type",
+                        "label": "type",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.dress.bottom.type",
+                        "preset_path": "subject.dress.bottom.type"
+                      },
+                      {
+                        "id": "field_98bdd0f6-e94a-4c53-91d9-11a142f3e27b",
+                        "node_type": "field",
+                        "key": "style",
+                        "label": "style",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.dress.bottom.style",
+                        "preset_path": "subject.dress.bottom.style"
+                      },
+                      {
+                        "id": "field_3e4043d5-c5c5-4afc-947a-6a57cd3c29f8",
+                        "node_type": "field",
+                        "key": "fit",
+                        "label": "fit",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.dress.bottom.fit",
+                        "preset_path": "subject.dress.bottom.fit"
+                      },
+                      {
+                        "id": "field_a3c53a07-8ed3-4517-b63e-b94af8e16eab",
+                        "node_type": "field",
+                        "key": "color",
+                        "label": "color",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.dress.bottom.color",
+                        "preset_path": "subject.dress.bottom.color"
+                      },
+                      {
+                        "id": "field_de05e8f6-d734-4b54-a1a4-5dd6d9324b8e",
+                        "node_type": "field",
+                        "key": "fabric",
+                        "label": "fabric",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.dress.bottom.fabric",
+                        "preset_path": "subject.dress.bottom.fabric"
+                      },
+                      {
+                        "id": "field_ad5242b0-096c-4d85-9f47-f58240a99c30",
+                        "node_type": "field",
+                        "key": "condition",
+                        "label": "condition",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.dress.bottom.condition",
+                        "preset_path": "subject.dress.bottom.condition"
+                      }
+                    ],
+                    "origin_preset_path": "subject.dress.bottom"
+                  },
+                  {
+                    "id": "field_8d0e2993-305d-480d-a727-7d14af85f411",
+                    "node_type": "field",
+                    "key": "layering",
+                    "label": "layering",
+                    "value": "",
+                    "expanded": false,
+                    "origin_preset_path": "subject.dress.layering",
+                    "preset_path": "subject.dress.layering"
+                  },
+                  {
+                    "id": "field_eb562c6b-d3ec-4f89-a640-aa324cfccefe",
+                    "node_type": "field",
+                    "key": "accessories",
+                    "label": "accessories",
+                    "value": "",
+                    "expanded": false,
+                    "origin_preset_path": "subject.dress.accessories",
+                    "preset_path": "subject.dress.accessories"
+                  },
+                  {
+                    "id": "field_66368610-13c3-48a6-8551-9153f2c31152",
+                    "node_type": "field",
+                    "key": "footwear",
+                    "label": "footwear",
+                    "value": "",
+                    "expanded": false,
+                    "origin_preset_path": "subject.dress.footwear",
+                    "preset_path": "subject.dress.footwear"
+                  },
+                  {
+                    "id": "field_a1a46232-4deb-4c99-a53a-509bf02bddf5",
+                    "node_type": "field",
+                    "key": "head_covering",
+                    "label": "head_covering",
+                    "value": "",
+                    "expanded": false,
+                    "origin_preset_path": "subject.dress.head_covering",
+                    "preset_path": "subject.dress.head_covering"
+                  },
+                  {
+                    "id": "field_a051f329-6461-46b7-a1cd-f3c079f38c60",
+                    "node_type": "field",
+                    "key": "additional_information",
+                    "label": "additional_information",
+                    "value": "",
+                    "expanded": false
+                  }
+                ],
+                "origin_preset_path": "subject.dress"
+              },
+              {
+                "id": "group_122103f6-1972-46a2-845a-d5675ecb0a61",
+                "node_type": "group",
+                "key": "pose",
+                "label": "pose",
+                "expanded": false,
+                "children": [
+                  {
+                    "id": "group_0b126c5c-2687-4766-bfc3-d3ccebb2d087",
+                    "node_type": "group",
+                    "key": "orientation",
+                    "label": "orientation",
+                    "expanded": false,
+                    "children": [
+                      {
+                        "id": "field_00b6185c-75c4-45e7-b498-b79460cfb670",
+                        "node_type": "field",
+                        "key": "body_profile",
+                        "label": "body_profile",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.pose.orientation.body_profile",
+                        "preset_path": "subject.pose.orientation.body_profile"
+                      },
+                      {
+                        "id": "field_27808983-8563-4bf8-8cd7-01d3039b87aa",
+                        "node_type": "field",
+                        "key": "face_profile",
+                        "label": "face_profile",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.pose.orientation.face_profile",
+                        "preset_path": "subject.pose.orientation.face_profile"
+                      }
+                    ],
+                    "origin_preset_path": "subject.pose.orientation"
+                  },
+                  {
+                    "id": "field_9f60b43f-92df-4ff4-9535-7d147c30c185",
+                    "node_type": "field",
+                    "key": "action",
+                    "label": "action",
+                    "value": "",
+                    "expanded": false,
+                    "origin_preset_path": "subject.pose.action",
+                    "preset_path": "subject.pose.action"
+                  },
+                  {
+                    "id": "field_2eb3c53e-1e8b-40b0-8992-3614337177bc",
+                    "node_type": "field",
+                    "key": "common_pose",
+                    "label": "common_pose",
+                    "value": "",
+                    "expanded": false,
+                    "origin_preset_path": "subject.pose.common_pose",
+                    "preset_path": "subject.pose.common_pose"
+                  },
+                  {
+                    "id": "field_d00caf94-9a92-4aed-9df9-bdcf0255d9ac",
+                    "node_type": "field",
+                    "key": "weight_distribution",
+                    "label": "weight_distribution",
+                    "value": "",
+                    "expanded": false,
+                    "origin_preset_path": "subject.pose.weight_distribution",
+                    "preset_path": "subject.pose.weight_distribution"
+                  },
+                  {
+                    "id": "field_381d911c-43b0-41df-8298-2b958e0c1ced",
+                    "node_type": "field",
+                    "key": "body_tension",
+                    "label": "body_tension",
+                    "value": "",
+                    "expanded": false,
+                    "origin_preset_path": "subject.pose.body_tension",
+                    "preset_path": "subject.pose.body_tension"
+                  },
+                  {
+                    "id": "field_d661524f-6476-4d3e-8280-c55f05b1c0b0",
+                    "node_type": "field",
+                    "key": "contact_points",
+                    "label": "contact_points",
+                    "value": "",
+                    "expanded": false,
+                    "origin_preset_path": "subject.pose.contact_points",
+                    "preset_path": "subject.pose.contact_points"
+                  },
+                  {
+                    "id": "group_649aca47-ae6e-4ea9-89f2-b8bec2505448",
+                    "node_type": "group",
+                    "key": "body_parts",
+                    "label": "body_parts",
+                    "expanded": false,
+                    "children": [
+                      {
+                        "id": "field_933ad4ff-a54e-485a-b293-08a6a742c622",
+                        "node_type": "field",
+                        "key": "head",
+                        "label": "head",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.pose.body_parts.head",
+                        "preset_path": "subject.pose.body_parts.head"
+                      },
+                      {
+                        "id": "field_65750c05-f9e5-49ab-a4df-e02d84b4442c",
+                        "node_type": "field",
+                        "key": "torso",
+                        "label": "torso",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.pose.body_parts.torso",
+                        "preset_path": "subject.pose.body_parts.torso"
+                      },
+                      {
+                        "id": "field_cc36f642-f765-4983-a23b-2d5749e48c54",
+                        "node_type": "field",
+                        "key": "arms",
+                        "label": "arms",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.pose.body_parts.arms",
+                        "preset_path": "subject.pose.body_parts.arms"
+                      },
+                      {
+                        "id": "field_55fe9aa2-2f74-40d1-aaa4-113a879bb717",
+                        "node_type": "field",
+                        "key": "hands",
+                        "label": "hands",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.pose.body_parts.hands",
+                        "preset_path": "subject.pose.body_parts.hands"
+                      },
+                      {
+                        "id": "field_319905b9-954a-42ab-a90d-545b299f41c7",
+                        "node_type": "field",
+                        "key": "legs",
+                        "label": "legs",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.pose.body_parts.legs",
+                        "preset_path": "subject.pose.body_parts.legs"
+                      },
+                      {
+                        "id": "field_7ee1ea87-68e3-4d35-8273-7aa835556694",
+                        "node_type": "field",
+                        "key": "feet",
+                        "label": "feet",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.pose.body_parts.feet",
+                        "preset_path": "subject.pose.body_parts.feet"
+                      },
+                      {
+                        "id": "field_05192737-6089-4670-9b91-a0fca1787786",
+                        "node_type": "field",
+                        "key": "left_arm",
+                        "label": "left_arm",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.pose.body_parts.left_arm",
+                        "preset_path": "subject.pose.body_parts.left_arm"
+                      },
+                      {
+                        "id": "field_09cec109-f773-4e2e-8531-72276010da47",
+                        "node_type": "field",
+                        "key": "right_arm",
+                        "label": "right_arm",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.pose.body_parts.right_arm",
+                        "preset_path": "subject.pose.body_parts.right_arm"
+                      },
+                      {
+                        "id": "field_6e480aab-65f9-4b48-89e8-98eaf8a3ee66",
+                        "node_type": "field",
+                        "key": "left_hand",
+                        "label": "left_hand",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.pose.body_parts.left_hand",
+                        "preset_path": "subject.pose.body_parts.left_hand"
+                      },
+                      {
+                        "id": "field_b062a463-aaec-4bab-b24b-32c3ee5ace53",
+                        "node_type": "field",
+                        "key": "right_hand",
+                        "label": "right_hand",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.pose.body_parts.right_hand",
+                        "preset_path": "subject.pose.body_parts.right_hand"
+                      },
+                      {
+                        "id": "field_ccbd938c-521f-48d7-8116-3d769ec7d885",
+                        "node_type": "field",
+                        "key": "left_leg",
+                        "label": "left_leg",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.pose.body_parts.left_leg",
+                        "preset_path": "subject.pose.body_parts.left_leg"
+                      },
+                      {
+                        "id": "field_dacff5dd-60a2-4dd3-9154-9d0225e73d46",
+                        "node_type": "field",
+                        "key": "right_leg",
+                        "label": "right_leg",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.pose.body_parts.right_leg",
+                        "preset_path": "subject.pose.body_parts.right_leg"
+                      },
+                      {
+                        "id": "field_eb09f2cf-cd7b-426c-86d6-cb1a9f46a61e",
+                        "node_type": "field",
+                        "key": "left_foot",
+                        "label": "left_foot",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.pose.body_parts.left_foot",
+                        "preset_path": "subject.pose.body_parts.left_foot"
+                      },
+                      {
+                        "id": "field_e73b901d-3f62-49bf-976c-8f0ab8c4b0f5",
+                        "node_type": "field",
+                        "key": "right_foot",
+                        "label": "right_foot",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.pose.body_parts.right_foot",
+                        "preset_path": "subject.pose.body_parts.right_foot"
+                      }
+                    ],
+                    "origin_preset_path": "subject.pose.body_parts"
+                  },
+                  {
+                    "id": "field_48107269-ba42-44a2-a052-e514f2644c49",
+                    "node_type": "field",
+                    "key": "eye_gaze",
+                    "label": "eye_gaze",
+                    "value": "",
+                    "expanded": false,
+                    "origin_preset_path": "subject.pose.eye_gaze",
+                    "preset_path": "subject.pose.eye_gaze"
+                  },
+                  {
+                    "id": "field_5df6c582-60aa-480a-99f1-52d218a06ad1",
+                    "node_type": "field",
+                    "key": "additional_information",
+                    "label": "additional_information",
+                    "value": "",
+                    "expanded": false
+                  }
+                ],
+                "origin_preset_path": "subject.pose"
+              },
+              {
+                "id": "group_92a2831f-4c00-4e7d-8a3b-e0404d9486c5",
+                "node_type": "group",
+                "key": "properties",
+                "label": "properties",
+                "expanded": true,
+                "children": [
+                  {
+                    "id": "group_97f98b03-0f6d-4a42-aa67-11bfc437ade5",
+                    "node_type": "group",
+                    "key": "body",
+                    "label": "body",
+                    "expanded": false,
+                    "children": [
+                      {
+                        "id": "field_d2923dc6-3c4f-4047-9880-766b176c48e4",
+                        "node_type": "field",
+                        "key": "type",
+                        "label": "type",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.body.type",
+                        "preset_path": "subject.properties.body.type"
+                      },
+                      {
+                        "id": "field_cb4749f5-ed81-47b4-abb8-b43a64d8158c",
+                        "node_type": "field",
+                        "key": "height",
+                        "label": "height",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.body.height",
+                        "preset_path": "subject.properties.body.height"
+                      },
+                      {
+                        "id": "field_ba961c35-0728-431b-89ed-2db739f046b9",
+                        "node_type": "field",
+                        "key": "bust",
+                        "label": "bust",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.body.bust",
+                        "preset_path": "subject.properties.body.bust"
+                      },
+                      {
+                        "id": "field_a764b99b-a405-4549-ad71-dcc3398445fd",
+                        "node_type": "field",
+                        "key": "flanks",
+                        "label": "flanks",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.body.flanks",
+                        "preset_path": "subject.properties.body.flanks"
+                      },
+                      {
+                        "id": "field_063c5212-3c64-44cb-b11f-f8fba9bc00c6",
+                        "node_type": "field",
+                        "key": "waist",
+                        "label": "waist",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.body.waist",
+                        "preset_path": "subject.properties.body.waist"
+                      },
+                      {
+                        "id": "field_ec235dad-a9f3-47ca-bcb2-e9ef8e2757ab",
+                        "node_type": "field",
+                        "key": "hips",
+                        "label": "hips",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.body.hips",
+                        "preset_path": "subject.properties.body.hips"
+                      },
+                      {
+                        "id": "field_4afef672-249d-4ec6-ab64-7d6ba8a1b012",
+                        "node_type": "field",
+                        "key": "legs",
+                        "label": "legs",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.body.legs",
+                        "preset_path": "subject.properties.body.legs"
+                      },
+                      {
+                        "id": "field_f1a1df3e-e59a-4a76-a115-e9e273ee6bd8",
+                        "node_type": "field",
+                        "key": "muscle_definition",
+                        "label": "muscle_definition",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.body.muscle_definition",
+                        "preset_path": "subject.properties.body.muscle_definition"
+                      },
+                      {
+                        "id": "field_01f62b7e-2e67-4d89-ad7e-3a05574493ed",
+                        "node_type": "field",
+                        "key": "hands",
+                        "label": "hands",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.body.hands",
+                        "preset_path": "subject.properties.body.hands"
+                      },
+                      {
+                        "id": "field_ecec450b-2666-40a0-8beb-7d22bedd6ea4",
+                        "node_type": "field",
+                        "key": "feet",
+                        "label": "feet",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.body.feet",
+                        "preset_path": "subject.properties.body.feet"
+                      }
+                    ],
+                    "origin_preset_path": "subject.properties.body"
+                  },
+                  {
+                    "id": "group_a6ca9ae8-52ab-4a2d-9660-cf71119dd944",
+                    "node_type": "group",
+                    "key": "skin",
+                    "label": "skin",
+                    "expanded": true,
+                    "children": [
+                      {
+                        "id": "field_0629277d-3e41-4aaf-a7d1-7e87a2301069",
+                        "node_type": "field",
+                        "key": "tone",
+                        "label": "tone",
+                        "value": "light medium skin tone, neutral undertones",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.skin.tone",
+                        "preset_path": "subject.properties.skin.tone"
+                      },
+                      {
+                        "id": "field_8ef181d1-9897-4fba-8592-9fa630e7c4d3",
+                        "node_type": "field",
+                        "key": "texture",
+                        "label": "texture",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.skin.texture",
+                        "preset_path": "subject.properties.skin.texture"
+                      },
+                      {
+                        "id": "field_6c520b38-b83b-40b9-acaf-348fe2111d4b",
+                        "node_type": "field",
+                        "key": "details",
+                        "label": "details",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.skin.details",
+                        "preset_path": "subject.properties.skin.details"
+                      }
+                    ],
+                    "origin_preset_path": "subject.properties.skin"
+                  },
+                  {
+                    "id": "group_674e9d58-c4d9-4747-85c4-b80406c03a8c",
+                    "node_type": "group",
+                    "key": "hair",
+                    "label": "hair",
+                    "expanded": false,
+                    "children": [
+                      {
+                        "id": "field_d5f0250f-50c7-464c-af45-b881dfcae495",
+                        "node_type": "field",
+                        "key": "style",
+                        "label": "style",
+                        "value": "half up half down style",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.hair.style",
+                        "preset_path": "subject.properties.hair.style"
+                      },
+                      {
+                        "id": "field_1a0ff985-0d2e-41bb-ac98-f616b62275b0",
+                        "node_type": "field",
+                        "key": "color",
+                        "label": "color",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.hair.color",
+                        "preset_path": "subject.properties.hair.color"
+                      },
+                      {
+                        "id": "field_3f7b727d-1c0f-4f65-bb5f-adb5160adc54",
+                        "node_type": "field",
+                        "key": "characteristics",
+                        "label": "characteristics",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.hair.characteristics",
+                        "preset_path": "subject.properties.hair.characteristics"
+                      },
+                      {
+                        "id": "field_aef8bc58-0fee-4a11-8dc0-9bca316d3309",
+                        "node_type": "field",
+                        "key": "temple",
+                        "label": "temple",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.hair.temple",
+                        "preset_path": "subject.properties.hair.temple"
+                      },
+                      {
+                        "id": "field_2c09f472-f1d9-4a2a-ac55-d91e7ca7870e",
+                        "node_type": "field",
+                        "key": "apex",
+                        "label": "apex",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.hair.apex",
+                        "preset_path": "subject.properties.hair.apex"
+                      }
+                    ],
+                    "origin_preset_path": "subject.properties.hair"
+                  },
+                  {
+                    "id": "group_4a0cd6c1-965c-4784-a6a1-a0adc21785d7",
+                    "node_type": "group",
+                    "key": "face",
+                    "label": "face",
+                    "expanded": false,
+                    "children": [
+                      {
+                        "id": "field_b8b451f0-e978-4d23-a6b0-e17fe1ac8424",
+                        "node_type": "field",
+                        "key": "structure",
+                        "label": "structure",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.face.structure",
+                        "preset_path": "subject.properties.face.structure"
+                      },
+                      {
+                        "id": "field_08acefe3-3433-4a89-8c3a-ede1f20ff223",
+                        "node_type": "field",
+                        "key": "temple_width",
+                        "label": "temple_width",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.face.temple_width",
+                        "preset_path": "subject.properties.face.temple_width"
+                      },
+                      {
+                        "id": "field_fbb7dfc1-d09e-471a-baed-7ad3f5f3d164",
+                        "node_type": "field",
+                        "key": "mid_face_width",
+                        "label": "mid_face_width",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.face.mid_face_width",
+                        "preset_path": "subject.properties.face.mid_face_width"
+                      },
+                      {
+                        "id": "field_450b34a8-0b84-4fc1-b217-93fb34a574bb",
+                        "node_type": "field",
+                        "key": "cheeks",
+                        "label": "cheeks",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.face.cheeks",
+                        "preset_path": "subject.properties.face.cheeks"
+                      },
+                      {
+                        "id": "field_ce71e5cf-2979-4d84-b889-b72899fabab8",
+                        "node_type": "field",
+                        "key": "chin",
+                        "label": "chin",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.face.chin",
+                        "preset_path": "subject.properties.face.chin"
+                      },
+                      {
+                        "id": "field_b8315861-5c4b-4446-bb62-0a8ea5f9784d",
+                        "node_type": "field",
+                        "key": "eyes",
+                        "label": "eyes",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.face.eyes",
+                        "preset_path": "subject.properties.face.eyes"
+                      },
+                      {
+                        "id": "field_c8282dc5-441a-456f-9791-a733e8962bd6",
+                        "node_type": "field",
+                        "key": "eye_color",
+                        "label": "eye_color",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.face.eye_color",
+                        "preset_path": "subject.properties.face.eye_color"
+                      },
+                      {
+                        "id": "field_fb09cabe-9d4c-42ae-8bf0-55f5b16b75f0",
+                        "node_type": "field",
+                        "key": "nose",
+                        "label": "nose",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.face.nose",
+                        "preset_path": "subject.properties.face.nose"
+                      },
+                      {
+                        "id": "field_80128da9-5931-4d0c-b563-937f123ae04f",
+                        "node_type": "field",
+                        "key": "lips",
+                        "label": "lips",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.face.lips",
+                        "preset_path": "subject.properties.face.lips"
+                      },
+                      {
+                        "id": "field_ee9e21fe-ad16-49a4-8ea8-660f3f4e8094",
+                        "node_type": "field",
+                        "key": "eyebrows",
+                        "label": "eyebrows",
+                        "value": "",
+                        "expanded": false,
+                        "origin_preset_path": "subject.properties.face.eyebrows",
+                        "preset_path": "subject.properties.face.eyebrows"
+                      }
+                    ],
+                    "origin_preset_path": "subject.properties.face"
+                  },
+                  {
+                    "id": "field_f2affcac-2e2d-4ea3-92ce-ad1bd68c7b43",
+                    "node_type": "field",
+                    "key": "expression",
+                    "label": "expression",
+                    "value": "",
+                    "expanded": false,
+                    "origin_preset_path": "subject.properties.expression",
+                    "preset_path": "subject.properties.expression"
+                  }
+                ],
+                "origin_preset_path": "subject.properties"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "group_7310af48-fa3a-4e6c-9c52-cdcd5323fce3",
+        "node_type": "group",
+        "key": "scene",
+        "label": "scene",
+        "expanded": false,
+        "children": [
+          {
+            "id": "field_ad53bb57-9b60-4b2a-bc26-648a409139ac",
+            "node_type": "field",
+            "key": "environment",
+            "label": "environment",
+            "value": "backyard settings, fence and grassy areas, some plantation",
+            "expanded": false,
+            "origin_preset_path": "scene.environment",
+            "preset_path": "scene.environment"
+          },
+          {
+            "id": "field_166abf98-9178-4072-8de5-2a533dd2b456",
+            "node_type": "field",
+            "key": "time_of_day",
+            "label": "time_of_day",
+            "value": "",
+            "expanded": false,
+            "origin_preset_path": "scene.time_of_day",
+            "preset_path": "scene.time_of_day"
+          },
+          {
+            "id": "field_9a5c4409-9192-4892-b08a-427a5ab3c4a6",
+            "node_type": "field",
+            "key": "mm",
+            "label": "camera.lens.mm",
+            "value": "",
+            "expanded": false,
+            "origin_preset_path": "scene.weather",
+            "preset_path": "camera.lens.mm"
+          },
+          {
+            "id": "field_828f20c3-dff3-4e9e-86e6-2d5747c8c242",
+            "node_type": "field",
+            "key": "location_type",
+            "label": "location_type",
+            "value": "",
+            "expanded": false,
+            "origin_preset_path": "scene.location_type",
+            "preset_path": "scene.location_type"
+          },
+          {
+            "id": "field_1a789cec-4a49-4271-8451-970b2ed617f1",
+            "node_type": "field",
+            "key": "background",
+            "label": "background",
+            "value": "seamless white studio backdrop",
+            "expanded": false,
+            "origin_preset_path": "scene.background",
+            "preset_path": "scene.background"
+          },
+          {
+            "id": "field_f8cfafe3-a7e6-4f48-a384-53c5b1804beb",
+            "node_type": "field",
+            "key": "surface",
+            "label": "surface",
+            "value": "",
+            "expanded": false,
+            "origin_preset_path": "scene.surface",
+            "preset_path": "scene.surface"
+          },
+          {
+            "id": "field_96680d43-4e4c-4081-98a0-d40d1aa473fc",
+            "node_type": "field",
+            "key": "props",
+            "label": "props",
+            "value": "doorframe or threshold",
+            "expanded": false,
+            "origin_preset_path": "scene.props",
+            "preset_path": "scene.props"
+          },
+          {
+            "id": "field_38f41a79-ffe9-46a3-9af5-e76a4d989e6b",
+            "node_type": "field",
+            "key": "depth",
+            "label": "depth",
+            "value": "",
+            "expanded": false,
+            "origin_preset_path": "scene.depth",
+            "preset_path": "scene.depth"
+          },
+          {
+            "id": "field_999af5a5-43e6-431b-92b6-3af9634de42d",
+            "node_type": "field",
+            "key": "additional_information",
+            "label": "additional_information",
+            "value": "",
+            "expanded": false
+          },
+          {
+            "id": "field_95259575-1ccf-48e3-9be0-9a3c0f51c382",
+            "node_type": "field",
+            "key": "props_2",
+            "label": "props",
+            "value": "wall or railing as support element",
+            "expanded": false,
+            "origin_preset_path": "scene.props",
+            "preset_path": "scene.props",
+            "is_duplicate": true
+          },
+          {
+            "id": "field_c671d20d-1faa-4806-b636-82de0247784d",
+            "node_type": "field",
+            "key": "layering",
+            "label": "subject.dress.layering",
+            "value": "open jacket or coat over top, unfastened",
+            "expanded": false,
+            "preset_path": "subject.dress.layering",
+            "origin_preset_path": "scene.props"
+          }
+        ],
+        "origin_preset_path": "scene"
+      },
+      {
+        "id": "group_a7b078a3-50db-4fc4-a7bd-b3d88899015d",
+        "node_type": "group",
+        "key": "interactions",
+        "label": "interactions",
+        "expanded": false,
+        "children": [
+          {
+            "id": "field_569e3f07-d09d-4855-8f0b-28c62aac8e29",
+            "node_type": "field",
+            "key": "interaction1",
+            "label": "interaction1",
+            "value": "They are kissing",
+            "expanded": false
+          },
+          {
+            "id": "field_e763cb3b-bf97-4d75-baee-660a6b059a1e",
+            "node_type": "field",
+            "key": "interaction1_2",
+            "label": "interaction1_2",
+            "value": "hands on face",
+            "expanded": false
+          }
+        ]
+      },
+      {
+        "id": "group_9a234595-0f93-4651-b396-d7a3f4c4672c",
+        "node_type": "group",
+        "key": "style",
+        "label": "style",
+        "expanded": false,
+        "children": [
+          {
+            "id": "field_e20abb6c-c60c-4f09-9bf0-c44ef4d06732",
+            "node_type": "field",
+            "key": "photography_style",
+            "label": "photography_style",
+            "value": "observational 'slice of life' style, captures the subject in a way that feels like a shared living space, zero-glamour, focused on the raw honesty of the moment",
+            "expanded": false,
+            "origin_preset_path": "style.photography_style",
+            "preset_path": "style.photography_style"
+          },
+          {
+            "id": "field_c0e087dc-8ed5-4a65-a166-c6a8f0cd12a9",
+            "node_type": "field",
+            "key": "film_type",
+            "label": "film_type",
+            "value": "",
+            "expanded": false,
+            "origin_preset_path": "style.film_type",
+            "preset_path": "style.film_type"
+          },
+          {
+            "id": "field_e1d86b14-daed-4349-b6c8-d19e9746c24a",
+            "node_type": "field",
+            "key": "era",
+            "label": "era",
+            "value": "",
+            "expanded": false,
+            "origin_preset_path": "style.era",
+            "preset_path": "style.era"
+          },
+          {
+            "id": "field_acb1f356-90d1-4f90-8a98-08a4d13f9be7",
+            "node_type": "field",
+            "key": "aesthetic",
+            "label": "aesthetic",
+            "value": "",
+            "expanded": false,
+            "origin_preset_path": "style.aesthetic",
+            "preset_path": "style.aesthetic"
+          },
+          {
+            "id": "field_c25acf13-e942-4a69-a4ca-349f25752047",
+            "node_type": "field",
+            "key": "realism",
+            "label": "realism",
+            "value": "",
+            "expanded": false,
+            "origin_preset_path": "style.realism",
+            "preset_path": "style.realism"
+          },
+          {
+            "id": "field_cb757379-dc5a-4453-abb6-4858a693e4be",
+            "node_type": "field",
+            "key": "transformation",
+            "label": "transformation",
+            "value": "",
+            "expanded": false,
+            "origin_preset_path": "style.transformation",
+            "preset_path": "style.transformation"
+          },
+          {
+            "id": "field_f283ad26-b802-4ac6-835e-f3c67a1ef62f",
+            "node_type": "field",
+            "key": "additional_information",
+            "label": "additional_information",
+            "value": "",
+            "expanded": false
+          }
+        ],
+        "origin_preset_path": "style"
+      },
+      {
+        "id": "group_2ade5097-7163-4856-9d9e-3a2c2ae9b651",
+        "node_type": "group",
+        "key": "lighting",
+        "label": "lighting",
+        "expanded": false,
+        "children": [
+          {
+            "id": "field_a020774d-65a9-4325-9f7e-46dab7dcc73c",
+            "node_type": "field",
+            "key": "type",
+            "label": "type",
+            "value": "",
+            "expanded": false,
+            "origin_preset_path": "lighting.type",
+            "preset_path": "lighting.type"
+          },
+          {
+            "id": "field_c6c2eb14-968c-41ad-a7c0-63d1cff72f4e",
+            "node_type": "field",
+            "key": "direction",
+            "label": "direction",
+            "value": "",
+            "expanded": false,
+            "origin_preset_path": "lighting.direction",
+            "preset_path": "lighting.direction"
+          },
+          {
+            "id": "field_b3a3dc4a-671a-40d3-a6ab-ed383d23d3f0",
+            "node_type": "field",
+            "key": "quality",
+            "label": "quality",
+            "value": "very soft light, almost shadowless, wraps around subject",
+            "expanded": false,
+            "origin_preset_path": "lighting.quality",
+            "preset_path": "lighting.quality"
+          },
+          {
+            "id": "field_01199551-6070-43ca-9aaa-5cc61bd1932e",
+            "node_type": "field",
+            "key": "color_temperature",
+            "label": "color_temperature",
+            "value": "",
+            "expanded": false,
+            "origin_preset_path": "lighting.color_temperature",
+            "preset_path": "lighting.color_temperature"
+          },
+          {
+            "id": "field_35e4e04a-cf10-4e3a-b792-e295ab7ec5a5",
+            "node_type": "field",
+            "key": "shadows",
+            "label": "shadows",
+            "value": "",
+            "expanded": false,
+            "origin_preset_path": "lighting.shadows",
+            "preset_path": "lighting.shadows"
+          },
+          {
+            "id": "field_311253ff-9b03-4fef-b84a-f3e51b1a7353",
+            "node_type": "field",
+            "key": "highlights",
+            "label": "highlights",
+            "value": "",
+            "expanded": false,
+            "origin_preset_path": "lighting.highlights",
+            "preset_path": "lighting.highlights"
+          },
+          {
+            "id": "field_e93af702-0c5d-4a8f-a6b0-5e42ad794393",
+            "node_type": "field",
+            "key": "intensity",
+            "label": "intensity",
+            "value": "",
+            "expanded": false,
+            "origin_preset_path": "lighting.intensity",
+            "preset_path": "lighting.intensity"
+          },
+          {
+            "id": "field_05663e7e-6ebd-4e4a-8680-d40f4377fdef",
+            "node_type": "field",
+            "key": "light_sources",
+            "label": "light_sources",
+            "value": "",
+            "expanded": false,
+            "origin_preset_path": "lighting.light_sources",
+            "preset_path": "lighting.light_sources"
+          },
+          {
+            "id": "field_ad329dce-d89a-4b9d-bcc8-ba45d18d6505",
+            "node_type": "field",
+            "key": "catchlights",
+            "label": "catchlights",
+            "value": "",
+            "expanded": false,
+            "origin_preset_path": "lighting.catchlights",
+            "preset_path": "lighting.catchlights"
+          },
+          {
+            "id": "field_6100274e-1971-450f-bb2b-b656d8f76528",
+            "node_type": "field",
+            "key": "additional_information",
+            "label": "additional_information",
+            "value": "",
+            "expanded": false
+          }
+        ],
+        "origin_preset_path": "lighting"
+      },
+      {
+        "id": "group_896ea8e9-02bb-48e4-9591-2dc7e0ddef64",
+        "node_type": "group",
+        "key": "camera",
+        "label": "camera",
+        "expanded": false,
+        "children": [
+          {
+            "id": "field_0ca6356e-06ed-4dee-8b11-4748ef4b31b3",
+            "node_type": "field",
+            "key": "angle",
+            "label": "angle",
+            "value": "",
+            "expanded": false,
+            "origin_preset_path": "camera.angle",
+            "preset_path": "camera.angle"
+          },
+          {
+            "id": "field_b13ce855-e8b8-42bf-99a9-307bcd797b92",
+            "node_type": "field",
+            "key": "shot_type",
+            "label": "shot_type",
+            "value": "medium shot, waist up",
+            "expanded": false,
+            "origin_preset_path": "camera.shot_type",
+            "preset_path": "camera.shot_type"
+          },
+          {
+            "id": "field_9b66ea79-d36b-4357-80a4-79b35d49facc",
+            "node_type": "field",
+            "key": "subject_position",
+            "label": "subject_position",
+            "value": "subject positioned left of frame, right side open",
+            "expanded": false,
+            "origin_preset_path": "camera.subject_position",
+            "preset_path": "camera.subject_position"
+          },
+          {
+            "id": "field_a4a92c70-1cf7-4865-8471-f8545de0dbfb",
+            "node_type": "field",
+            "key": "aspect_ratio",
+            "label": "aspect_ratio",
+            "value": "",
+            "expanded": false,
+            "origin_preset_path": "camera.aspect_ratio",
+            "preset_path": "camera.aspect_ratio"
+          },
+          {
+            "id": "group_09ea38d6-ee64-47a7-8831-1a975e154d10",
+            "node_type": "group",
+            "key": "lens",
+            "label": "lens",
+            "expanded": false,
+            "children": [
+              {
+                "id": "field_e243a6d5-9e2a-4f86-a750-96cd1a25d005",
+                "node_type": "field",
+                "key": "mm",
+                "label": "mm",
+                "value": "",
+                "expanded": false,
+                "origin_preset_path": "camera.lens.mm",
+                "preset_path": "camera.lens.mm"
+              },
+              {
+                "id": "field_3e9f9636-2ca2-4944-9083-7b90d2ee858a",
+                "node_type": "field",
+                "key": "camera_body",
+                "label": "camera_body",
+                "value": "",
+                "expanded": false,
+                "origin_preset_path": "camera.lens.camera_body",
+                "preset_path": "camera.lens.camera_body"
+              }
+            ],
+            "origin_preset_path": "camera.lens"
+          },
+          {
+            "id": "group_804a337e-682e-4443-b983-a031284d9e05",
+            "node_type": "group",
+            "key": "exposure",
+            "label": "exposure",
+            "expanded": false,
+            "children": [
+              {
+                "id": "field_b55ad9c1-5f70-4e95-9993-4e1f2875e42f",
+                "node_type": "field",
+                "key": "aperture",
+                "label": "aperture",
+                "value": "",
+                "expanded": false,
+                "origin_preset_path": "camera.exposure.aperture",
+                "preset_path": "camera.exposure.aperture"
+              },
+              {
+                "id": "field_3586bca2-19d3-4a84-a519-2721f55f4ed6",
+                "node_type": "field",
+                "key": "iso",
+                "label": "iso",
+                "value": "",
+                "expanded": false,
+                "origin_preset_path": "camera.exposure.iso",
+                "preset_path": "camera.exposure.iso"
+              },
+              {
+                "id": "field_9885d04b-1ac8-4f15-96b4-102ceafe02a2",
+                "node_type": "field",
+                "key": "shutter_speed",
+                "label": "shutter_speed",
+                "value": "",
+                "expanded": false,
+                "origin_preset_path": "camera.exposure.shutter_speed",
+                "preset_path": "camera.exposure.shutter_speed"
+              }
+            ],
+            "origin_preset_path": "camera.exposure"
+          },
+          {
+            "id": "field_158b9a61-9eaa-465a-afb0-a44dce27923d",
+            "node_type": "field",
+            "key": "focus",
+            "label": "focus",
+            "value": "",
+            "expanded": false,
+            "origin_preset_path": "camera.focus",
+            "preset_path": "camera.focus"
+          },
+          {
+            "id": "field_4f958a4f-405b-41dc-8233-d0bb4d2d280f",
+            "node_type": "field",
+            "key": "additional_information",
+            "label": "additional_information",
+            "value": "",
+            "expanded": false
+          }
+        ],
+        "origin_preset_path": "camera"
+      },
+      {
+        "id": "group_1bb18c3b-9f12-4adb-8134-942712e3c740",
+        "node_type": "group",
+        "key": "mood",
+        "label": "mood",
+        "expanded": true,
+        "children": [
+          {
+            "id": "field_12528bbe-de85-40ec-8d49-6e567d3830da",
+            "node_type": "field",
+            "key": "mood",
+            "label": "mood",
+            "value": "nostalgic, wistful, past-tinged",
+            "expanded": false,
+            "origin_preset_path": "mood.mood",
+            "preset_path": "mood.mood"
+          },
+          {
+            "id": "field_262e756c-095f-41c0-845b-d068860c474b",
+            "node_type": "field",
+            "key": "color_palette",
+            "label": "color_palette",
+            "value": "warm neutrals, cream, tan, warm grey",
+            "expanded": false,
+            "origin_preset_path": "mood.color_palette",
+            "preset_path": "mood.color_palette"
+          },
+          {
+            "id": "field_cbd08248-1206-4ff2-9a17-b5dd21072796",
+            "node_type": "field",
+            "key": "grading_style",
+            "label": "grading_style",
+            "value": "",
+            "expanded": false,
+            "origin_preset_path": "mood.grading_style",
+            "preset_path": "mood.grading_style"
+          },
+          {
+            "id": "field_c7ea004e-0130-4d93-af2d-a0b4d1836cd9",
+            "node_type": "field",
+            "key": "time_period_feel",
+            "label": "time_period_feel",
+            "value": "",
+            "expanded": false,
+            "origin_preset_path": "mood.time_period_feel",
+            "preset_path": "mood.time_period_feel"
+          },
+          {
+            "id": "field_78c9fcae-28fd-4b77-81a9-83a8e1d8fdbe",
+            "node_type": "field",
+            "key": "narrative",
+            "label": "narrative",
+            "value": "",
+            "expanded": false,
+            "origin_preset_path": "mood.narrative",
+            "preset_path": "mood.narrative"
+          },
+          {
+            "id": "field_83a24bff-02d1-4ea9-a776-1b88db08befd",
+            "node_type": "field",
+            "key": "tension",
+            "label": "tension",
+            "value": "",
+            "expanded": false,
+            "origin_preset_path": "mood.tension",
+            "preset_path": "mood.tension"
+          },
+          {
+            "id": "field_c5b0da0e-4d01-4407-8c2f-abd930bd985e",
+            "node_type": "field",
+            "key": "additional_information",
+            "label": "additional_information",
+            "value": "",
+            "expanded": false
+          },
+          {
+            "id": "field_748c96f6-346c-4259-8b08-38926b1e63b7",
+            "node_type": "field",
+            "key": "color_palette_2",
+            "label": "color_palette_2",
+            "value": "earthy tones, brown, ochre, rust, olive",
+            "expanded": false,
+            "preset_path": "mood.color_palette",
+            "origin_preset_path": "mood.color_palette"
+          }
+        ],
+        "origin_preset_path": "mood"
+      },
+      {
+        "id": "group_eb3ec325-df41-45be-8bc0-88caa1832cc9",
+        "node_type": "group",
+        "key": "quality",
+        "label": "quality",
+        "expanded": true,
+        "children": [
+          {
+            "id": "field_6196967e-c2b1-4c1b-b243-69b285f65260",
+            "node_type": "field",
+            "key": "resolution",
+            "label": "resolution",
+            "value": "",
+            "expanded": false,
+            "origin_preset_path": "quality.resolution",
+            "preset_path": "quality.resolution"
+          },
+          {
+            "id": "field_76fcf607-7484-4189-b27c-9475dcce4740",
+            "node_type": "field",
+            "key": "resolution",
+            "label": "resolution",
+            "value": "8K ultra high resolution",
+            "expanded": false,
+            "preset_path": "quality.resolution",
+            "origin_preset_path": "quality.resolution"
+          },
+          {
+            "id": "field_a2c2e365-becb-4a22-85bf-43b4c245deec",
+            "node_type": "field",
+            "key": "realism_tags",
+            "label": "realism_tags",
+            "value": "",
+            "expanded": false,
+            "origin_preset_path": "quality.realism_tags",
+            "preset_path": "quality.realism_tags"
+          },
+          {
+            "id": "field_dbe6ad4a-8724-416a-8402-96b170782399",
+            "node_type": "field",
+            "key": "detail_level",
+            "label": "detail_level",
+            "value": "high detail, sharp and defined throughout",
+            "expanded": false,
+            "origin_preset_path": "quality.detail_level",
+            "preset_path": "quality.detail_level"
+          },
+          {
+            "id": "field_808787c8-474f-4dde-ba1d-d7c5e881a800",
+            "node_type": "field",
+            "key": "post_processing",
+            "label": "post_processing",
+            "value": "",
+            "expanded": false,
+            "origin_preset_path": "quality.post_processing",
+            "preset_path": "quality.post_processing"
+          },
+          {
+            "id": "field_f36288a9-8143-494f-9f5e-e19679909770",
+            "node_type": "field",
+            "key": "output_intent",
+            "label": "output_intent",
+            "value": "",
+            "expanded": false,
+            "origin_preset_path": "quality.output_intent",
+            "preset_path": "quality.output_intent"
+          },
+          {
+            "id": "field_fac84350-d1c6-422d-9499-e266d6bdb5e2",
+            "node_type": "field",
+            "key": "camera_tags",
+            "label": "camera_tags",
+            "value": "Leica optical quality",
+            "expanded": false,
+            "origin_preset_path": "quality.camera_tags",
+            "preset_path": "quality.camera_tags"
+          },
+          {
+            "id": "field_5071f641-aa31-461e-baad-74c89b3a0c9c",
+            "node_type": "field",
+            "key": "additional_information",
+            "label": "additional_information",
+            "value": "",
+            "expanded": false
+          }
+        ],
+        "origin_preset_path": "quality"
+      },
+      {
+        "id": "group_80639880-d470-44b8-b22f-70f356837b7c",
+        "node_type": "group",
+        "key": "negative",
+        "label": "negative",
+        "expanded": false,
+        "children": [
+          {
+            "id": "field_dec0f52c-ffa8-45d9-9698-aca47a956d5f",
+            "node_type": "field",
+            "key": "text",
+            "label": "text",
+            "value": "photoshop",
+            "expanded": false
+          }
+        ]
+      }
+    ]
+  },
+  "randomizer_checked": [
+    "field_12528bbe-de85-40ec-8d49-6e567d3830da",
+    "field_fac84350-d1c6-422d-9499-e266d6bdb5e2",
+    "field_faf0386c-2956-4c20-ae4c-d3c5171011ae",
+    "field_d5f0250f-50c7-464c-af45-b881dfcae495",
+    "field_0629277d-3e41-4aaf-a7d1-7e87a2301069"
+  ]
+}
