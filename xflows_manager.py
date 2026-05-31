@@ -273,6 +273,17 @@ def _load_library(name: str) -> dict:
         data["prompts"] = []
     if name == "presets" and not isinstance(data.get("categories"), list):
         data["categories"] = []
+    if name == "presets":
+        for category in data.get("categories", []):
+            if not isinstance(category, dict):
+                continue
+            snippets = category.get("snippets")
+            if not isinstance(snippets, list):
+                category["snippets"] = []
+                continue
+            for snippet in snippets:
+                if isinstance(snippet, dict):
+                    snippet["favorite"] = bool(snippet.get("favorite", False))
     if name == "node_snips" and not isinstance(data.get("snips"), list):
         data["snips"] = []
     data["version"] = METADATA_VERSION
@@ -672,9 +683,13 @@ def _upsert_preset_snippet(category_id: str, payload: dict) -> dict | None:
     existing = _find_entry(snippets, entry_id) if entry_id else None
     now = _now_ms()
     if existing is None:
-        existing = {"id": _new_library_id("snippet"), "created_at": now, "use_count": 0}
+        existing = {"id": _new_library_id("snippet"), "created_at": now, "use_count": 0, "favorite": False}
         snippets.append(existing)
     existing["text"] = _clean_body_text(payload.get("text"))
+    if "favorite" in payload:
+        existing["favorite"] = bool(payload.get("favorite"))
+    else:
+        existing["favorite"] = bool(existing.get("favorite", False))
     existing["updated_at"] = now
     category["updated_at"] = now
     _save_library("presets", data)
@@ -704,6 +719,7 @@ def _touch_preset_snippet(category_id: str, entry_id: str) -> dict | None:
     snippet = _find_entry(category.setdefault("snippets", []), entry_id)
     if snippet is None:
         return None
+    snippet["favorite"] = bool(snippet.get("favorite", False))
     snippet["use_count"] = int(snippet.get("use_count", 0) or 0) + 1
     snippet["last_used_at"] = _now_ms()
     _save_library("presets", data)
@@ -1602,7 +1618,7 @@ async def use_library_preset_snippet(request):
     entry = _touch_preset_snippet(category_id, entry_id)
     if entry is None:
         return _json_response({"error": "snippet not found"}, status=404)
-    return _json_response({"ok": True, "snippet": entry})
+    return _json_response({"ok": True, "snippet": entry, "categories": _load_library("presets").get("categories", [])})
 
 
 @PromptServer.instance.routes.get(f"{ROUTE_PREFIX}/library/node-snips")

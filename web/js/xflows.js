@@ -469,6 +469,18 @@ function iconButton(iconName, title, onClick, className = "") {
   return makeButton({ iconName, title, onClick, className: `xfm-icon-btn ${className}` });
 }
 
+function containComfyKeys(event) {
+  event.stopPropagation();
+}
+
+function protectField(element) {
+  if (!element) return element;
+  for (const eventName of ["keydown", "keypress", "keyup", "beforeinput", "input", "compositionstart", "compositionupdate", "compositionend", "paste", "cut"]) {
+    element.addEventListener(eventName, containComfyKeys);
+  }
+  return element;
+}
+
 function settingStorageKey(id) {
   return `${WORKFLOWX_SETTING_PREFIX}.${id}`;
 }
@@ -572,7 +584,7 @@ function renderShell(target, options = {}) {
 
   const searchWrap = $el("div.xfm-search-wrap", { parent: header });
   searchWrap.append(icon("pi-search"));
-  const search = $el("input.xfm-input", {
+  const search = protectField($el("input.xfm-input", {
     type: "search",
     placeholder: "Search XFlows...",
     value: XFM.query,
@@ -585,7 +597,7 @@ function renderShell(target, options = {}) {
       renderShell(XFM.root, { preserveSearchFocus });
     },
     parent: searchWrap,
-  });
+  }));
 
   const toolbar = $el("div.xfm-toolbar", { parent: header });
   const segment = $el("div.xfm-segment", { parent: toolbar });
@@ -612,7 +624,7 @@ function renderShell(target, options = {}) {
 
   const sortField = $el("label.xfm-field", { parent: toolbar });
   sortField.append($el("span.xfm-label", { textContent: "Sort" }));
-  const sort = $el("select.xfm-select", {
+  const sort = protectField($el("select.xfm-select", {
     value: XFM.sort,
     onchange: (event) => {
       XFM.sort = event.target.value;
@@ -625,7 +637,7 @@ function renderShell(target, options = {}) {
     $el("option", { value: "newest", textContent: "Newest" }),
     $el("option", { value: "most_used", textContent: "Most used" }),
     $el("option", { value: "last_used", textContent: "Last used" }),
-  ]);
+  ]));
   sort.value = XFM.sort;
 
   const filterRow = $el("div.xfm-filter-row", { parent: header });
@@ -1195,7 +1207,7 @@ function renderDialog(parent) {
       chip.append($el("span.xfm-tag-source", { textContent: source }));
       chip.append(iconButton("pi-times", `Remove ${tag}`, () => removeTagFromDialog(tag), "xfm-tag-remove"));
     }
-    const input = $el("input.xfm-input", {
+    const input = protectField($el("input.xfm-input", {
       value: XFM.dialog.tag,
       placeholder: "Add custom tag",
       oninput: (event) => { XFM.dialog.tag = event.target.value; },
@@ -1204,7 +1216,7 @@ function renderDialog(parent) {
         if (event.key === "Escape") close();
       },
       parent: modal,
-    });
+    }));
     const actions = $el("div.xfm-dialog-actions", { parent: modal });
     actions.append(
       makeButton({ label: "Done", onClick: close }),
@@ -1224,7 +1236,7 @@ function renderDialog(parent) {
     const selected = XFM.dialog.selectedFolder || "(root)";
     $el("div.xfm-subtle", { textContent: `Destination: ${selected}`, parent: modal });
     const createRow = $el("div.xfm-toolbar", { parent: modal });
-    const input = $el("input.xfm-input", {
+    const input = protectField($el("input.xfm-input", {
       value: XFM.dialog.newFolder,
       placeholder: "New folder under selected destination",
       oninput: (event) => { XFM.dialog.newFolder = event.target.value; },
@@ -1233,7 +1245,7 @@ function renderDialog(parent) {
         if (event.key === "Escape") close();
       },
       parent: createRow,
-    });
+    }));
     createRow.append(makeButton({ label: "Create", iconName: "pi-plus", onClick: createFolderFromDialog }));
     const actions = $el("div.xfm-dialog-actions", { parent: modal });
     actions.append(

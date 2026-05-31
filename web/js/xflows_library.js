@@ -47,6 +47,8 @@ const XLIB = {
   presetQuery: "",
   snipQuery: "",
   promptSort: "updated",
+  presetFavorites: false,
+  presetSort: "updated",
   snipSort: "updated",
   promptFavorites: false,
   snipFavorites: false,
@@ -223,6 +225,10 @@ const style = `
   line-height: 1.35;
   overflow: hidden;
   white-space: pre-wrap;
+}
+.xlib-card-top .xlib-preview {
+  flex: 1;
+  min-width: 0;
 }
 .xlib-tags {
   align-content: start;
@@ -449,6 +455,69 @@ function button({ label, iconName, title, className = "", pressed = false, onCli
 
 function iconButton(iconName, title, onClick, className = "") {
   return button({ iconName, title, onClick, className: `xlib-icon-btn ${className}` });
+}
+
+function containComfyKeys(event) {
+  event.stopPropagation();
+}
+
+function protectField(element, focusId = "") {
+  if (!element) return element;
+  if (focusId) element.dataset.xlibFocusId = focusId;
+  for (const eventName of ["keydown", "keypress", "keyup", "beforeinput", "input", "compositionstart", "compositionupdate", "compositionend", "paste", "cut"]) {
+    element.addEventListener(eventName, containComfyKeys);
+  }
+  return element;
+}
+
+function inputField(attrs = {}, focusId = "") {
+  return protectField($el("input.xlib-input", attrs), focusId);
+}
+
+function textField(attrs = {}, focusId = "") {
+  return protectField($el("textarea.xlib-text", attrs), focusId);
+}
+
+function selectField(attrs = {}, children = [], focusId = "") {
+  return protectField($el("select.xlib-select", attrs, children), focusId);
+}
+
+function captureFocusState(element) {
+  if (!element?.dataset?.xlibFocusId) return null;
+  const panelName = XLIB.activePanel;
+  const panel = panelName ? XLIB.panels[panelName] : null;
+  return {
+    panelName,
+    focusId: element.dataset.xlibFocusId,
+    start: Number.isInteger(element.selectionStart) ? element.selectionStart : null,
+    end: Number.isInteger(element.selectionEnd) ? element.selectionEnd : null,
+    contentScrollTop: panel?.querySelector?.(".xlib-content")?.scrollTop || 0,
+  };
+}
+
+function restoreFocusState(state) {
+  if (!state?.panelName || !state.focusId) return;
+  requestAnimationFrame(() => {
+    const panel = XLIB.panels[state.panelName];
+    if (!panel) return;
+    const content = panel.querySelector(".xlib-content");
+    if (content) content.scrollTop = state.contentScrollTop || 0;
+    const target = [...panel.querySelectorAll("[data-xlib-focus-id]")].find((element) => element.dataset.xlibFocusId === state.focusId);
+    if (!target) return;
+    target.focus({ preventScroll: true });
+    if (Number.isInteger(state.start) && Number.isInteger(state.end) && typeof target.setSelectionRange === "function") {
+      try {
+        target.setSelectionRange(state.start, state.end);
+      } catch {
+      }
+    }
+  });
+}
+
+function renderActivePanelWithFocus(element, update) {
+  const focusState = captureFocusState(element);
+  update();
+  renderActivePanel({ restoreFocus: focusState });
 }
 
 function settingStorageKey(id) {
@@ -717,6 +786,26 @@ function preview(text, length = 220) {
   return value.length > length ? `${value.slice(0, length)}...` : value;
 }
 
+function collectSearchStrings(value, output = [], depth = 0) {
+  if (depth > 6 || value == null) return output;
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    output.push(String(value));
+    return output;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectSearchStrings(item, output, depth + 1);
+    return output;
+  }
+  if (typeof value === "object") {
+    for (const [key, item] of Object.entries(value)) {
+      if (["pos", "size", "color", "bgcolor", "flags"].includes(key)) continue;
+      output.push(key);
+      collectSearchStrings(item, output, depth + 1);
+    }
+  }
+  return output;
+}
+
 async function loadLibrary() {
   const data = await apiJson(`${ROUTE}/all`, { cache: "no-store" });
   XLIB.prompts = data.prompts || [];
@@ -744,13 +833,14 @@ function ensurePanels() {
   XLIB.panels.snips = $el("div.xlib-panel", { parent: document.body });
 }
 
-function renderActivePanel() {
+function renderActivePanel(options = {}) {
   ensurePanels();
   for (const [name, panel] of Object.entries(XLIB.panels)) {
     const enabled = name === "prompts" ? readFeatureSetting("xprompts") : readFeatureSetting("xnodes");
     panel.style.display = enabled && XLIB.activePanel === name ? "flex" : "none";
     if (XLIB.activePanel === name) renderPanel(panel, name);
   }
+  if (options.restoreFocus) restoreFocusState(options.restoreFocus);
 }
 
 function renderPanel(panel, name) {
@@ -775,7 +865,15 @@ function sortedPrompts() {
   const items = XLIB.prompts.filter((item) => {
     if (XLIB.promptFavorites && !item.favorite) return false;
     if (!query) return true;
-    return [item.title, item.text, ...(item.tags || [])].join("\n").toLowerCase().includes(query);
+    return [
+      item.title,
+      item.text,
+      ...(item.tags || []),
+      item.favorite ? "favorite starred" : "",
+      `${item.use_count || 0} uses`,
+      shortDate(item.updated_at),
+      shortDate(item.last_used_at),
+    ].join("\n").toLowerCase().includes(query);
   });
   items.sort((a, b) => {
     if (XLIB.promptSort === "favorite") return Number(Boolean(b.favorite)) - Number(Boolean(a.favorite)) || a.title.localeCompare(b.title);
@@ -801,16 +899,16 @@ function renderPromptPanel(panel) {
 function renderPromptTab(panel, header) {
   const toolbar = $el("div.xlib-toolbar", { parent: header });
   toolbar.append(
-    $el("input.xlib-input", {
+    inputField({
       value: XLIB.promptQuery,
       placeholder: "Search prompts...",
-      oninput: (event) => { XLIB.promptQuery = event.target.value; renderActivePanel(); },
-    }),
+      oninput: (event) => renderActivePanelWithFocus(event.target, () => { XLIB.promptQuery = event.target.value; }),
+    }, "prompt-search"),
     iconButton("pi-plus", "Add prompt", () => openPromptDialog()),
     iconButton("pi-save", "Save current selection", () => saveCurrentSelection())
   );
   const controls = $el("div.xlib-toolbar", { parent: header });
-  const sort = $el("select.xlib-select", {
+  const sort = selectField({
     value: XLIB.promptSort,
     onchange: (event) => { XLIB.promptSort = event.target.value; renderActivePanel(); },
   }, [
@@ -818,7 +916,7 @@ function renderPromptTab(panel, header) {
     $el("option", { value: "name", textContent: "Name" }),
     $el("option", { value: "used", textContent: "Most used" }),
     $el("option", { value: "favorite", textContent: "Favorites first" }),
-  ]);
+  ], "prompt-sort");
   sort.value = XLIB.promptSort;
   controls.append(sort, button({ label: "Favorites", iconName: "pi-star", className: XLIB.promptFavorites ? "active" : "", pressed: XLIB.promptFavorites, onClick: () => { XLIB.promptFavorites = !XLIB.promptFavorites; renderActivePanel(); } }));
   const content = $el("div.xlib-content", { parent: panel });
@@ -889,10 +987,30 @@ async function deletePrompt(item) {
 
 function filteredPresetCategories() {
   const query = XLIB.presetQuery.trim().toLowerCase();
-  if (!query) return XLIB.presets;
-  return XLIB.presets.filter((category) => {
-    return [category.name, ...(category.snippets || []).map((snippet) => snippet.text)].join("\n").toLowerCase().includes(query);
-  });
+  const categories = [];
+  for (const category of XLIB.presets || []) {
+    const categoryMatches = query && String(category.name || "").toLowerCase().includes(query);
+    let snippets = (category.snippets || []).filter((snippet) => {
+      if (XLIB.presetFavorites && !snippet.favorite) return false;
+      if (!query || categoryMatches) return true;
+      return [
+        category.name,
+        snippet.text,
+        snippet.favorite ? "favorite starred" : "",
+        `${snippet.use_count || 0} uses`,
+        shortDate(snippet.updated_at),
+        shortDate(snippet.last_used_at),
+      ].join("\n").toLowerCase().includes(query);
+    });
+    snippets = snippets.sort((a, b) => {
+      if (XLIB.presetSort === "favorite") return Number(Boolean(b.favorite)) - Number(Boolean(a.favorite)) || String(a.text || "").localeCompare(String(b.text || ""));
+      if (XLIB.presetSort === "used") return (b.use_count || 0) - (a.use_count || 0) || String(a.text || "").localeCompare(String(b.text || ""));
+      if (XLIB.presetSort === "name") return String(a.text || "").localeCompare(String(b.text || ""));
+      return (b.updated_at || 0) - (a.updated_at || 0) || String(a.text || "").localeCompare(String(b.text || ""));
+    });
+    if (snippets.length || (categoryMatches && !XLIB.presetFavorites)) categories.push({ ...category, snippets });
+  }
+  return categories;
 }
 
 function saveCollapsedState(key, set) {
@@ -926,15 +1044,27 @@ function setAllSnipSections(collapsed) {
 function renderPresetTab(panel, header) {
   const toolbar = $el("div.xlib-toolbar", { parent: header });
   toolbar.append(
-    $el("input.xlib-input", {
+    inputField({
       value: XLIB.presetQuery,
       placeholder: "Search preset snippets...",
-      oninput: (event) => { XLIB.presetQuery = event.target.value; renderActivePanel(); },
-    }),
+      oninput: (event) => renderActivePanelWithFocus(event.target, () => { XLIB.presetQuery = event.target.value; }),
+    }, "preset-search"),
     iconButton("pi-folder-plus", "Add category", () => openCategoryDialog())
   );
   const controls = $el("div.xlib-toolbar", { parent: header });
-  controls.append(
+  const sort = selectField({
+    value: XLIB.presetSort,
+    onchange: (event) => { XLIB.presetSort = event.target.value; renderActivePanel(); },
+  }, [
+    $el("option", { value: "updated", textContent: "Updated" }),
+    $el("option", { value: "name", textContent: "Name" }),
+    $el("option", { value: "used", textContent: "Most used" }),
+    $el("option", { value: "favorite", textContent: "Favorites first" }),
+  ], "preset-sort");
+  sort.value = XLIB.presetSort;
+  controls.append(sort, button({ label: "Favorites", iconName: "pi-star", className: XLIB.presetFavorites ? "active" : "", pressed: XLIB.presetFavorites, onClick: () => { XLIB.presetFavorites = !XLIB.presetFavorites; renderActivePanel(); } }));
+  const sectionControls = $el("div.xlib-toolbar", { parent: header });
+  sectionControls.append(
     button({ label: "Expand all", iconName: "pi-angle-double-down", onClick: () => setAllPresetCategories(false) }),
     button({ label: "Collapse all", iconName: "pi-angle-double-up", onClick: () => setAllPresetCategories(true) })
   );
@@ -958,7 +1088,10 @@ function renderPresetCategory(parent, category) {
   const snippets = category.snippets || [];
   for (const snippet of snippets) {
     const row = $el("div.xlib-row-card", { parent: body });
-    $el("div.xlib-preview", { textContent: preview(snippet.text, 160), parent: row });
+    const top = $el("div.xlib-card-top", { parent: row });
+    $el("div.xlib-preview", { textContent: preview(snippet.text, 160), parent: top });
+    top.append(iconButton(snippet.favorite ? "pi-star-fill" : "pi-star", snippet.favorite ? "Remove favorite" : "Add favorite", () => saveSnippet({ category_id: category.id, id: snippet.id, text: snippet.text, favorite: !snippet.favorite }), snippet.favorite ? "xlib-star active" : "xlib-star"));
+    $el("div.xlib-meta", { textContent: `${snippet.use_count || 0} uses | updated ${shortDate(snippet.updated_at)}`, parent: row });
     const actions = $el("div.xlib-actions", { parent: row });
     actions.append(
       button({ label: "Use", iconName: "pi-plus-circle", className: "active", onClick: () => usePresetSnippet(category, snippet) }),
@@ -1000,7 +1133,9 @@ async function saveSnippet(data) {
 
 async function usePresetSnippet(category, snippet) {
   if (insertText(snippet.text || "")) {
-    await postJson(`${ROUTE}/presets/snippet/use`, { category_id: category.id, id: snippet.id });
+    const response = await postJson(`${ROUTE}/presets/snippet/use`, { category_id: category.id, id: snippet.id });
+    XLIB.presets = response.categories || XLIB.presets;
+    renderActivePanel();
   }
 }
 
@@ -1101,7 +1236,16 @@ function sortedSnips() {
     if (XLIB.snipFavorites && !item.favorite) return false;
     if (XLIB.snipType !== "all" && item.type !== XLIB.snipType) return false;
     if (!query) return true;
-    return [item.title, item.type, ...(item.tags || [])].join("\n").toLowerCase().includes(query);
+    return [
+      item.title,
+      item.type,
+      ...(item.tags || []),
+      item.favorite ? "favorite starred" : "",
+      `${item.use_count || 0} uses`,
+      shortDate(item.updated_at),
+      shortDate(item.last_used_at),
+      ...collectSearchStrings(item.payload),
+    ].join("\n").toLowerCase().includes(query);
   });
   items.sort((a, b) => {
     if (XLIB.snipSort === "favorite") return Number(Boolean(b.favorite)) - Number(Boolean(a.favorite)) || a.title.localeCompare(b.title);
@@ -1116,15 +1260,15 @@ function renderSnipPanel(panel) {
   const header = panelHeader(panel, "XNodes", XLIB.snips.length);
   const toolbar = $el("div.xlib-toolbar", { parent: header });
   toolbar.append(
-    $el("input.xlib-input", {
+    inputField({
       value: XLIB.snipQuery,
       placeholder: "Search node snips...",
-      oninput: (event) => { XLIB.snipQuery = event.target.value; renderActivePanel(); },
-    }),
+      oninput: (event) => renderActivePanelWithFocus(event.target, () => { XLIB.snipQuery = event.target.value; }),
+    }, "snip-search"),
     iconButton("pi-save", "Save selected node(s)", () => openSaveSnipDialog())
   );
   const controls = $el("div.xlib-toolbar", { parent: header });
-  const sort = $el("select.xlib-select", {
+  const sort = selectField({
     value: XLIB.snipSort,
     onchange: (event) => { XLIB.snipSort = event.target.value; renderActivePanel(); },
   }, [
@@ -1132,16 +1276,16 @@ function renderSnipPanel(panel) {
     $el("option", { value: "name", textContent: "Name" }),
     $el("option", { value: "used", textContent: "Most used" }),
     $el("option", { value: "favorite", textContent: "Favorites first" }),
-  ]);
+  ], "snip-sort");
   sort.value = XLIB.snipSort;
-  const type = $el("select.xlib-select", {
+  const type = selectField({
     value: XLIB.snipType,
     onchange: (event) => { XLIB.snipType = event.target.value; renderActivePanel(); },
   }, [
     $el("option", { value: "all", textContent: "All types" }),
     $el("option", { value: "node", textContent: "Nodes" }),
     $el("option", { value: "group", textContent: "Groups" }),
-  ]);
+  ], "snip-type");
   type.value = XLIB.snipType;
   controls.append(sort, type, button({ label: "Favorites", iconName: "pi-star", className: XLIB.snipFavorites ? "active" : "", pressed: XLIB.snipFavorites, onClick: () => { XLIB.snipFavorites = !XLIB.snipFavorites; renderActivePanel(); } }));
   const sectionControls = $el("div.xlib-toolbar", { parent: header });
@@ -1463,9 +1607,9 @@ function renderDialog(panel) {
   if (dialog.type === "prompt") {
     $el("div.xlib-title", { textContent: dialog.item ? "Edit prompt" : "Add prompt", parent: title });
     title.append(iconButton("pi-times", "Close", close));
-    modal.append($el("input.xlib-input", { value: dialog.title, placeholder: "Title", oninput: (event) => { dialog.title = event.target.value; } }));
-    modal.append($el("textarea.xlib-text", { value: dialog.text, placeholder: "Prompt text", oninput: (event) => { dialog.text = event.target.value; } }));
-    modal.append($el("input.xlib-input", { value: dialog.tags, placeholder: "Tags, comma separated", oninput: (event) => { dialog.tags = event.target.value; } }));
+    modal.append(inputField({ value: dialog.title, placeholder: "Title", oninput: (event) => { dialog.title = event.target.value; } }, "dialog-prompt-title"));
+    modal.append(textField({ value: dialog.text, placeholder: "Prompt text", oninput: (event) => { dialog.text = event.target.value; } }, "dialog-prompt-text"));
+    modal.append(inputField({ value: dialog.tags, placeholder: "Tags, comma separated", oninput: (event) => { dialog.tags = event.target.value; } }, "dialog-prompt-tags"));
     const actions = $el("div.xlib-dialog-actions", { parent: modal });
     actions.append(button({ label: "Cancel", onClick: close }), button({ label: "Save", iconName: "pi-save", className: "active", onClick: () => savePrompt({ id: dialog.item?.id, title: dialog.title, text: dialog.text, tags: parseTags(dialog.tags), favorite: Boolean(dialog.item?.favorite) }) }));
     return;
@@ -1474,7 +1618,7 @@ function renderDialog(panel) {
   if (dialog.type === "category") {
     $el("div.xlib-title", { textContent: dialog.category ? "Edit category" : "Add category", parent: title });
     title.append(iconButton("pi-times", "Close", close));
-    modal.append($el("input.xlib-input", { value: dialog.name, placeholder: "Category name", oninput: (event) => { dialog.name = event.target.value; } }));
+    modal.append(inputField({ value: dialog.name, placeholder: "Category name", oninput: (event) => { dialog.name = event.target.value; } }, "dialog-category-name"));
     const actions = $el("div.xlib-dialog-actions", { parent: modal });
     actions.append(button({ label: "Cancel", onClick: close }), button({ label: "Save", iconName: "pi-save", className: "active", onClick: () => saveCategory({ id: dialog.category?.id, name: dialog.name }) }));
     return;
@@ -1483,17 +1627,17 @@ function renderDialog(panel) {
   if (dialog.type === "snippet") {
     $el("div.xlib-title", { textContent: dialog.snippet ? "Edit snippet" : "Add snippet", parent: title });
     title.append(iconButton("pi-times", "Close", close));
-    modal.append($el("textarea.xlib-text", { value: dialog.text, placeholder: "Snippet text", oninput: (event) => { dialog.text = event.target.value; } }));
+    modal.append(textField({ value: dialog.text, placeholder: "Snippet text", oninput: (event) => { dialog.text = event.target.value; } }, "dialog-snippet-text"));
     const actions = $el("div.xlib-dialog-actions", { parent: modal });
-    actions.append(button({ label: "Cancel", onClick: close }), button({ label: "Save", iconName: "pi-save", className: "active", onClick: () => saveSnippet({ category_id: dialog.category.id, id: dialog.snippet?.id, text: dialog.text }) }));
+    actions.append(button({ label: "Cancel", onClick: close }), button({ label: "Save", iconName: "pi-save", className: "active", onClick: () => saveSnippet({ category_id: dialog.category.id, id: dialog.snippet?.id, text: dialog.text, favorite: Boolean(dialog.snippet?.favorite) }) }));
     return;
   }
 
   if (dialog.type === "snip") {
     $el("div.xlib-title", { textContent: dialog.mode === "edit" ? "Edit node snip" : "Save node snip", parent: title });
     title.append(iconButton("pi-times", "Close", close));
-    modal.append($el("input.xlib-input", { value: dialog.title, placeholder: "Title", oninput: (event) => { dialog.title = event.target.value; } }));
-    modal.append($el("input.xlib-input", { value: dialog.tags, placeholder: "Tags, comma separated", oninput: (event) => { dialog.tags = event.target.value; } }));
+    modal.append(inputField({ value: dialog.title, placeholder: "Title", oninput: (event) => { dialog.title = event.target.value; } }, "dialog-snip-title"));
+    modal.append(inputField({ value: dialog.tags, placeholder: "Tags, comma separated", oninput: (event) => { dialog.tags = event.target.value; } }, "dialog-snip-tags"));
     $el("div.xlib-subtle", { textContent: `${dialog.snipType} | ${(dialog.payload.nodes || []).length} node(s)`, parent: modal });
     const actions = $el("div.xlib-dialog-actions", { parent: modal });
     actions.append(button({ label: "Cancel", onClick: close }), button({ label: "Save", iconName: "pi-save", className: "active", onClick: () => saveSnip({ id: dialog.item?.id, title: dialog.title, type: dialog.snipType, tags: parseTags(dialog.tags), payload: dialog.payload, favorite: Boolean(dialog.item?.favorite) }) }));
