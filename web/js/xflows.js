@@ -29,12 +29,34 @@ const XFM = {
   loadedSnapshot: null,
   loadingFromManager: false,
   duplicateResult: null,
+  duplicateUi: null,
   dialog: null,
   refreshTimers: new Map(),
   recentlyUpdated: new Map(),
   fallbackPanel: null,
   fallbackButton: null,
 };
+
+const DUPLICATE_TABS = [
+  {
+    key: "exact",
+    label: "Exact",
+    title: "Exact duplicates",
+    reason: "File bytes match. These are the safest duplicate candidates to remove after choosing a keeper.",
+  },
+  {
+    key: "canonical",
+    label: "Same graph",
+    title: "Same graph structure",
+    reason: "Workflow graph content matches after layout and view-only fields are ignored.",
+  },
+  {
+    key: "near",
+    label: "Near",
+    title: "Near duplicates",
+    reason: "Node types, detected models, tags, and task signatures match. Review these carefully before deleting.",
+  },
+];
 
 const style = `
 .xfm-shell {
@@ -331,6 +353,114 @@ const style = `
   font-size: 11px;
   gap: 4px;
 }
+.xfm-duplicate-modal {
+  align-content: start;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  max-height: min(760px, 94%);
+  width: min(900px, 96%);
+}
+.xfm-duplicate-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.xfm-duplicate-body {
+  border: 1px solid var(--xfm-border);
+  border-radius: 9px;
+  display: grid;
+  gap: 8px;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px;
+}
+.xfm-duplicate-group {
+  background: color-mix(in srgb, var(--xfm-panel-2) 70%, transparent);
+  border: 1px solid var(--xfm-border);
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+}
+.xfm-duplicate-group summary {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  gap: 8px;
+  list-style: none;
+}
+.xfm-duplicate-group summary::-webkit-details-marker { display: none; }
+.xfm-duplicate-title {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 740;
+  min-width: 0;
+}
+.xfm-signature {
+  color: var(--xfm-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+}
+.xfm-duplicate-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.xfm-duplicate-workflow {
+  background: color-mix(in srgb, var(--xfm-panel) 78%, transparent);
+  border: 1px solid color-mix(in srgb, var(--xfm-border) 70%, transparent);
+  border-radius: 8px;
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+}
+.xfm-duplicate-workflow.keep {
+  border-color: color-mix(in srgb, var(--xfm-accent) 75%, #fff 10%);
+  box-shadow: inset 3px 0 0 var(--xfm-accent);
+}
+.xfm-duplicate-row {
+  align-items: start;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+.xfm-duplicate-check {
+  margin-top: 3px;
+}
+.xfm-preview-box {
+  background: color-mix(in srgb, var(--xfm-panel-2) 80%, transparent);
+  border: 1px solid var(--xfm-border);
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  max-height: 260px;
+  overflow: auto;
+  padding: 8px;
+}
+.xfm-preview-grid {
+  display: grid;
+  gap: 4px 10px;
+  grid-template-columns: max-content minmax(0, 1fr);
+}
+.xfm-preview-grid dt {
+  color: var(--xfm-muted);
+  font-size: 10px;
+  font-weight: 720;
+}
+.xfm-preview-grid dd {
+  font-size: 11px;
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.xfm-confirm-box {
+  background: color-mix(in srgb, var(--xfm-danger) 12%, var(--xfm-panel-2));
+  border: 1px solid color-mix(in srgb, var(--xfm-danger) 50%, var(--xfm-border));
+  border-radius: 8px;
+  display: grid;
+  gap: 7px;
+  padding: 8px;
+}
 .xfm-floating-panel {
   bottom: 18px;
   box-shadow: 0 24px 70px rgba(0,0,0,.42);
@@ -445,6 +575,33 @@ function shortDate(ms) {
   } catch {
     return "unknown";
   }
+}
+
+function formatDateTime(ms) {
+  if (!ms) return "never";
+  try {
+    return new Date(ms).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  } catch {
+    return "unknown";
+  }
+}
+
+function formatBytes(bytes) {
+  const value = Number(bytes || 0);
+  if (!Number.isFinite(value) || value <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  let current = value;
+  let index = 0;
+  while (current >= 1024 && index < units.length - 1) {
+    current /= 1024;
+    index += 1;
+  }
+  return `${current >= 10 || index === 0 ? current.toFixed(0) : current.toFixed(1)} ${units[index]}`;
+}
+
+function shortHash(value) {
+  const text = String(value || "");
+  return text ? text.slice(0, 12) : "none";
 }
 
 function icon(name) {
@@ -1092,14 +1249,250 @@ async function deleteWorkflow(workflow) {
 async function findDuplicates() {
   try {
     XFM.duplicateResult = await postJson(`${ROUTE}/duplicates`);
+    XFM.duplicateUi = {
+      tab: XFM.duplicateUi?.tab || "exact",
+      collapsed: XFM.duplicateUi?.collapsed || new Set(),
+      selected: XFM.duplicateUi?.selected || new Set(),
+      keepers: XFM.duplicateUi?.keepers || {},
+      preview: null,
+      confirmDelete: null,
+      message: "",
+    };
     renderShell(XFM.root);
   } catch (error) {
     alert(`Duplicate scan failed: ${error.message}`);
   }
 }
 
+function duplicateUi() {
+  if (!XFM.duplicateUi) {
+    XFM.duplicateUi = {
+      tab: "exact",
+      collapsed: new Set(),
+      selected: new Set(),
+      keepers: {},
+      preview: null,
+      confirmDelete: null,
+      message: "",
+    };
+  }
+  return XFM.duplicateUi;
+}
+
+function duplicateTabInfo(key = duplicateUi().tab) {
+  return DUPLICATE_TABS.find((item) => item.key === key) || DUPLICATE_TABS[0];
+}
+
+function duplicateGroups(key = duplicateUi().tab) {
+  return XFM.duplicateResult?.[key] || [];
+}
+
+function duplicateGroupKey(tab, group, index) {
+  return `${tab}:${shortHash(group.signature)}:${index}`;
+}
+
+function duplicateSelectedPaths() {
+  const available = new Set();
+  for (const tab of DUPLICATE_TABS) {
+    for (const group of duplicateGroups(tab.key)) {
+      for (const workflow of group.workflows || []) available.add(workflow.path);
+    }
+  }
+  return [...duplicateUi().selected].filter((path) => available.has(path));
+}
+
+function chooseWorkflowToKeep(group, mode) {
+  const workflows = [...(group.workflows || [])];
+  if (!workflows.length) return null;
+  if (mode === "favorite") {
+    const favorites = workflows.filter((workflow) => workflow.favorite);
+    if (favorites.length) workflows.splice(0, workflows.length, ...favorites);
+  }
+  workflows.sort((a, b) => {
+    if (mode === "newest") return (b.mtime || 0) - (a.mtime || 0) || (b.run_count || 0) - (a.run_count || 0);
+    if (mode === "most_used" || mode === "favorite") return (b.run_count || 0) - (a.run_count || 0) || (b.mtime || 0) - (a.mtime || 0);
+    return a.path.localeCompare(b.path);
+  });
+  return workflows[0] || null;
+}
+
+function markDuplicateKeeper(tab, group, index, keeperPath, selectRest = true) {
+  const ui = duplicateUi();
+  const key = duplicateGroupKey(tab, group, index);
+  ui.keepers[key] = keeperPath;
+  ui.selected.delete(keeperPath);
+  if (selectRest) {
+    for (const workflow of group.workflows || []) {
+      if (workflow.path !== keeperPath) ui.selected.add(workflow.path);
+    }
+  }
+  ui.message = "Keeper selected. Review the checked workflows, then delete selected when ready.";
+  renderShell(XFM.root);
+}
+
+function setDuplicateTab(tab) {
+  const ui = duplicateUi();
+  ui.tab = tab;
+  ui.preview = null;
+  ui.confirmDelete = null;
+  renderShell(XFM.root);
+}
+
+function toggleDuplicateGroup(tab, group, index, open) {
+  const ui = duplicateUi();
+  const key = duplicateGroupKey(tab, group, index);
+  if (open) ui.collapsed.delete(key);
+  else ui.collapsed.add(key);
+}
+
+function setDuplicateChecked(path, checked) {
+  const ui = duplicateUi();
+  if (checked) ui.selected.add(path);
+  else ui.selected.delete(path);
+  renderShell(XFM.root);
+}
+
+function renderDuplicatePills(parent, tags = []) {
+  for (const tag of (tags || []).slice(0, 6)) {
+    parent.append($el("span.xfm-pill", { textContent: tag }));
+  }
+  if ((tags || []).length > 6) parent.append($el("span.xfm-pill", { textContent: `+${tags.length - 6}` }));
+}
+
+function workflowNodeSummary(workflowJson) {
+  const nodes = Array.isArray(workflowJson?.nodes) ? workflowJson.nodes : [];
+  const links = Array.isArray(workflowJson?.links) ? workflowJson.links : [];
+  const typeCounts = new Map();
+  for (const node of nodes) {
+    const type = String(node.type || node.class_type || node.title || "Unknown");
+    typeCounts.set(type, (typeCounts.get(type) || 0) + 1);
+  }
+  const topTypes = [...typeCounts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 12)
+    .map(([type, count]) => `${type} (${count})`);
+  const titles = nodes
+    .map((node) => String(node.title || node.type || node.class_type || "").trim())
+    .filter(Boolean)
+    .slice(0, 16);
+  return { nodeCount: nodes.length, linkCount: links.length, topTypes, titles };
+}
+
+async function previewDuplicateWorkflow(workflow) {
+  try {
+    const data = await apiJson(`${ROUTE}/workflow?path=${encodeURIComponent(workflow.path)}`, { cache: "no-store" });
+    duplicateUi().preview = {
+      workflow,
+      summary: workflowNodeSummary(data.workflow),
+    };
+    duplicateUi().confirmDelete = null;
+    renderShell(XFM.root);
+  } catch (error) {
+    duplicateUi().message = `Preview failed: ${error.message}`;
+    renderShell(XFM.root);
+  }
+}
+
+function openDuplicateDeleteConfirm(paths = duplicateSelectedPaths()) {
+  const filtered = [...new Set(paths)].filter(Boolean);
+  if (!filtered.length) {
+    duplicateUi().message = "Select at least one workflow to delete.";
+    renderShell(XFM.root);
+    return;
+  }
+  duplicateUi().confirmDelete = filtered;
+  renderShell(XFM.root);
+}
+
+async function confirmDuplicateDelete() {
+  const ui = duplicateUi();
+  const paths = [...new Set(ui.confirmDelete || [])];
+  if (!paths.length) return;
+  try {
+    const result = await postJson(`${ROUTE}/delete-batch`, { paths });
+    const data = await apiJson(`${ROUTE}/workflows`, { cache: "no-store" });
+    XFM.data = data;
+    XFM.workflows = data.workflows || [];
+    XFM.folders = data.folders || [];
+    XFM.duplicateResult = await postJson(`${ROUTE}/duplicates`);
+    for (const path of paths) ui.selected.delete(path);
+    ui.confirmDelete = null;
+    ui.preview = null;
+    ui.message = result.failed_count
+      ? `Moved ${result.deleted_count} workflow(s) to trash. ${result.failed_count} item(s) could not be deleted.`
+      : `Moved ${result.deleted_count} workflow(s) to XFlows trash.`;
+    renderShell(XFM.root);
+  } catch (error) {
+    ui.message = `Delete failed: ${error.message}`;
+    renderShell(XFM.root);
+  }
+}
+
+async function rescanDuplicates() {
+  try {
+    XFM.duplicateResult = await postJson(`${ROUTE}/duplicates`);
+    const ui = duplicateUi();
+    ui.confirmDelete = null;
+    ui.preview = null;
+    ui.message = "Duplicate scan refreshed.";
+    renderShell(XFM.root);
+  } catch (error) {
+    duplicateUi().message = `Rescan failed: ${error.message}`;
+    renderShell(XFM.root);
+  }
+}
+
+function renderDuplicatePreview(parent) {
+  const preview = duplicateUi().preview;
+  if (!preview) return;
+  const { workflow, summary } = preview;
+  const box = $el("div.xfm-preview-box", { parent });
+  const title = $el("div.xfm-title-row", { parent: box });
+  $el("div.xfm-title", { textContent: "Preview", parent: title });
+  title.append(iconButton("pi-times", "Close preview", () => {
+    duplicateUi().preview = null;
+    renderShell(XFM.root);
+  }));
+  const grid = $el("dl.xfm-preview-grid", { parent: box });
+  const addRow = (label, value) => {
+    grid.append($el("dt", { textContent: label }), $el("dd", { textContent: value || "none" }));
+  };
+  addRow("Path", workflow.path);
+  addRow("Nodes", `${summary.nodeCount} nodes, ${summary.linkCount} links`);
+  addRow("Runs", `${workflow.run_count || 0}`);
+  addRow("Modified", formatDateTime(workflow.mtime));
+  addRow("Size", formatBytes(workflow.size));
+  addRow("Content hash", shortHash(workflow.content_hash));
+  addRow("Graph hash", shortHash(workflow.canonical_hash));
+  addRow("Near signature", shortHash(workflow.near_signature));
+  addRow("Models", (workflow.detected_models || []).map((model) => `${model.folder}/${model.name}`).slice(0, 8).join(", "));
+  addRow("Top node types", summary.topTypes.join(", "));
+  addRow("Node titles", summary.titles.join(", "));
+  addRow("Tags", (workflow.all_tags || workflow.auto_tags || []).join(", "));
+}
+
+function renderDuplicateDeleteConfirm(parent) {
+  const paths = duplicateUi().confirmDelete || [];
+  if (!paths.length) return;
+  const box = $el("div.xfm-confirm-box", { parent });
+  $el("div.xfm-duplicate-title", { textContent: `Move ${paths.length} workflow(s) to XFlows trash?`, parent: box });
+  const list = $el("div.xfm-small-list", { parent: box });
+  for (const path of paths.slice(0, 8)) $el("div", { textContent: path, title: path, parent: list });
+  if (paths.length > 8) $el("div", { textContent: `${paths.length - 8} more selected workflow(s)`, parent: list });
+  const actions = $el("div.xfm-dialog-actions", { parent: box });
+  actions.append(
+    makeButton({ label: "Cancel", onClick: () => {
+      duplicateUi().confirmDelete = null;
+      renderShell(XFM.root);
+    } }),
+    makeButton({ label: "Move to trash", iconName: "pi-trash", className: "xfm-danger", onClick: confirmDuplicateDelete })
+  );
+}
+
 function renderDuplicates(parent) {
-  const panel = $el("div.xfm-panel", { parent });
+  const ui = duplicateUi();
+  const backdrop = $el("div.xfm-modal-backdrop", { parent });
+  const panel = $el("div.xfm-modal.xfm-duplicate-modal", { parent: backdrop });
   const summary = [
     `Exact: ${XFM.duplicateResult.exact?.length || 0}`,
     `Graph: ${XFM.duplicateResult.canonical?.length || 0}`,
@@ -1107,28 +1500,123 @@ function renderDuplicates(parent) {
   ].join(" | ");
   const row = $el("div.xfm-title-row", { parent: panel });
   $el("div.xfm-title", { textContent: `Duplicate Finder | ${summary}`, parent: row });
-  row.append(iconButton("pi-times", "Close duplicate finder", () => {
-    XFM.duplicateResult = null;
-    renderShell(XFM.root);
-  }));
+  row.append(
+    makeButton({ label: "Rescan", iconName: "pi-sync", onClick: rescanDuplicates }),
+    iconButton("pi-times", "Close duplicate finder", () => {
+      XFM.duplicateResult = null;
+      XFM.duplicateUi = null;
+      renderShell(XFM.root);
+    })
+  );
 
-  const sections = [
-    ["Exact duplicates", XFM.duplicateResult.exact || []],
-    ["Same graph structure", XFM.duplicateResult.canonical || []],
-    ["Near duplicates", XFM.duplicateResult.near || []],
-  ];
-  for (const [title, groups] of sections) {
-    const group = groups[0];
-    if (!group) continue;
-    const box = $el("div.xfm-duplicate-group", { parent: panel });
-    $el("div.xfm-duplicate-title", { textContent: `${title}: ${group.count} workflows`, parent: box });
-    const list = $el("div.xfm-small-list", { parent: box });
-    group.workflows.slice(0, 8).forEach((workflow) => {
-      $el("div", { textContent: workflow.path, title: workflow.path, parent: list });
+  const tabs = $el("div.xfm-duplicate-tabs", { parent: panel });
+  for (const tab of DUPLICATE_TABS) {
+    tabs.append(makeButton({
+      label: `${tab.label} (${duplicateGroups(tab.key).length})`,
+      className: ui.tab === tab.key ? "active" : "",
+      pressed: ui.tab === tab.key,
+      onClick: () => setDuplicateTab(tab.key),
+    }));
+  }
+
+  const activeTab = duplicateTabInfo();
+  const body = $el("div.xfm-duplicate-body", { parent: panel });
+  $el("div.xfm-subtle", { textContent: activeTab.reason, parent: body });
+  if (ui.message) $el("div.xfm-subtle", { textContent: ui.message, parent: body });
+  const groups = duplicateGroups(activeTab.key);
+  if (!groups.length) {
+    $el("div.xfm-empty", { textContent: `No ${activeTab.title.toLowerCase()} found.`, parent: body });
+  }
+
+  groups.forEach((group, index) => {
+    const groupKey = duplicateGroupKey(activeTab.key, group, index);
+    const keeper = ui.keepers[groupKey] || chooseWorkflowToKeep(group, "most_used")?.path || group.workflows?.[0]?.path;
+    const details = $el("details.xfm-duplicate-group", {
+      ontoggle: (event) => toggleDuplicateGroup(activeTab.key, group, index, event.currentTarget.open),
+      parent: body,
     });
-    if (groups.length > 1) {
-      $el("div", { textContent: `${groups.length - 1} more duplicate groups`, parent: list });
+    details.open = !ui.collapsed.has(groupKey);
+    const summaryRow = $el("summary", { parent: details });
+    summaryRow.append(icon(details.open ? "pi-angle-down" : "pi-angle-right"));
+    const title = $el("div.xfm-duplicate-title", {
+      textContent: `${activeTab.title}: ${group.count} workflows`,
+      parent: summaryRow,
+    });
+    title.title = group.signature || "";
+    summaryRow.append($el("span.xfm-signature", { textContent: shortHash(group.signature) }));
+
+    const actions = $el("div.xfm-duplicate-actions", { parent: details });
+    actions.append(
+      makeButton({ label: "Keep newest", iconName: "pi-calendar", onClick: () => {
+        const pick = chooseWorkflowToKeep(group, "newest");
+        if (pick) markDuplicateKeeper(activeTab.key, group, index, pick.path);
+      } }),
+      makeButton({ label: "Keep most used", iconName: "pi-chart-bar", onClick: () => {
+        const pick = chooseWorkflowToKeep(group, "most_used");
+        if (pick) markDuplicateKeeper(activeTab.key, group, index, pick.path);
+      } }),
+      makeButton({ label: "Keep favorite", iconName: "pi-star", onClick: () => {
+        const pick = chooseWorkflowToKeep(group, "favorite");
+        if (pick) markDuplicateKeeper(activeTab.key, group, index, pick.path);
+      } }),
+      makeButton({
+        label: "Delete selected",
+        iconName: "pi-trash",
+        className: "xfm-danger",
+        onClick: () => openDuplicateDeleteConfirm((group.workflows || []).map((workflow) => workflow.path).filter((path) => ui.selected.has(path))),
+      })
+    );
+
+    for (const workflow of group.workflows || []) {
+      const isKeeper = keeper === workflow.path;
+      const card = $el("div.xfm-duplicate-workflow" + (isKeeper ? ".keep" : ""), { parent: details });
+      const line = $el("div.xfm-duplicate-row", { parent: card });
+      const checkbox = $el("input.xfm-duplicate-check", {
+        type: "checkbox",
+        title: "Select for soft delete",
+        onchange: (event) => setDuplicateChecked(workflow.path, event.target.checked),
+        parent: line,
+      });
+      checkbox.checked = ui.selected.has(workflow.path);
+      protectField(checkbox);
+      const main = $el("div", { parent: line });
+      $el("div.xfm-name", { textContent: workflow.name || workflow.path, parent: main });
+      $el("div.xfm-path", { textContent: workflow.path, title: workflow.path, parent: main });
+      const meta = $el("div.xfm-meta", { parent: main });
+      meta.append(
+        $el("span", { textContent: `${workflow.run_count || 0} runs` }),
+        $el("span", { textContent: `${workflow.node_count || 0} nodes` }),
+        $el("span", { textContent: formatBytes(workflow.size) }),
+        $el("span", { textContent: `modified ${shortDate(workflow.mtime)}` })
+      );
+      if (workflow.favorite) meta.append($el("span", { textContent: "favorite" }));
+      const tags = $el("div.xfm-tags", { parent: main });
+      renderDuplicatePills(tags, workflow.all_tags || workflow.auto_tags || []);
+      const itemActions = $el("div.xfm-duplicate-actions", { parent: line });
+      itemActions.append(
+        makeButton({ label: "Preview", iconName: "pi-eye", onClick: () => previewDuplicateWorkflow(workflow) }),
+        makeButton({ label: "Use", iconName: "pi-play", onClick: () => {
+          XFM.duplicateResult = null;
+          XFM.duplicateUi = null;
+          renderShell(XFM.root);
+          useWorkflow(workflow);
+        } }),
+        makeButton({ label: isKeeper ? "Keeper" : "Keep this", iconName: "pi-check", className: isKeeper ? "active" : "", onClick: () => markDuplicateKeeper(activeTab.key, group, index, workflow.path) })
+      );
     }
+  });
+
+  renderDuplicatePreview(panel);
+  renderDuplicateDeleteConfirm(panel);
+
+  const selected = duplicateSelectedPaths();
+  const footer = $el("div.xfm-dialog-actions", { parent: panel });
+  footer.append(
+    $el("div.xfm-subtle", { textContent: `${selected.length} selected for soft delete` }),
+    makeButton({ label: "Delete selected", iconName: "pi-trash", className: "xfm-danger", onClick: () => openDuplicateDeleteConfirm(selected) })
+  );
+  if (activeTab.key === "near") {
+    $el("div.xfm-subtle", { textContent: "Near duplicates are similarity matches. Preview or load before deleting.", parent: panel });
   }
 }
 

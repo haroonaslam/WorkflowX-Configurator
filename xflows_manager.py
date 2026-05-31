@@ -1449,19 +1449,60 @@ async def delete_workflow(request):
     body = await _read_json_request(request)
     try:
         rel = _safe_rel_path(body.get("path", ""), require_json=True)
-        source = _resolve_workflow_file(rel)
     except ValueError as exc:
         return _json_response({"error": str(exc)}, status=400)
+    result = _soft_delete_workflow(rel)
+    if not result.get("ok"):
+        status = 404 if result.get("error") == "workflow not found" else 400
+        return _json_response(result, status=status)
+    return _json_response(result)
+
+
+@PromptServer.instance.routes.post(f"{ROUTE_PREFIX}/delete-batch")
+async def delete_workflows_batch(request):
+    body = await _read_json_request(request)
+    paths = body.get("paths")
+    if not isinstance(paths, list) or not paths:
+        return _json_response({"error": "paths must be a non-empty list"}, status=400)
+
+    results = []
+    for raw_path in paths:
+        try:
+            rel = _safe_rel_path(raw_path, require_json=True)
+            result = _soft_delete_workflow(rel, save_metadata=False)
+        except ValueError as exc:
+            result = {"ok": False, "path": str(raw_path or ""), "error": str(exc)}
+        results.append(result)
+
+    metadata = _load_metadata()
+    for result in results:
+        if result.get("ok"):
+            metadata.setdefault("workflows", {}).pop(result.get("path"), None)
+    _save_metadata(metadata)
+
+    deleted = [result for result in results if result.get("ok")]
+    failed = [result for result in results if not result.get("ok")]
+    return _json_response({
+        "ok": not failed,
+        "deleted_count": len(deleted),
+        "failed_count": len(failed),
+        "results": results,
+    })
+
+
+def _soft_delete_workflow(rel: str, *, save_metadata: bool = True) -> dict:
+    source = _resolve_workflow_file(rel)
     if not source.exists():
-        return _json_response({"error": "workflow not found"}, status=404)
+        return {"ok": False, "path": rel, "error": "workflow not found"}
     target_dir = (_trash_root() / Path(rel).parent).resolve()
     target_dir.mkdir(parents=True, exist_ok=True)
     target = _unique_path(target_dir / source.name)
     shutil.move(str(source), str(target))
-    metadata = _load_metadata()
-    metadata.setdefault("workflows", {}).pop(rel, None)
-    _save_metadata(metadata)
-    return _json_response({"ok": True, "path": rel, "trash_path": str(target)})
+    if save_metadata:
+        metadata = _load_metadata()
+        metadata.setdefault("workflows", {}).pop(rel, None)
+        _save_metadata(metadata)
+    return {"ok": True, "path": rel, "trash_path": str(target)}
 
 
 @PromptServer.instance.routes.post(f"{ROUTE_PREFIX}/duplicates")
@@ -1674,7 +1715,19 @@ def _duplicate_groups(workflows: list[dict], key: str) -> list[dict]:
                     "name": item.get("name"),
                     "folder": item.get("folder"),
                     "auto_tags": item.get("auto_tags", []),
+                    "all_tags": item.get("all_tags", item.get("auto_tags", [])),
+                    "detected_models": item.get("detected_models", []),
+                    "node_types": item.get("node_types", []),
+                    "node_count": item.get("node_count", 0),
                     "run_count": item.get("run_count", 0),
+                    "last_run_at": item.get("last_run_at"),
+                    "favorite": bool(item.get("favorite", False)),
+                    "size": item.get("size", 0),
+                    "mtime": item.get("mtime", 0),
+                    "content_hash": item.get("content_hash"),
+                    "canonical_hash": item.get("canonical_hash"),
+                    "near_signature": item.get("near_signature"),
+                    "parse_error": item.get("parse_error"),
                 }
                 for item in sorted(items, key=lambda workflow: workflow["path"].lower())
             ],

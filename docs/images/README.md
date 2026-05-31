@@ -7,3 +7,35 @@
 - `relay.png` - Set Relay / Get Relay example
 - `Group Configurator.png` - group profile UI
 - `config selector.png` - selector UI
+- `workflowx-config-selector-advanced.png` - Config Selector Advanced node
+- `workflowx-config-selector-advanced-scopes.png` - Config Selector Advanced with group scopes
+- `workflowx-group-scopes.png` - Group Scopes node
+- `workflowx-group-scopes-menu.png` - Group Scopes mode menu
+- `workflowx-settings-overview.png` - WorkflowX settings page
+- `workflowx-settings-export-dialog.png` - WorkflowX export dialog
+- `workflowx-xflows-hierarchy-overview.png` - XFlows hierarchy overview
+- `workflowx-xflows-list-view.png` - XFlows list view
+- `workflowx-xflows-workflow-card.png` - XFlows workflow card
+- `workflowx-xflows-manage-tags.png` - XFlows manage tags dialog
+- `workflowx-xflows-move-dialog.png` - XFlows move workflow dialog
+- `workflowx-xflows-duplicate-finder.png` - XFlows duplicate finder cleanup dialog
+- `workflowx-xflows-search-filter.png` - XFlows search filtering
+- `workflowx-xflows-favorites.png` - XFlows favorites filter
+- `workflowx-xprompts-prompt-list.png` - XPrompts prompt list
+- `workflowx-xprompts-prompt-card.png` - XPrompts prompt card
+- `workflowx-xprompts-presets-collapsed.png` - XPrompts preset categories collapsed
+- `workflowx-xprompts-presets-expanded.png` - XPrompts preset category expanded
+- `workflowx-xnodes-node-list.png` - XNodes saved node list
+- `workflowx-xnodes-group-card.png` - XNodes saved group card
+- `workflowx-xnodes-save-dialog.png` - XNodes save dialog
+- `workflowx-afj-visual-builder-node.png` - AFJ Visual Builder node with `prompt_json` output
+- `workflowx-afj-visual-builder-node-long-json.png` - AFJ Visual Builder node showing a larger JSON prompt payload
+- `workflowx-afj-visual-builder-ui.png` - AFJ Visual Builder full tree editor
+- `workflowx-afj-visual-builder-field-editor.png` - AFJ Visual Builder selected field editor with preset value and attach options
+- `workflowx-afj-visual-builder-preset-field.png` - AFJ Visual Builder preset-backed field dropdown
+- `workflowx-afj-visual-builder-node-actions.png` - AFJ Visual Builder selected node action buttons
+- `workflowx-afj-template-importer-node.png` - AFJ Prompt Template Importer node and import report
+- `workflowx-afj-template-importer-ui.png` - AFJ Prompt Template Importer conversion UI
+- `workflowx-afj-template-randomizer-node.png` - AFJ Template Randomizer node with rule help
+- `workflowx-afj-template-randomizer-fields.png` - AFJ Template Randomizer preset-backed field picker
+- `workflowx-afj-template-randomizer-output.png` - AFJ Template Randomizer output connected to text preview

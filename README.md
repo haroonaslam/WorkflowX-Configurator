@@ -14,6 +14,11 @@ WorkflowX Configurator turns sprawling ComfyUI graphs into selectable workflow p
 - [XNodes Node Snips](#xnodes-node-snips)
 - [WorkflowX Settings, Import, and Export](#workflowx-settings-import-and-export)
 - [AFJ Visual JSON Tools](#afj-visual-json-tools)
+- [AFJ Visual Builder](#afj---visual-builder)
+- [AFJ Templates](#afj-templates)
+- [AFJ Prompt Template Importer](#afj---prompt-template-importer)
+- [AFJ Template Randomizer](#afj---template-randomizer)
+- [AFJ Prompting Guidance](#afj-prompting-guidance)
 - [Troubleshooting](#troubleshooting)
 
 ## What It Does
@@ -289,6 +294,10 @@ The move dialog keeps workflow organization inside the configured workflow root 
 
 ![XFlows move workflow](docs/images/workflowx-xflows-move-dialog.png)
 
+The duplicate finder is an actionable cleanup view, not just a report. It separates exact byte matches, workflows with the same graph structure, and near duplicates that should be reviewed carefully. Each duplicate group lets you preview workflow details without changing the active graph, load a workflow for full inspection, mark the keeper, and soft-delete selected extras into the XFlows trash.
+
+![XFlows duplicate finder](docs/images/workflowx-xflows-duplicate-finder.png)
+
 ## XPrompts Prompt Library
 
 `XPrompts` adds a compact side panel for saved prompts and quick-insert preset snippets. It is designed for prompt text you reuse often while building ComfyUI graphs.
@@ -368,7 +377,7 @@ Import previews available files before restoring them. Selected imports overwrit
 
 ## AFJ Visual JSON Tools
 
-AFJ adds three prompt-building tools for users who prefer structured JSON prompts over one long text field:
+AFJ adds three prompt-building tools for users who prefer structured JSON prompts over one long text field. It is especially useful when a prompt has many moving parts, such as scene, subject, pose, wardrobe, camera, lighting, style, quality, and negative prompt details.
 
 - `AFJ - Visual Builder`: build and edit prompt JSON visually.
 - `AFJ - Prompt Template Importer`: convert finished prompt JSON into a reusable AFJ template.
@@ -378,21 +387,38 @@ AFJ is bundled inside WorkflowX, but its node names and saved template behavior 
 
 ### AFJ - Visual Builder
 
-Use `AFJ - Visual Builder` when you want to compose a prompt as an organized tree. It is useful for detailed prompts where scene, subject, camera, lighting, pose, background, style, and negative prompts need to stay readable.
+Use `AFJ - Visual Builder` when you want to compose a prompt as an organized tree and output clean JSON from the node's `prompt_json` socket.
 
-Quick start:
+![AFJ Visual Builder node](docs/images/workflowx-afj-visual-builder-node.png)
 
-- Add the `AFJ - Visual Builder` node.
-- Click `Open Visual Builder`.
-- Build or edit the prompt tree.
-- Click `Validate & Apply` to write the compiled JSON back into the node.
+Click `Open Visual Builder` to open the full editor.
+
+![AFJ Visual Builder UI](docs/images/workflowx-afj-visual-builder-ui.png)
+
+The builder gives you three working areas:
+
+- The left panel manages saved templates, expand/collapse state, reset actions, and validation.
+- The center panel is the editable prompt tree. Drag node headers to reorder or reparent sections.
+- The right panel edits the selected field, group, or array and shows preset-backed randomizer options.
+
+Common actions:
+
+- Use `+ Field`, `+ Group`, and `+ Array` to shape the JSON.
+- Edit `Key` and `Label` to control the generated JSON key and readable UI label.
+- Use `Preset Value` when a field has attached preset options.
+- Use `Attach Preset Options` to connect a custom field to a known preset path.
+- Use `Duplicate Node`, `Clear Values`, and `Delete Node` while refining the tree.
+- Use `Validate & Apply` to write the compiled JSON back into the ComfyUI node.
+
+![AFJ preset-backed field editor](docs/images/workflowx-afj-visual-builder-field-editor.png)
 
 Important behavior:
 
-- all fields are optional
-- empty values are omitted from the output
-- `Close` discards unsaved in-session edits
-- `Validate & Apply` is the save boundary for the node's current editor state
+- All fields are optional.
+- Empty values are omitted from output.
+- `Close` discards in-session edits that have not been applied.
+- `Validate & Apply` is the save boundary for the node's current editor state.
+- Validation warnings appear in the left panel; `Force apply` is available for intentional edge cases.
 
 ### AFJ Templates
 
@@ -412,9 +438,18 @@ Template names must be filesystem-safe. Empty names, names with invalid filename
 
 Template files do not store preset option lists. They store the prompt tree and randomizer selections, then refresh live options from the current `presets.json` when opened or used.
 
+Recommended use:
+
+- Save stable prompt structures as templates, such as portrait, product, cinematic scene, character sheet, or video shot setup.
+- Keep reusable structure in the template and vary only the fields that need variation.
+- Use preset-backed fields for repeatable controlled options.
+- Use custom fields for project-specific language that does not belong in the preset library.
+
 ### AFJ - Prompt Template Importer
 
 Use `AFJ - Prompt Template Importer` when you already have final prompt JSON from another source and want to turn it into an AFJ template.
+
+![AFJ Prompt Template Importer node](docs/images/workflowx-afj-template-importer-node.png)
 
 Quick start:
 
@@ -426,13 +461,19 @@ Quick start:
 - Review the preview and report.
 - Click `Save Template`.
 
+![AFJ Prompt Template Importer UI](docs/images/workflowx-afj-template-importer-ui.png)
+
 The importer expects final prompt JSON, not an AFJ template file. If the JSON already looks like AFJ template metadata such as `tree` or `randomizer_checked`, the importer rejects it with a clear message.
 
 During conversion, AFJ builds a minimal tree from the prompt JSON, binds matching paths to preset-backed fields, keeps unknown keys as custom fields/groups/arrays, and strips stored options so the template stays compatible with the live preset library.
 
+The import report is useful after conversion. It shows how many non-empty fields were found, how many matched preset-backed fields, and how many custom fields were created.
+
 ### AFJ - Template Randomizer
 
-Use `AFJ - Template Randomizer` when you want repeatable variation from saved templates.
+Use `AFJ - Template Randomizer` when you want repeatable variation from saved templates at queue time.
+
+![AFJ Template Randomizer node](docs/images/workflowx-afj-template-randomizer-node.png)
 
 Quick start:
 
@@ -443,17 +484,52 @@ Quick start:
 - Apply the selection to write `randomize_rules` back into the node.
 - Run the graph.
 
-The node outputs the generated `prompt_json` and a `run_log` showing which rule lines were processed. Preset randomization uses the current `presets.json`, so updated preset values can affect future runs without resaving every template.
+Rules use one line per field:
+
+```text
+path | mode | value
+```
+
+Examples:
+
+```text
+scene.environment | preset | indoor photography studio, seamless backdrop
+subjects[0].dress.top.color | preset | topcolor_black; topcolor_white; topcolor_red
+subjects[0].custom_tag | custom | alpha; beta; gamma
+```
+
+The `mode` is visual guidance. At runtime, AFJ recomputes whether the field is preset-backed or custom from the saved template metadata. If the value matches the template's current value, preset-backed fields randomize from live preset options and custom-only fields stay unchanged. If the value differs, semicolon-separated entries become override candidates.
+
+![AFJ Template Randomizer output](docs/images/workflowx-afj-template-randomizer-output.png)
+
+The node outputs:
+
+- `prompt_json`: the generated prompt JSON for downstream nodes.
+- `run_log`: a readable report of processed rules and skipped or stale paths.
+
+Preset randomization uses the current `presets.json`, so updated preset values can affect future runs without resaving every template.
+
+### Recommended AFJ Workflow
+
+1. Build a prompt tree in `AFJ - Visual Builder`, or paste existing final prompt JSON into `AFJ - Prompt Template Importer`.
+2. Save the result as a named AFJ template.
+3. Attach preset options to fields that should be controlled by the preset library.
+4. Mark preset-backed fields that should be randomizable.
+5. Use `AFJ - Template Randomizer` in your generation workflow and connect `prompt_json` to your preview, parser, or prompt-consuming nodes.
 
 ### AFJ Prompting Guidance
 
-The local AFJ guide recommends building prompts as deep, modular JSON instead of flattening many concepts into one string. Good AFJ prompts usually:
+The local AFJ project guide recommends building prompts as deep, modular JSON instead of flattening many concepts into one string. Good AFJ prompts usually:
 
 - keep the root as the prompt object itself
-- separate scene, subject, pose, wardrobe, background, camera, lighting, style, and negative prompt details
+- separate scene, subject, pose, wardrobe, background, camera, lighting, style, quality, and negative prompt details
 - expand important concepts into child fields when the detail matters
+- prefer preset-backed fields when the preset library has a good match
+- use custom fields when the prompt needs exact project-specific language
 - remove impossible details based on framing and visible context
 - avoid process metadata inside prompt JSON
+
+The AFJ prompt object should be directly usable by generation workflows. Do not wrap it in process metadata such as `pipeline_stage`, `timestamp`, `original_intent`, or similar execution notes. Keep provenance and logs outside the prompt JSON.
 
 For the full AFJ walkthrough, see the bundled [`AFJ user guide`](docs/afj-awesome-flex-json/USER_GUIDE.md).
 
