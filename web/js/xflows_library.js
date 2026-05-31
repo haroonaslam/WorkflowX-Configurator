@@ -3,8 +3,18 @@ import { api } from "../../scripts/api.js";
 import { $el } from "../../scripts/ui.js";
 
 const ROUTE = "/xflows/library";
+const TRANSFER_ROUTE = "/xflows/export-import";
 const SETTINGS_PREFIX = "workflowx.setting";
 const STORAGE_PREFIX = "workflowx.library";
+const WORKFLOWX_FEATURE_CATEGORY = ["WorkflowX", "Features"];
+const WORKFLOWX_BACKUP_CATEGORY = ["WorkflowX", "Import / Export"];
+const TRANSFER_PARTS = [
+  { key: "workflows", label: "Workflows", file: "workflowx_workflows.zip", accept: ".zip,application/zip" },
+  { key: "metadata", label: "XFlows metadata", file: "workflowx_xflows_metadata.json", accept: ".json,application/json" },
+  { key: "prompts", label: "XPrompts", file: "workflowx_xprompts.json", accept: ".json,application/json" },
+  { key: "presets", label: "Presets", file: "workflowx_presets.json", accept: ".json,application/json" },
+  { key: "node_snips", label: "XNodes", file: "workflowx_xnodes.json", accept: ".json,application/json" },
+];
 
 const FEATURE_SETTINGS = {
   xprompts: {
@@ -36,10 +46,12 @@ const XLIB = {
   snipFavorites: false,
   snipType: "all",
   dialog: null,
+  transferDialog: null,
   message: "",
   lastTextTarget: null,
   panels: {},
   buttons: {},
+  settingsEnhancerInstalled: false,
   collapsedPresetCategories: new Set(JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}.collapsedPresetCategories`) || "[]")),
   collapsedSnipSections: new Set(JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}.collapsedSnipSections`) || "[]")),
 };
@@ -291,6 +303,10 @@ const style = `
   position: absolute;
   z-index: 4;
 }
+.xlib-dialog-backdrop.xlib-global {
+  position: fixed;
+  z-index: 10002;
+}
 .xlib-dialog {
   background: color-mix(in srgb, var(--comfy-menu-bg, #181a20) 94%, #111 6%);
   border: 1px solid var(--xlib-border);
@@ -303,10 +319,82 @@ const style = `
   padding: 12px;
   width: min(500px, 100%);
 }
+.xlib-dialog.wide {
+  width: min(620px, 100%);
+}
+.workflowx-settings-row input[aria-hidden="true"],
+.workflowx-settings-row textarea[aria-hidden="true"],
+.workflowx-settings-row select[aria-hidden="true"] {
+  display: none !important;
+}
+.workflowx-settings-action.xlib-btn {
+  align-items: center;
+  background: color-mix(in srgb, var(--comfy-input-bg, #101217) 84%, #38bdf8 10%);
+  border: 1px solid color-mix(in srgb, var(--border-color, #3c3f45) 70%, #38bdf8 30%);
+  border-radius: 8px;
+  color: var(--fg-color, #eef2f7);
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 760;
+  gap: 7px;
+  min-height: 34px;
+  padding: 0 12px;
+}
+.workflowx-settings-action.xlib-btn:hover {
+  background: color-mix(in srgb, var(--comfy-input-bg, #101217) 72%, #38bdf8 18%);
+  border-color: #38bdf8;
+}
 .xlib-dialog-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   justify-content: flex-end;
+}
+.xlib-check-list {
+  display: grid;
+  gap: 6px;
+}
+.xlib-check-row {
+  align-items: center;
+  background: color-mix(in srgb, var(--xlib-panel-2) 68%, transparent);
+  border: 1px solid color-mix(in srgb, var(--xlib-border) 72%, transparent);
+  border-radius: 7px;
+  cursor: pointer;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: auto 1fr auto;
+  min-height: 34px;
+  padding: 7px 8px;
+}
+.xlib-check-row input {
+  accent-color: var(--xlib-accent);
+}
+.xlib-check-row.disabled {
+  cursor: default;
+  opacity: .55;
+}
+.xlib-file-list {
+  border: 1px solid var(--xlib-border);
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  max-height: 170px;
+  overflow: auto;
+  padding: 8px;
+}
+.xlib-file-row {
+  align-items: center;
+  color: var(--xlib-muted);
+  display: flex;
+  font-size: 11px;
+  gap: 6px;
+  justify-content: space-between;
+  min-width: 0;
+}
+.xlib-file-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 `;
 
@@ -358,6 +446,7 @@ function registerFeatureSetting(feature, onChange) {
   try {
     app.ui?.settings?.addSetting?.({
       id: spec.id,
+      category: WORKFLOWX_FEATURE_CATEGORY,
       name: spec.name,
       type: "boolean",
       defaultValue: spec.defaultValue,
@@ -370,6 +459,83 @@ function registerFeatureSetting(feature, onChange) {
       localStorage.setItem(settingStorageKey(spec.id), String(spec.defaultValue));
     }
   }
+}
+
+function registerActionSetting(id, name, action) {
+  try {
+    app.ui?.settings?.addSetting?.({
+      id,
+      category: WORKFLOWX_BACKUP_CATEGORY,
+      name,
+      type: "text",
+      defaultValue: "",
+      tooltip: "Use the WorkflowX button for this action.",
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function findSettingsTextElement(label) {
+  const candidates = document.querySelectorAll("label, span, div, p");
+  for (const element of candidates) {
+    if (element.dataset?.workflowxAction) continue;
+    if ((element.textContent || "").trim() === label) return element;
+  }
+  return null;
+}
+
+function findSettingsRow(labelElement, label) {
+  let row = labelElement;
+  for (let i = 0; i < 8 && row && row !== document.body; i += 1) {
+    const text = row.textContent || "";
+    if (text.includes(label) && row.querySelector("input, textarea, select, button")) return row;
+    row = row.parentElement;
+  }
+  return labelElement.parentElement || labelElement;
+}
+
+function enhanceActionSetting(id, label, iconName, action) {
+  const labelElement = findSettingsTextElement(label);
+  if (!labelElement) return false;
+  const row = findSettingsRow(labelElement, label);
+  if (!row || row.querySelector(`[data-workflowx-action="${id}"]`)) return true;
+
+  row.classList.add("workflowx-settings-row");
+  const controls = Array.from(row.querySelectorAll("input, textarea, select"));
+  const host = controls[0]?.parentElement || row;
+  for (const control of controls) {
+    control.style.display = "none";
+    control.setAttribute("aria-hidden", "true");
+    control.tabIndex = -1;
+  }
+  const actionButton = button({
+    label: label.replace(" WorkflowX Data", ""),
+    iconName,
+    className: "workflowx-settings-action",
+    title: label,
+    onClick: (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      action();
+    },
+  });
+  actionButton.dataset.workflowxAction = id;
+  host.append(actionButton);
+  return true;
+}
+
+function installActionSettingEnhancer() {
+  if (XLIB.settingsEnhancerInstalled) return;
+  XLIB.settingsEnhancerInstalled = true;
+  const enhance = () => {
+    enhanceActionSetting("WorkflowX.ExportImport.Export", "Export WorkflowX Data", "pi-download", () => openTransferDialog("export"));
+    enhanceActionSetting("WorkflowX.ExportImport.Import", "Import WorkflowX Data", "pi-upload", () => openTransferDialog("import"));
+  };
+  enhance();
+  const observer = new MutationObserver(enhance);
+  observer.observe(document.body, { childList: true, subtree: true });
 }
 
 function setButtonVisible(buttonRef, visible) {
@@ -400,6 +566,45 @@ async function postJson(path, body = {}) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+  });
+}
+
+function fileFromPayload(file) {
+  const binary = atob(file.content || "");
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+  return new Blob([bytes], { type: file.mime || "application/octet-stream" });
+}
+
+function downloadPayload(file) {
+  const blob = fileFromPayload(file);
+  const url = URL.createObjectURL(blob);
+  const link = $el("a", { href: url, download: file.name });
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+async function writePayloadToDirectory(directoryHandle, file) {
+  const handle = await directoryHandle.getFileHandle(file.name, { create: true });
+  const writable = await handle.createWritable();
+  await writable.write(fileFromPayload(file));
+  await writable.close();
+}
+
+function readFileAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error || new Error(`Could not read ${file.name}`));
+    reader.onload = () => {
+      const result = String(reader.result || "");
+      resolve({
+        name: file.name,
+        content: result.includes(",") ? result.split(",").pop() : result,
+      });
+    };
+    reader.readAsDataURL(file);
   });
 }
 
@@ -1028,6 +1233,218 @@ function openDeleteDialog(kind, item, parent = null) {
   renderActivePanel();
 }
 
+function defaultTransferParts(enabled = true) {
+  return Object.fromEntries(TRANSFER_PARTS.map((part) => [part.key, enabled]));
+}
+
+function selectedTransferParts(dialog = XLIB.transferDialog) {
+  return Object.fromEntries(TRANSFER_PARTS.map((part) => [part.key, Boolean(dialog?.parts?.[part.key])]));
+}
+
+function openTransferDialog(mode) {
+  XLIB.transferDialog = {
+    mode,
+    parts: defaultTransferParts(mode === "export"),
+    files: [],
+    preview: null,
+    busy: false,
+    status: "",
+  };
+  renderTransferDialog();
+}
+
+function closeTransferDialog() {
+  XLIB.transferDialog = null;
+  renderTransferDialog();
+}
+
+function setTransferStatus(status) {
+  if (!XLIB.transferDialog) return;
+  XLIB.transferDialog.status = status || "";
+  renderTransferDialog();
+}
+
+async function chooseExportFolderAndWrite(files) {
+  if (!window.showDirectoryPicker) return false;
+  const directory = await window.showDirectoryPicker({ mode: "readwrite" });
+  for (const file of files) await writePayloadToDirectory(directory, file);
+  return true;
+}
+
+async function exportWorkflowX(useFolder) {
+  const dialog = XLIB.transferDialog;
+  if (!dialog) return;
+  dialog.busy = true;
+  dialog.status = "Preparing export...";
+  renderTransferDialog();
+  try {
+    const data = await postJson(`${TRANSFER_ROUTE}/export`, { parts: selectedTransferParts(dialog) });
+    const files = data.files || [];
+    if (useFolder && await chooseExportFolderAndWrite(files)) {
+      dialog.status = `Exported ${files.length} file(s) to selected folder.`;
+    } else {
+      files.forEach(downloadPayload);
+      dialog.status = `Downloaded ${files.length} export file(s).`;
+    }
+  } catch (error) {
+    dialog.status = `Export failed: ${error.message}`;
+  } finally {
+    dialog.busy = false;
+    renderTransferDialog();
+  }
+}
+
+async function readTransferFilesFromFolder() {
+  if (!window.showDirectoryPicker) {
+    setTransferStatus("Folder picker is not available in this browser. Use Upload files.");
+    return;
+  }
+  const directory = await window.showDirectoryPicker({ mode: "read" });
+  const names = [...TRANSFER_PARTS.map((part) => part.file), "workflowx_manifest.json"];
+  const files = [];
+  for (const name of names) {
+    try {
+      const handle = await directory.getFileHandle(name);
+      files.push(await readFileAsBase64(await handle.getFile()));
+    } catch {}
+  }
+  await previewImportFiles(files);
+}
+
+async function readTransferFilesFromPicker() {
+  const input = $el("input", {
+    type: "file",
+    multiple: true,
+    accept: TRANSFER_PARTS.map((part) => part.accept).join(","),
+    style: { display: "none" },
+  });
+  document.body.append(input);
+  input.onchange = async () => {
+    const files = await Promise.all([...input.files].map(readFileAsBase64));
+    input.remove();
+    await previewImportFiles(files);
+  };
+  input.click();
+}
+
+async function previewImportFiles(files) {
+  const dialog = XLIB.transferDialog;
+  if (!dialog) return;
+  dialog.busy = true;
+  dialog.status = "Inspecting import files...";
+  renderTransferDialog();
+  try {
+    const data = await postJson(`${TRANSFER_ROUTE}/import/preview`, { files });
+    dialog.files = files;
+    dialog.preview = data;
+    dialog.parts = Object.fromEntries(TRANSFER_PARTS.map((part) => [part.key, Boolean(data.detected?.[part.key])]));
+    dialog.status = data.errors?.length ? `Ready with ${data.errors.length} warning(s).` : "Ready to import.";
+  } catch (error) {
+    dialog.files = [];
+    dialog.preview = null;
+    dialog.status = `Preview failed: ${error.message}`;
+  } finally {
+    dialog.busy = false;
+    renderTransferDialog();
+  }
+}
+
+async function importWorkflowX() {
+  const dialog = XLIB.transferDialog;
+  if (!dialog?.files?.length) return;
+  dialog.busy = true;
+  dialog.status = "Importing selected data...";
+  renderTransferDialog();
+  try {
+    const data = await postJson(`${TRANSFER_ROUTE}/import`, {
+      files: dialog.files,
+      parts: selectedTransferParts(dialog),
+    });
+    dialog.status = `Import complete. Backup: ${data.backup_path}`;
+    await loadLibrary().catch(() => {});
+    window.dispatchEvent(new CustomEvent("workflowx:imported", { detail: data }));
+  } catch (error) {
+    dialog.status = `Import failed: ${error.message}`;
+  } finally {
+    dialog.busy = false;
+    renderTransferDialog();
+    renderActivePanel();
+  }
+}
+
+function renderTransferPartRows(parent, dialog, disabledMissing = false) {
+  const list = $el("div.xlib-check-list", { parent });
+  for (const part of TRANSFER_PARTS) {
+    const detected = dialog.preview?.detected?.[part.key];
+    const disabled = disabledMissing && !detected;
+    const row = $el("label.xlib-check-row" + (disabled ? ".disabled" : ""), { parent: list });
+    row.append($el("input", {
+      type: "checkbox",
+      checked: Boolean(dialog.parts?.[part.key]) && !disabled,
+      disabled,
+      onchange: (event) => {
+        dialog.parts[part.key] = event.target.checked;
+        renderTransferDialog();
+      },
+    }));
+    $el("span", { textContent: part.label, parent: row });
+    $el("span.xlib-meta", {
+      textContent: detected ? `${detected.count} item(s)` : part.file,
+      title: part.file,
+      parent: row,
+    });
+  }
+}
+
+function renderTransferDialog() {
+  document.getElementById("workflowx-transfer-dialog")?.remove();
+  const dialog = XLIB.transferDialog;
+  if (!dialog) return;
+  const backdrop = $el("div.xlib-dialog-backdrop.xlib-global", { id: "workflowx-transfer-dialog", parent: document.body });
+  const modal = $el("div.xlib-dialog.wide", { parent: backdrop });
+  const title = $el("div.xlib-dialog-title", { parent: modal });
+  $el("div.xlib-title", { textContent: dialog.mode === "export" ? "Export WorkflowX Data" : "Import WorkflowX Data", parent: title });
+  title.append(iconButton("pi-times", "Close", closeTransferDialog));
+
+  if (dialog.mode === "export") {
+    $el("div.xlib-subtle", { textContent: "Choose what to export. Workflows are packaged as a zip; metadata and libraries are written as JSON files.", parent: modal });
+    renderTransferPartRows(modal, dialog);
+    const actions = $el("div.xlib-dialog-actions", { parent: modal });
+    actions.append(
+      button({ label: "Cancel", onClick: closeTransferDialog }),
+      button({ label: "Download files", iconName: "pi-download", onClick: () => exportWorkflowX(false) }),
+      button({ label: "Export to folder", iconName: "pi-folder", className: "active", onClick: () => exportWorkflowX(true) })
+    );
+  } else {
+    $el("div.xlib-subtle", { textContent: "Choose a folder or upload export files, then select the parts to restore. Import overrides selected local data after creating a backup.", parent: modal });
+    const pickActions = $el("div.xlib-dialog-actions", { parent: modal });
+    pickActions.append(
+      button({ label: "Upload files", iconName: "pi-upload", onClick: readTransferFilesFromPicker }),
+      button({ label: "Choose folder", iconName: "pi-folder-open", className: "active", onClick: readTransferFilesFromFolder })
+    );
+    if (dialog.files?.length) {
+      const fileList = $el("div.xlib-file-list", { parent: modal });
+      for (const file of dialog.files) {
+        const row = $el("div.xlib-file-row", { parent: fileList });
+        $el("span", { textContent: file.name, title: file.name, parent: row });
+      }
+    }
+    renderTransferPartRows(modal, dialog, true);
+    if (dialog.preview?.errors?.length) {
+      const errors = $el("div.xlib-file-list", { parent: modal });
+      for (const error of dialog.preview.errors) $el("div.xlib-file-row", { textContent: error, parent: errors });
+    }
+    const actions = $el("div.xlib-dialog-actions", { parent: modal });
+    actions.append(
+      button({ label: "Cancel", onClick: closeTransferDialog }),
+      button({ label: "Import selected", iconName: "pi-upload", className: "active", onClick: importWorkflowX })
+    );
+  }
+
+  if (dialog.status) $el("div.xlib-status", { textContent: dialog.status, parent: modal });
+  if (dialog.busy) $el("div.xlib-subtle", { textContent: "Working...", parent: modal });
+}
+
 function renderDialog(panel) {
   const backdrop = $el("div.xlib-dialog-backdrop", { parent: panel });
   const modal = $el("div.xlib-dialog", { parent: backdrop });
@@ -1121,6 +1538,9 @@ app.registerExtension({
   async setup() {
     registerFeatureSetting("xprompts", applyFeatureVisibility);
     registerFeatureSetting("xnodes", applyFeatureVisibility);
+    registerActionSetting("WorkflowX.ExportImport.Export", "Export WorkflowX Data", () => openTransferDialog("export"));
+    registerActionSetting("WorkflowX.ExportImport.Import", "Import WorkflowX Data", () => openTransferDialog("import"));
+    installActionSettingEnhancer();
     await registerButtons();
     await loadLibrary().catch((error) => setMessage(error.message));
   },

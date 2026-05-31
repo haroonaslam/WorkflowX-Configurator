@@ -5,6 +5,7 @@ import { $el } from "../../scripts/ui.js";
 const ROUTE = "/xflows";
 const STORE_PREFIX = "xflows";
 const WORKFLOWX_SETTING_PREFIX = "workflowx.setting";
+const WORKFLOWX_SETTING_CATEGORY = ["WorkflowX", "Features"];
 const XFLOW_SETTING = {
   id: "WorkflowX.XFlows.Enabled",
   name: "Enable XFlows",
@@ -503,6 +504,7 @@ function registerXFlowsSetting() {
   try {
     app.ui?.settings?.addSetting?.({
       id: XFLOW_SETTING.id,
+      category: WORKFLOWX_SETTING_CATEGORY,
       name: XFLOW_SETTING.name,
       type: "boolean",
       defaultValue: XFLOW_SETTING.defaultValue,
@@ -1372,6 +1374,7 @@ app.registerExtension({
     registerXFlowsSetting();
     wrapGraphLoading();
     wrapPromptTracking();
+    window.addEventListener("workflowx:imported", () => loadData(true));
     if (isXFlowsEnabled()) {
       const registered = registerSidebar();
       if (!registered) await registerFallbackButton();

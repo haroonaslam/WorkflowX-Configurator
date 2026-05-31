@@ -1,8 +1,11 @@
 import importlib.util
+import base64
 import pathlib
 import shutil
 import sys
 import types
+import zipfile
+import io
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -48,6 +51,8 @@ def _install_comfy_stubs():
     folder_paths = types.ModuleType("folder_paths")
     folder_paths.get_user_directory = lambda: str(ROOT / ".test_user")
     folder_paths.models_dir = str(ROOT / ".test_models")
+    folder_paths.folder_names_and_paths = {}
+    folder_paths.map_legacy = lambda folder_name: folder_name
     sys.modules.setdefault("folder_paths", folder_paths)
 
     server = types.ModuleType("server")
@@ -146,6 +151,61 @@ def test_xflows_library_storage_helpers_roundtrip():
         assert xflows._delete_node_snip(snip["id"]) is True
     finally:
         shutil.rmtree(ROOT / ".test_user", ignore_errors=True)
+
+
+def test_xflows_export_import_roundtrip_with_backup_and_safe_zip():
+    module = _load_package()
+    xflows = sys.modules[f"{module.__name__}.xflows_manager"]
+    shutil.rmtree(ROOT / ".test_user", ignore_errors=True)
+    try:
+        workflow_root = xflows._workflow_root()
+        workflow_root.mkdir(parents=True, exist_ok=True)
+        (workflow_root / "folder").mkdir(parents=True, exist_ok=True)
+        original_workflow = b'{"nodes":[{"id":1,"type":"KSampler","pos":[1,2],"size":[3,4]}],"links":[]}'
+        (workflow_root / "folder" / "sample.json").write_bytes(original_workflow)
+        (workflow_root / ".index.json").write_text("{}", encoding="utf-8")
+        xflows._save_metadata({"workflows": {"folder/sample.json": {"run_count": 7, "manual_tags": ["keep"]}}})
+        xflows._save_library("prompts", {"prompts": [{"id": "prompt_1", "title": "A", "text": "B"}]})
+        xflows._save_library("presets", {"categories": [{"id": "cat_1", "name": "quality", "snippets": []}]})
+        xflows._save_library("node_snips", {"snips": [{"id": "snip_1", "title": "Node", "payload": {}}]})
+
+        files = xflows._export_files({"workflows", "metadata", "prompts", "presets", "node_snips"})
+        file_names = {file["name"] for file in files}
+        assert "workflowx_workflows.zip" in file_names
+        assert "workflowx_manifest.json" in file_names
+
+        workflow_zip = next(file for file in files if file["name"] == "workflowx_workflows.zip")
+        with zipfile.ZipFile(io.BytesIO(base64.b64decode(workflow_zip["content"])), "r") as archive:
+            assert "folder/sample.json" in archive.namelist()
+            assert ".index.json" not in archive.namelist()
+
+        (workflow_root / "folder" / "sample.json").write_bytes(b'{"changed": true}')
+        xflows._save_library("prompts", {"prompts": []})
+        decoded = xflows._decode_import_files(files)
+        bundle = xflows._validate_import_bundle(decoded, {"workflows", "metadata", "prompts", "presets", "node_snips"})
+        result = xflows._apply_import_bundle({"workflows", "metadata", "prompts", "presets", "node_snips"}, bundle)
+
+        assert (workflow_root / "folder" / "sample.json").read_bytes() == original_workflow
+        assert xflows._load_library("prompts")["prompts"][0]["id"] == "prompt_1"
+        assert pathlib.Path(result["backup_path"]).exists()
+        assert (pathlib.Path(result["backup_path"]) / "workflows" / "folder" / "sample.json").exists()
+    finally:
+        shutil.rmtree(ROOT / ".test_user", ignore_errors=True)
+
+
+def test_xflows_import_rejects_zip_path_traversal():
+    module = _load_package()
+    xflows = sys.modules[f"{module.__name__}.xflows_manager"]
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("../escape.json", "{}")
+
+    try:
+        xflows._validate_workflow_zip(buffer.getvalue())
+    except ValueError as exc:
+        assert "unsafe workflow path" in str(exc)
+    else:
+        raise AssertionError("unsafe zip path was accepted")
 
 
 if __name__ == "__main__":

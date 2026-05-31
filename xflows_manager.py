@@ -1,11 +1,14 @@
 import copy
+import base64
 import hashlib
+import io
 import json
 import os
 import re
 import shutil
 import time
 import uuid
+import zipfile
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -21,6 +24,14 @@ NODE_DISPLAY_NAME_MAPPINGS = {}
 ROUTE_PREFIX = "/xflows"
 METADATA_VERSION = 1
 IGNORED_WORKFLOW_NAMES = {".index.json"}
+EXPORT_FILE_NAMES = {
+    "workflows": "workflowx_workflows.zip",
+    "metadata": "workflowx_xflows_metadata.json",
+    "prompts": "workflowx_xprompts.json",
+    "presets": "workflowx_presets.json",
+    "node_snips": "workflowx_xnodes.json",
+    "manifest": "workflowx_manifest.json",
+}
 MODEL_EXTENSIONS = {".ckpt", ".pt", ".pt2", ".bin", ".pth", ".safetensors", ".pkl", ".sft", ".gguf"}
 EXTRA_MODEL_FOLDERS = (
     "TTS",
@@ -279,6 +290,281 @@ def _save_library(name: str, data: dict) -> None:
     with tmp.open("w", encoding="utf-8") as handle:
         json.dump(data, handle, ensure_ascii=False, indent=2, sort_keys=True)
     os.replace(tmp, path)
+
+
+def _json_bytes(data: dict) -> bytes:
+    return json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True).encode("utf-8")
+
+
+def _file_payload(name: str, data: bytes, mime: str) -> dict:
+    return {
+        "name": name,
+        "mime": mime,
+        "encoding": "base64",
+        "size": len(data),
+        "content": base64.b64encode(data).decode("ascii"),
+    }
+
+
+def _workflow_rel(path: Path) -> str:
+    return _normalize_slashes(str(path.relative_to(_workflow_root())))
+
+
+def _exportable_workflows() -> list[Path]:
+    return [path for path in _walk_workflows() if path.name not in IGNORED_WORKFLOW_NAMES]
+
+
+def _export_manifest() -> dict:
+    prompts = _load_library("prompts").get("prompts", [])
+    presets = _load_library("presets").get("categories", [])
+    node_snips = _load_library("node_snips").get("snips", [])
+    workflows = _exportable_workflows()
+    return {
+        "version": METADATA_VERSION,
+        "generated_at": _now_ms(),
+        "files": EXPORT_FILE_NAMES,
+        "counts": {
+            "workflows": len(workflows),
+            "metadata_records": len(_load_metadata().get("workflows", {})),
+            "prompts": len(prompts),
+            "preset_categories": len(presets),
+            "preset_snippets": sum(len(category.get("snippets", [])) for category in presets if isinstance(category, dict)),
+            "node_snips": len(node_snips),
+        },
+        "roots": {
+            "workflows": str(_workflow_root()),
+            "manager": str(_manager_root()),
+        },
+    }
+
+
+def _workflows_zip_bytes() -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for path in _exportable_workflows():
+            archive.write(path, _workflow_rel(path))
+    return buffer.getvalue()
+
+
+def _selected_parts(value) -> set[str]:
+    allowed = {"workflows", "metadata", "prompts", "presets", "node_snips"}
+    if isinstance(value, dict):
+        selected = {key for key, enabled in value.items() if enabled}
+    elif isinstance(value, list):
+        selected = {str(item) for item in value}
+    else:
+        selected = set()
+    return selected & allowed
+
+
+def _export_files(selected: set[str]) -> list[dict]:
+    files = [_file_payload(EXPORT_FILE_NAMES["manifest"], _json_bytes(_export_manifest()), "application/json")]
+    if "workflows" in selected:
+        files.append(_file_payload(EXPORT_FILE_NAMES["workflows"], _workflows_zip_bytes(), "application/zip"))
+    if "metadata" in selected:
+        files.append(_file_payload(EXPORT_FILE_NAMES["metadata"], _json_bytes(_load_metadata()), "application/json"))
+    if "prompts" in selected:
+        files.append(_file_payload(EXPORT_FILE_NAMES["prompts"], _json_bytes(_load_library("prompts")), "application/json"))
+    if "presets" in selected:
+        files.append(_file_payload(EXPORT_FILE_NAMES["presets"], _json_bytes(_load_library("presets")), "application/json"))
+    if "node_snips" in selected:
+        files.append(_file_payload(EXPORT_FILE_NAMES["node_snips"], _json_bytes(_load_library("node_snips")), "application/json"))
+    return files
+
+
+def _decode_import_files(files) -> dict[str, bytes]:
+    if not isinstance(files, list):
+        raise ValueError("files must be a list")
+    decoded = {}
+    for file in files:
+        if not isinstance(file, dict):
+            continue
+        name = Path(str(file.get("name") or "")).name
+        if name not in EXPORT_FILE_NAMES.values():
+            continue
+        content = file.get("content")
+        if not isinstance(content, str):
+            raise ValueError(f"{name} is missing file content")
+        try:
+            decoded[name] = base64.b64decode(content, validate=True)
+        except Exception as exc:
+            raise ValueError(f"{name} is not valid base64") from exc
+    return decoded
+
+
+def _parse_import_json(files: dict[str, bytes], part: str) -> dict | None:
+    name = EXPORT_FILE_NAMES[part]
+    if name not in files:
+        return None
+    try:
+        data = json.loads(files[name].decode("utf-8"))
+    except Exception as exc:
+        raise ValueError(f"{name} is not valid JSON") from exc
+    if not isinstance(data, dict):
+        raise ValueError(f"{name} must contain a JSON object")
+    return data
+
+
+def _validate_metadata_import(data: dict) -> dict:
+    if not isinstance(data.get("workflows"), dict):
+        raise ValueError("workflow metadata must contain a workflows object")
+    data = copy.deepcopy(data)
+    data["version"] = METADATA_VERSION
+    return data
+
+
+def _validate_library_import(data: dict, name: str) -> dict:
+    data = copy.deepcopy(data)
+    if name == "prompts" and not isinstance(data.get("prompts"), list):
+        raise ValueError("XPrompts import must contain a prompts array")
+    if name == "presets" and not isinstance(data.get("categories"), list):
+        raise ValueError("Presets import must contain a categories array")
+    if name == "node_snips" and not isinstance(data.get("snips"), list):
+        raise ValueError("XNodes import must contain a snips array")
+    data["version"] = METADATA_VERSION
+    return data
+
+
+def _safe_import_workflow_path(name: str) -> str | None:
+    normalized = _normalize_slashes(name.strip())
+    if not normalized or normalized.endswith("/"):
+        return None
+    path = Path(normalized)
+    if path.is_absolute() or path.drive:
+        raise ValueError(f"unsafe workflow path in zip: {name}")
+    parts = path.parts
+    if any(part in ("", ".", "..") for part in parts):
+        raise ValueError(f"unsafe workflow path in zip: {name}")
+    if path.name in IGNORED_WORKFLOW_NAMES:
+        return None
+    if path.suffix.lower() != ".json":
+        return None
+    return _normalize_slashes(str(path))
+
+
+def _validate_workflow_zip(data: bytes) -> list[dict]:
+    entries = []
+    try:
+        with zipfile.ZipFile(io.BytesIO(data), "r") as archive:
+            for info in archive.infolist():
+                rel = _safe_import_workflow_path(info.filename)
+                if rel is None:
+                    continue
+                entries.append({"path": rel, "data": archive.read(info)})
+    except zipfile.BadZipFile as exc:
+        raise ValueError("workflowx_workflows.zip is not a valid zip file") from exc
+    return entries
+
+
+def _validate_import_bundle(files: dict[str, bytes], selected: set[str]) -> dict:
+    bundle = {}
+    if "workflows" in selected:
+        zip_name = EXPORT_FILE_NAMES["workflows"]
+        if zip_name not in files:
+            raise ValueError(f"{zip_name} is required")
+        bundle["workflows"] = _validate_workflow_zip(files[zip_name])
+    if "metadata" in selected:
+        data = _parse_import_json(files, "metadata")
+        if data is None:
+            raise ValueError(f"{EXPORT_FILE_NAMES['metadata']} is required")
+        bundle["metadata"] = _validate_metadata_import(data)
+    if "prompts" in selected:
+        data = _parse_import_json(files, "prompts")
+        if data is None:
+            raise ValueError(f"{EXPORT_FILE_NAMES['prompts']} is required")
+        bundle["prompts"] = _validate_library_import(data, "prompts")
+    if "presets" in selected:
+        data = _parse_import_json(files, "presets")
+        if data is None:
+            raise ValueError(f"{EXPORT_FILE_NAMES['presets']} is required")
+        bundle["presets"] = _validate_library_import(data, "presets")
+    if "node_snips" in selected:
+        data = _parse_import_json(files, "node_snips")
+        if data is None:
+            raise ValueError(f"{EXPORT_FILE_NAMES['node_snips']} is required")
+        bundle["node_snips"] = _validate_library_import(data, "node_snips")
+    return bundle
+
+
+def _import_preview(files: dict[str, bytes]) -> dict:
+    detected = {}
+    errors = []
+    try:
+        if EXPORT_FILE_NAMES["workflows"] in files:
+            workflows = _validate_workflow_zip(files[EXPORT_FILE_NAMES["workflows"]])
+            detected["workflows"] = {"count": len(workflows), "file": EXPORT_FILE_NAMES["workflows"]}
+    except ValueError as exc:
+        errors.append(str(exc))
+    for part, key in (("metadata", "workflows"), ("prompts", "prompts"), ("presets", "categories"), ("node_snips", "snips")):
+        try:
+            data = _parse_import_json(files, part)
+            if data is not None:
+                values = data.get(key, {})
+                detected[part] = {
+                    "count": len(values) if hasattr(values, "__len__") else 0,
+                    "file": EXPORT_FILE_NAMES[part],
+                }
+        except ValueError as exc:
+            errors.append(str(exc))
+    return {"detected": detected, "errors": errors}
+
+
+def _backup_import_targets(selected: set[str], workflow_entries: list[dict]) -> Path:
+    backup_root = _manager_root() / "import_backups" / time.strftime("%Y%m%d-%H%M%S")
+    backup_root.mkdir(parents=True, exist_ok=True)
+    if "workflows" in selected:
+        workflow_backup = backup_root / "workflows"
+        for entry in workflow_entries:
+            source = (_workflow_root() / entry["path"]).resolve()
+            if source.exists():
+                target = (workflow_backup / entry["path"]).resolve()
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, target)
+    if "metadata" in selected and _metadata_path().exists():
+        shutil.copy2(_metadata_path(), backup_root / EXPORT_FILE_NAMES["metadata"])
+    if "prompts" in selected and _prompt_library_path().exists():
+        shutil.copy2(_prompt_library_path(), backup_root / EXPORT_FILE_NAMES["prompts"])
+    if "presets" in selected and _preset_snippets_path().exists():
+        shutil.copy2(_preset_snippets_path(), backup_root / EXPORT_FILE_NAMES["presets"])
+    if "node_snips" in selected and _node_snips_path().exists():
+        shutil.copy2(_node_snips_path(), backup_root / EXPORT_FILE_NAMES["node_snips"])
+    return backup_root
+
+
+def _apply_import_bundle(selected: set[str], bundle: dict) -> dict:
+    workflow_entries = bundle.get("workflows", [])
+    backup_root = _backup_import_targets(selected, workflow_entries)
+    workflow_root = _workflow_root().resolve()
+    imported_counts = {}
+    if "workflows" in selected:
+        for entry in workflow_entries:
+            target = (workflow_root / entry["path"]).resolve()
+            if os.path.commonpath([str(workflow_root), str(target)]) != str(workflow_root):
+                raise ValueError(f"unsafe workflow path: {entry['path']}")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            tmp = target.with_suffix(target.suffix + ".tmp")
+            tmp.write_bytes(entry["data"])
+            os.replace(tmp, target)
+        imported_counts["workflows"] = len(workflow_entries)
+    if "metadata" in selected:
+        _save_metadata(bundle["metadata"])
+        imported_counts["metadata_records"] = len(bundle["metadata"].get("workflows", {}))
+    if "prompts" in selected:
+        _save_library("prompts", bundle["prompts"])
+        imported_counts["prompts"] = len(bundle["prompts"].get("prompts", []))
+    if "presets" in selected:
+        _save_library("presets", bundle["presets"])
+        imported_counts["preset_categories"] = len(bundle["presets"].get("categories", []))
+    if "node_snips" in selected:
+        _save_library("node_snips", bundle["node_snips"])
+        imported_counts["node_snips"] = len(bundle["node_snips"].get("snips", []))
+    scan_result = _scan(prune=True) if "workflows" in selected else None
+    return {
+        "backup_path": str(backup_root),
+        "imported": imported_counts,
+        "workflows": scan_result.get("workflows", []) if scan_result else None,
+        "folders": scan_result.get("folders", []) if scan_result else _folders(),
+    }
 
 
 def _new_library_id(prefix: str) -> str:
@@ -1170,6 +1456,51 @@ async def duplicates(_request):
     canonical = _duplicate_groups(workflows, "canonical_hash")
     near = _duplicate_groups(workflows, "near_signature")
     return _json_response({"exact": exact, "canonical": canonical, "near": near, "generated_at": _now_ms()})
+
+
+@PromptServer.instance.routes.get(f"{ROUTE_PREFIX}/export-import/manifest")
+async def export_import_manifest(_request):
+    return _json_response(_export_manifest())
+
+
+@PromptServer.instance.routes.post(f"{ROUTE_PREFIX}/export-import/export")
+async def export_import_export(request):
+    body = await _read_json_request(request)
+    selected = _selected_parts(body.get("parts"))
+    if not selected:
+        return _json_response({"error": "select at least one export item"}, status=400)
+    return _json_response({
+        "ok": True,
+        "manifest": _export_manifest(),
+        "files": _export_files(selected),
+    })
+
+
+@PromptServer.instance.routes.post(f"{ROUTE_PREFIX}/export-import/preview")
+@PromptServer.instance.routes.post(f"{ROUTE_PREFIX}/export-import/import/preview")
+async def export_import_preview(request):
+    body = await _read_json_request(request)
+    try:
+        files = _decode_import_files(body.get("files"))
+        preview = _import_preview(files)
+    except ValueError as exc:
+        return _json_response({"error": str(exc)}, status=400)
+    return _json_response({"ok": True, **preview})
+
+
+@PromptServer.instance.routes.post(f"{ROUTE_PREFIX}/export-import/import")
+async def export_import_import(request):
+    body = await _read_json_request(request)
+    selected = _selected_parts(body.get("parts"))
+    if not selected:
+        return _json_response({"error": "select at least one import item"}, status=400)
+    try:
+        files = _decode_import_files(body.get("files"))
+        bundle = _validate_import_bundle(files, selected)
+        result = _apply_import_bundle(selected, bundle)
+    except ValueError as exc:
+        return _json_response({"error": str(exc)}, status=400)
+    return _json_response({"ok": True, **result, "generated_at": _now_ms()})
 
 
 @PromptServer.instance.routes.get(f"{ROUTE_PREFIX}/library/all")
