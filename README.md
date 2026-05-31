@@ -1,6 +1,6 @@
 # WorkflowX Configurator
 
-![WorkflowX Configurator banner](docs/images/Generated%20image%201.png)
+![WorkflowX Configurator banner](docs/images/workflowx-banner-v4.png)
 
 WorkflowX Configurator turns sprawling ComfyUI graphs into selectable workflow profiles: reuse the same key names in different groups, switch one config, and the right value or relay source is picked at queue time. Instead of duplicating samplers, rewiring LoRA chains, or fighting nodes that can only store one global value, WorkflowX lets fast drafts, quality renders, model variants, and LoRA experiments live side by side while one selector decides which path is active. It can be used for multiple scenarios where you want to have one workflow to easily switch values of any node by preconfigure once or to switch between different profiles instead of creating separate workflows.
 
@@ -490,24 +490,6 @@ Multiple Set Int nodes found for key 'Steps'; using node id 123.
 ```
 
 The result is deterministic, but the workflow is easier to maintain if each key/type appears once per active scope.
-
-## Development
-
-Run the dependency-free validation checks from this folder:
-
-```powershell
-python -m py_compile __init__.py nodes.py
-@'
-import tests.test_nodes as t
-for name in sorted(dir(t)):
-    if name.startswith('test_'):
-        getattr(t, name)()
-        print(f'{name}: ok')
-'@ | python -
-node --check web/js/key_config_tools.js
-```
-
-The tests cover typed lookup, selected config lookup, stale mode handling, global precedence, duplicate handling, and queue-time resolved values.
 
 ## Repository Notes
 
