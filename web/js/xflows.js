@@ -5,7 +5,6 @@ import { $el } from "../../scripts/ui.js";
 const ROUTE = "/xflows";
 const STORE_PREFIX = "xflows";
 const WORKFLOWX_SETTING_PREFIX = "workflowx.setting";
-const WORKFLOWX_SETTING_CATEGORY = ["WorkflowX", "Features"];
 const XFLOW_SETTING = {
   id: "WorkflowX.XFlows.Enabled",
   name: "Enable XFlows",
@@ -493,30 +492,6 @@ function applyXFlowsVisibility() {
   setButtonVisible(XFM.fallbackButton, enabled);
   if (!enabled && XFM.fallbackPanel) XFM.fallbackPanel.style.display = "none";
   if (XFM.root) renderShell(XFM.root);
-}
-
-function registerXFlowsSetting() {
-  const apply = (value) => {
-    const enabled = value !== false && value !== "false";
-    localStorage.setItem(settingStorageKey(XFLOW_SETTING.id), String(enabled));
-    applyXFlowsVisibility();
-  };
-  try {
-    app.ui?.settings?.addSetting?.({
-      id: XFLOW_SETTING.id,
-      category: WORKFLOWX_SETTING_CATEGORY,
-      name: XFLOW_SETTING.name,
-      type: "boolean",
-      defaultValue: XFLOW_SETTING.defaultValue,
-      tooltip: XFLOW_SETTING.tooltip,
-      onChange: apply,
-      callback: apply,
-    });
-  } catch {
-    if (localStorage.getItem(settingStorageKey(XFLOW_SETTING.id)) == null) {
-      localStorage.setItem(settingStorageKey(XFLOW_SETTING.id), String(XFLOW_SETTING.defaultValue));
-    }
-  }
 }
 
 function lowerSet(values = []) {
@@ -1371,10 +1346,10 @@ app.registerExtension({
     }
   },
   async setup() {
-    registerXFlowsSetting();
     wrapGraphLoading();
     wrapPromptTracking();
     window.addEventListener("workflowx:imported", () => loadData(true));
+    window.addEventListener("workflowx:feature-settings-changed", applyXFlowsVisibility);
     if (isXFlowsEnabled()) {
       const registered = registerSidebar();
       if (!registered) await registerFallbackButton();

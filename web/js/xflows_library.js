@@ -6,8 +6,8 @@ const ROUTE = "/xflows/library";
 const TRANSFER_ROUTE = "/xflows/export-import";
 const SETTINGS_PREFIX = "workflowx.setting";
 const STORAGE_PREFIX = "workflowx.library";
-const WORKFLOWX_FEATURE_CATEGORY = ["WorkflowX", "Features"];
-const WORKFLOWX_BACKUP_CATEGORY = ["WorkflowX", "Import / Export"];
+const WORKFLOWX_FEATURE_ROW_CATEGORY = ["WorkflowX", "Features", "Modules"];
+const WORKFLOWX_IMPORT_EXPORT_ROW_CATEGORY = ["WorkflowX", "Import / Export", "Backup and Restore"];
 const TRANSFER_PARTS = [
   { key: "workflows", label: "Workflows", file: "workflowx_workflows.zip", accept: ".zip,application/zip" },
   { key: "metadata", label: "XFlows metadata", file: "workflowx_xflows_metadata.json", accept: ".json,application/json" },
@@ -17,6 +17,12 @@ const TRANSFER_PARTS = [
 ];
 
 const FEATURE_SETTINGS = {
+  xflows: {
+    id: "WorkflowX.XFlows.Enabled",
+    name: "Enable XFlows",
+    defaultValue: true,
+    tooltip: "Show the WorkflowX workflow manager side panel.",
+  },
   xprompts: {
     id: "WorkflowX.XPrompts.Enabled",
     name: "Enable XPrompts",
@@ -51,7 +57,6 @@ const XLIB = {
   lastTextTarget: null,
   panels: {},
   buttons: {},
-  settingsEnhancerInstalled: false,
   collapsedPresetCategories: new Set(JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}.collapsedPresetCategories`) || "[]")),
   collapsedSnipSections: new Set(JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}.collapsedSnipSections`) || "[]")),
 };
@@ -322,10 +327,36 @@ const style = `
 .xlib-dialog.wide {
   width: min(620px, 100%);
 }
-.workflowx-settings-row input[aria-hidden="true"],
-.workflowx-settings-row textarea[aria-hidden="true"],
-.workflowx-settings-row select[aria-hidden="true"] {
-  display: none !important;
+.workflowx-settings-controls {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-start;
+  width: 100%;
+}
+.workflowx-settings-row > td {
+  padding-left: 0;
+}
+.workflowx-settings-row label:empty,
+.workflowx-settings-row td:first-child:empty {
+  display: none;
+}
+.workflowx-settings-toggle {
+  align-items: center;
+  background: color-mix(in srgb, var(--comfy-input-bg, #101217) 84%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-color, #3c3f45) 72%, transparent);
+  border-radius: 9px;
+  color: var(--fg-color, #eef2f7);
+  cursor: pointer;
+  display: inline-flex;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 10px;
+  user-select: none;
+}
+.workflowx-settings-toggle input {
+  accent-color: #38bdf8;
 }
 .workflowx-settings-action.xlib-btn {
   align-items: center;
@@ -435,107 +466,84 @@ function readFeatureSetting(feature) {
   return stored == null ? spec.defaultValue : stored !== "false";
 }
 
-function registerFeatureSetting(feature, onChange) {
+function setWorkflowXFeature(feature, enabled) {
   const spec = FEATURE_SETTINGS[feature];
   if (!spec) return;
-  const apply = (value) => {
-    const enabled = value !== false && value !== "false";
-    localStorage.setItem(settingStorageKey(spec.id), String(enabled));
-    onChange?.(enabled);
-  };
+  localStorage.setItem(settingStorageKey(spec.id), String(Boolean(enabled)));
+  try {
+    app.ui?.settings?.setSettingValue?.(spec.id, Boolean(enabled));
+  } catch {}
+  try {
+    api.storeSetting?.(spec.id, Boolean(enabled));
+  } catch {}
+  window.dispatchEvent(new CustomEvent("workflowx:feature-settings-changed", { detail: { id: spec.id, feature, enabled: Boolean(enabled) } }));
+  applyFeatureVisibility();
+}
+
+function featureToggleControl(feature) {
+  const spec = FEATURE_SETTINGS[feature];
+  const label = $el("label.workflowx-settings-toggle", { title: spec.tooltip });
+  const checkbox = $el("input", {
+    type: "checkbox",
+    checked: readFeatureSetting(feature),
+    onchange: (event) => setWorkflowXFeature(feature, event.target.checked),
+    parent: label,
+  });
+  checkbox.checked = readFeatureSetting(feature);
+  label.append($el("span", { textContent: spec.name.replace("Enable ", "") }));
+  return label;
+}
+
+function workflowXSettingRow(controls) {
+  return $el("tr.workflowx-settings-row", [
+    $el("td", { colSpan: 2 }, [$el("div.workflowx-settings-controls", controls)]),
+  ]);
+}
+
+function registerWorkflowXSettings() {
   try {
     app.ui?.settings?.addSetting?.({
-      id: spec.id,
-      category: WORKFLOWX_FEATURE_CATEGORY,
-      name: spec.name,
-      type: "boolean",
-      defaultValue: spec.defaultValue,
-      tooltip: spec.tooltip,
-      onChange: apply,
-      callback: apply,
+      id: "WorkflowX.FeatureToggles",
+      category: WORKFLOWX_FEATURE_ROW_CATEGORY,
+      name: " ",
+      defaultValue: null,
+      type: () => {
+        for (const feature of ["xflows", "xprompts", "xnodes"]) {
+          const spec = FEATURE_SETTINGS[feature];
+          if (localStorage.getItem(settingStorageKey(spec.id)) == null) {
+            localStorage.setItem(settingStorageKey(spec.id), String(spec.defaultValue));
+          }
+        }
+        return workflowXSettingRow([
+          featureToggleControl("xflows"),
+          featureToggleControl("xprompts"),
+          featureToggleControl("xnodes"),
+        ]);
+      },
     });
-  } catch {
+
+    app.ui?.settings?.addSetting?.({
+      id: "WorkflowX.ImportExport",
+      category: WORKFLOWX_IMPORT_EXPORT_ROW_CATEGORY,
+      name: " ",
+      defaultValue: null,
+      type: () => workflowXSettingRow([
+        button({ label: "Export WorkflowX Data", iconName: "pi-download", className: "workflowx-settings-action", title: "Export workflows and WorkflowX metadata", onClick: () => openTransferDialog("export") }),
+        button({ label: "Import WorkflowX Data", iconName: "pi-upload", className: "workflowx-settings-action", title: "Import workflows and WorkflowX metadata", onClick: () => openTransferDialog("import") }),
+      ]),
+    });
+  } catch (error) {
+    console.warn("[WorkflowX] Failed to register settings", error);
+  }
+}
+
+function syncFeatureDefaults() {
+  for (const feature of ["xflows", "xprompts", "xnodes"]) {
+    const spec = FEATURE_SETTINGS[feature];
     if (localStorage.getItem(settingStorageKey(spec.id)) == null) {
       localStorage.setItem(settingStorageKey(spec.id), String(spec.defaultValue));
     }
   }
-}
-
-function registerActionSetting(id, name, action) {
-  try {
-    app.ui?.settings?.addSetting?.({
-      id,
-      category: WORKFLOWX_BACKUP_CATEGORY,
-      name,
-      type: "text",
-      defaultValue: "",
-      tooltip: "Use the WorkflowX button for this action.",
-    });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function findSettingsTextElement(label) {
-  const candidates = document.querySelectorAll("label, span, div, p");
-  for (const element of candidates) {
-    if (element.dataset?.workflowxAction) continue;
-    if ((element.textContent || "").trim() === label) return element;
-  }
-  return null;
-}
-
-function findSettingsRow(labelElement, label) {
-  let row = labelElement;
-  for (let i = 0; i < 8 && row && row !== document.body; i += 1) {
-    const text = row.textContent || "";
-    if (text.includes(label) && row.querySelector("input, textarea, select, button")) return row;
-    row = row.parentElement;
-  }
-  return labelElement.parentElement || labelElement;
-}
-
-function enhanceActionSetting(id, label, iconName, action) {
-  const labelElement = findSettingsTextElement(label);
-  if (!labelElement) return false;
-  const row = findSettingsRow(labelElement, label);
-  if (!row || row.querySelector(`[data-workflowx-action="${id}"]`)) return true;
-
-  row.classList.add("workflowx-settings-row");
-  const controls = Array.from(row.querySelectorAll("input, textarea, select"));
-  const host = controls[0]?.parentElement || row;
-  for (const control of controls) {
-    control.style.display = "none";
-    control.setAttribute("aria-hidden", "true");
-    control.tabIndex = -1;
-  }
-  const actionButton = button({
-    label: label.replace(" WorkflowX Data", ""),
-    iconName,
-    className: "workflowx-settings-action",
-    title: label,
-    onClick: (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      action();
-    },
-  });
-  actionButton.dataset.workflowxAction = id;
-  host.append(actionButton);
-  return true;
-}
-
-function installActionSettingEnhancer() {
-  if (XLIB.settingsEnhancerInstalled) return;
-  XLIB.settingsEnhancerInstalled = true;
-  const enhance = () => {
-    enhanceActionSetting("WorkflowX.ExportImport.Export", "Export WorkflowX Data", "pi-download", () => openTransferDialog("export"));
-    enhanceActionSetting("WorkflowX.ExportImport.Import", "Import WorkflowX Data", "pi-upload", () => openTransferDialog("import"));
-  };
-  enhance();
-  const observer = new MutationObserver(enhance);
-  observer.observe(document.body, { childList: true, subtree: true });
 }
 
 function setButtonVisible(buttonRef, visible) {
@@ -1536,11 +1544,8 @@ app.registerExtension({
     document.addEventListener("focusin", rememberTextTarget, true);
   },
   async setup() {
-    registerFeatureSetting("xprompts", applyFeatureVisibility);
-    registerFeatureSetting("xnodes", applyFeatureVisibility);
-    registerActionSetting("WorkflowX.ExportImport.Export", "Export WorkflowX Data", () => openTransferDialog("export"));
-    registerActionSetting("WorkflowX.ExportImport.Import", "Import WorkflowX Data", () => openTransferDialog("import"));
-    installActionSettingEnhancer();
+    syncFeatureDefaults();
+    registerWorkflowXSettings();
     await registerButtons();
     await loadLibrary().catch((error) => setMessage(error.message));
   },
