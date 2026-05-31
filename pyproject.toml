@@ -1,7 +1,7 @@
 [project]
 name = "workflowx-configurator"
-version = "1.0.0"
-description = "Workflow-local configuration profiles, typed Set/Get nodes, relay routing, and group-based mode switching for ComfyUI."
+version = "2.0.0"
+description = "WorkflowX bundles ComfyUI configuration profile nodes with XFlows workflow management, XPrompts prompt libraries, XNodes reusable node snippets, and the AFJ JSON prompt system."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = []
@@ -17,3 +17,4 @@ Documentation = "https://github.com/haroonaslam/WorkflowX-Configurator#readme"
 [tool.comfy]
 PublisherId = "haxzero"
 DisplayName = "WorkflowX Configurator"
+Banner = "https://raw.githubusercontent.com/haroonaslam/WorkflowX-Configurator/main/docs/images/workflowx-banner-v4.png"
