@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 import time
+import uuid
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -90,6 +91,18 @@ def _trash_root() -> Path:
     return _manager_root() / "trash"
 
 
+def _prompt_library_path() -> Path:
+    return _manager_root() / "prompt_library.json"
+
+
+def _preset_snippets_path() -> Path:
+    return _manager_root() / "preset_snippets.json"
+
+
+def _node_snips_path() -> Path:
+    return _manager_root() / "node_snips.json"
+
+
 def _legacy_manager_root() -> Path:
     return _user_root() / "workflow_manager"
 
@@ -137,6 +150,38 @@ def _clean_tag(value: str) -> str:
     return value[:72]
 
 
+def _tag_map(values) -> dict[str, str]:
+    if not isinstance(values, list):
+        return {}
+    tags = {}
+    for value in values:
+        tag = _clean_tag(value)
+        if tag:
+            tags[tag.lower()] = tag
+    return tags
+
+
+def _merged_tag_fields(record: dict, auto_tags: list[str]) -> tuple[list[str], list[str], list[str]]:
+    auto_by_key = _tag_map(auto_tags)
+    manual_by_key = _tag_map(record.get("manual_tags"))
+    hidden_by_key = _tag_map(record.get("hidden_auto_tags"))
+
+    hidden_by_key = {
+        key: auto_by_key[key]
+        for key in hidden_by_key
+        if key in auto_by_key and key not in manual_by_key
+    }
+    visible_auto = [
+        tag
+        for key, tag in auto_by_key.items()
+        if key not in hidden_by_key
+    ]
+    manual_tags = sorted(manual_by_key.values(), key=str.lower)
+    hidden_auto_tags = sorted(hidden_by_key.values(), key=str.lower)
+    all_tags = sorted({*visible_auto, *manual_tags}, key=str.lower)
+    return manual_tags, hidden_auto_tags, all_tags
+
+
 def _json_response(data, status: int = 200):
     return web.json_response(data, status=status, dumps=lambda value: json.dumps(value, ensure_ascii=False))
 
@@ -173,6 +218,260 @@ def _save_metadata(data: dict) -> None:
     with tmp.open("w", encoding="utf-8") as handle:
         json.dump(data, handle, ensure_ascii=False, indent=2, sort_keys=True)
     os.replace(tmp, _metadata_path())
+
+
+def _library_path(name: str) -> Path:
+    paths = {
+        "prompts": _prompt_library_path(),
+        "presets": _preset_snippets_path(),
+        "node_snips": _node_snips_path(),
+    }
+    if name not in paths:
+        raise ValueError("unknown library")
+    return paths[name]
+
+
+def _default_library(name: str) -> dict:
+    if name == "prompts":
+        return {"version": METADATA_VERSION, "prompts": []}
+    if name == "presets":
+        return {"version": METADATA_VERSION, "categories": []}
+    if name == "node_snips":
+        return {"version": METADATA_VERSION, "snips": []}
+    raise ValueError("unknown library")
+
+
+def _load_library(name: str) -> dict:
+    path = _library_path(name)
+    if not path.exists():
+        return _default_library(name)
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except Exception:
+        backup = path.with_suffix(f".broken-{int(time.time())}.json")
+        try:
+            shutil.copy2(path, backup)
+        except Exception:
+            pass
+        return _default_library(name)
+    if not isinstance(data, dict):
+        data = {}
+    default = _default_library(name)
+    if name == "prompts" and not isinstance(data.get("prompts"), list):
+        data["prompts"] = []
+    if name == "presets" and not isinstance(data.get("categories"), list):
+        data["categories"] = []
+    if name == "node_snips" and not isinstance(data.get("snips"), list):
+        data["snips"] = []
+    data["version"] = METADATA_VERSION
+    for key, value in default.items():
+        data.setdefault(key, value)
+    return data
+
+
+def _save_library(name: str, data: dict) -> None:
+    root = _manager_root()
+    root.mkdir(parents=True, exist_ok=True)
+    data["version"] = METADATA_VERSION
+    path = _library_path(name)
+    tmp = path.with_suffix(".json.tmp")
+    with tmp.open("w", encoding="utf-8") as handle:
+        json.dump(data, handle, ensure_ascii=False, indent=2, sort_keys=True)
+    os.replace(tmp, path)
+
+
+def _new_library_id(prefix: str) -> str:
+    return f"{prefix}_{uuid.uuid4().hex[:12]}"
+
+
+def _clean_title(value: str, fallback: str = "Untitled") -> str:
+    title = str(value or "").strip()
+    title = re.sub(r"\s+", " ", title)
+    return (title or fallback)[:140]
+
+
+def _clean_body_text(value: str) -> str:
+    return str(value or "").replace("\r\n", "\n").replace("\r", "\n")[:200000]
+
+
+def _clean_library_tags(values) -> list[str]:
+    return sorted(_tag_map(values).values(), key=str.lower)
+
+
+def _find_entry(items: list[dict], entry_id: str) -> dict | None:
+    for item in items:
+        if isinstance(item, dict) and item.get("id") == entry_id:
+            return item
+    return None
+
+
+def _upsert_prompt(payload: dict) -> dict:
+    data = _load_library("prompts")
+    prompts = data.setdefault("prompts", [])
+    entry_id = str(payload.get("id") or "").strip()
+    existing = _find_entry(prompts, entry_id) if entry_id else None
+    now = _now_ms()
+    if existing is None:
+        existing = {
+            "id": _new_library_id("prompt"),
+            "created_at": now,
+            "use_count": 0,
+            "favorite": False,
+        }
+        prompts.append(existing)
+    existing["title"] = _clean_title(payload.get("title"), "Untitled prompt")
+    existing["text"] = _clean_body_text(payload.get("text"))
+    existing["tags"] = _clean_library_tags(payload.get("tags"))
+    if "favorite" in payload:
+        existing["favorite"] = bool(payload.get("favorite"))
+    existing["updated_at"] = now
+    _save_library("prompts", data)
+    return existing
+
+
+def _delete_prompt(entry_id: str) -> bool:
+    data = _load_library("prompts")
+    before = len(data.setdefault("prompts", []))
+    data["prompts"] = [entry for entry in data["prompts"] if entry.get("id") != entry_id]
+    changed = len(data["prompts"]) != before
+    if changed:
+        _save_library("prompts", data)
+    return changed
+
+
+def _touch_prompt(entry_id: str) -> dict | None:
+    data = _load_library("prompts")
+    entry = _find_entry(data.setdefault("prompts", []), entry_id)
+    if entry is None:
+        return None
+    entry["use_count"] = int(entry.get("use_count", 0) or 0) + 1
+    entry["last_used_at"] = _now_ms()
+    _save_library("prompts", data)
+    return entry
+
+
+def _upsert_preset_category(payload: dict) -> dict:
+    data = _load_library("presets")
+    categories = data.setdefault("categories", [])
+    entry_id = str(payload.get("id") or "").strip()
+    existing = _find_entry(categories, entry_id) if entry_id else None
+    now = _now_ms()
+    if existing is None:
+        existing = {"id": _new_library_id("cat"), "created_at": now, "snippets": []}
+        categories.append(existing)
+    existing["name"] = _clean_title(payload.get("name"), "New category")
+    existing["updated_at"] = now
+    _save_library("presets", data)
+    return existing
+
+
+def _delete_preset_category(entry_id: str) -> bool:
+    data = _load_library("presets")
+    before = len(data.setdefault("categories", []))
+    data["categories"] = [entry for entry in data["categories"] if entry.get("id") != entry_id]
+    changed = len(data["categories"]) != before
+    if changed:
+        _save_library("presets", data)
+    return changed
+
+
+def _upsert_preset_snippet(category_id: str, payload: dict) -> dict | None:
+    data = _load_library("presets")
+    category = _find_entry(data.setdefault("categories", []), category_id)
+    if category is None:
+        return None
+    snippets = category.setdefault("snippets", [])
+    entry_id = str(payload.get("id") or "").strip()
+    existing = _find_entry(snippets, entry_id) if entry_id else None
+    now = _now_ms()
+    if existing is None:
+        existing = {"id": _new_library_id("snippet"), "created_at": now, "use_count": 0}
+        snippets.append(existing)
+    existing["text"] = _clean_body_text(payload.get("text"))
+    existing["updated_at"] = now
+    category["updated_at"] = now
+    _save_library("presets", data)
+    return existing
+
+
+def _delete_preset_snippet(category_id: str, entry_id: str) -> bool:
+    data = _load_library("presets")
+    category = _find_entry(data.setdefault("categories", []), category_id)
+    if category is None:
+        return False
+    snippets = category.setdefault("snippets", [])
+    before = len(snippets)
+    category["snippets"] = [entry for entry in snippets if entry.get("id") != entry_id]
+    changed = len(category["snippets"]) != before
+    if changed:
+        category["updated_at"] = _now_ms()
+        _save_library("presets", data)
+    return changed
+
+
+def _touch_preset_snippet(category_id: str, entry_id: str) -> dict | None:
+    data = _load_library("presets")
+    category = _find_entry(data.setdefault("categories", []), category_id)
+    if category is None:
+        return None
+    snippet = _find_entry(category.setdefault("snippets", []), entry_id)
+    if snippet is None:
+        return None
+    snippet["use_count"] = int(snippet.get("use_count", 0) or 0) + 1
+    snippet["last_used_at"] = _now_ms()
+    _save_library("presets", data)
+    return snippet
+
+
+def _upsert_node_snip(payload: dict) -> dict:
+    data = _load_library("node_snips")
+    snips = data.setdefault("snips", [])
+    entry_id = str(payload.get("id") or "").strip()
+    existing = _find_entry(snips, entry_id) if entry_id else None
+    now = _now_ms()
+    if existing is None:
+        existing = {
+            "id": _new_library_id("snip"),
+            "created_at": now,
+            "use_count": 0,
+            "favorite": False,
+        }
+        snips.append(existing)
+    payload_data = payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
+    snip_type = str(payload.get("type") or payload_data.get("type") or "node").strip().lower()
+    if snip_type not in {"node", "group"}:
+        snip_type = "node"
+    existing["title"] = _clean_title(payload.get("title"), "Untitled snip")
+    existing["type"] = snip_type
+    existing["tags"] = _clean_library_tags(payload.get("tags"))
+    existing["payload"] = payload_data
+    if "favorite" in payload:
+        existing["favorite"] = bool(payload.get("favorite"))
+    existing["updated_at"] = now
+    _save_library("node_snips", data)
+    return existing
+
+
+def _delete_node_snip(entry_id: str) -> bool:
+    data = _load_library("node_snips")
+    before = len(data.setdefault("snips", []))
+    data["snips"] = [entry for entry in data["snips"] if entry.get("id") != entry_id]
+    changed = len(data["snips"]) != before
+    if changed:
+        _save_library("node_snips", data)
+    return changed
+
+
+def _touch_node_snip(entry_id: str) -> dict | None:
+    data = _load_library("node_snips")
+    entry = _find_entry(data.setdefault("snips", []), entry_id)
+    if entry is None:
+        return None
+    entry["use_count"] = int(entry.get("use_count", 0) or 0) + 1
+    entry["last_used_at"] = _now_ms()
+    _save_library("node_snips", data)
+    return entry
 
 
 def _safe_rel_path(value: str, *, require_json: bool = False) -> str:
@@ -560,18 +859,18 @@ def _merge_entries_with_metadata(entries: list[dict], metadata: dict, *, prune: 
         if not isinstance(record, dict):
             record = {}
 
-        manual_tags = record.get("manual_tags") if isinstance(record.get("manual_tags"), list) else []
-        manual_tags = sorted({_clean_tag(tag) for tag in manual_tags if _clean_tag(tag)}, key=str.lower)
+        manual_tags, hidden_auto_tags, all_tags = _merged_tag_fields(record, entry["auto_tags"])
         merged = {
             **entry,
             "manual_tags": manual_tags,
+            "hidden_auto_tags": hidden_auto_tags,
             "favorite": bool(record.get("favorite", False)),
             "run_count": int(record.get("run_count", 0) or 0),
             "last_run_at": record.get("last_run_at"),
             "last_used_at": record.get("last_used_at"),
             "modified_runs": int(record.get("modified_runs", 0) or 0),
         }
-        merged["all_tags"] = sorted(set(merged["auto_tags"]) | set(manual_tags), key=str.lower)
+        merged["all_tags"] = all_tags
         workflows[rel] = merged
 
     if not prune:
@@ -585,18 +884,18 @@ def _merge_entries_with_metadata(entries: list[dict], metadata: dict, *, prune: 
 def _merge_entry_with_record(entry: dict, record: dict) -> dict:
     if not isinstance(record, dict):
         record = {}
-    manual_tags = record.get("manual_tags") if isinstance(record.get("manual_tags"), list) else []
-    manual_tags = sorted({_clean_tag(tag) for tag in manual_tags if _clean_tag(tag)}, key=str.lower)
+    manual_tags, hidden_auto_tags, all_tags = _merged_tag_fields(record, entry["auto_tags"])
     merged = {
         **entry,
         "manual_tags": manual_tags,
+        "hidden_auto_tags": hidden_auto_tags,
         "favorite": bool(record.get("favorite", False)),
         "run_count": int(record.get("run_count", 0) or 0),
         "last_run_at": record.get("last_run_at"),
         "last_used_at": record.get("last_used_at"),
         "modified_runs": int(record.get("modified_runs", 0) or 0),
     }
-    merged["all_tags"] = sorted(set(merged["auto_tags"]) | set(manual_tags), key=str.lower)
+    merged["all_tags"] = all_tags
     return merged
 
 
@@ -726,19 +1025,60 @@ async def update_tags(request):
         return _json_response({"error": str(exc)}, status=400)
     metadata = _load_metadata()
     record = metadata.setdefault("workflows", {}).setdefault(rel, {})
-    tags = set(record.get("manual_tags") if isinstance(record.get("manual_tags"), list) else [])
+    auto_by_key = _tag_map(record.get("auto_tags"))
+    manual_by_key = _tag_map(record.get("manual_tags"))
+    hidden_by_key = _tag_map(record.get("hidden_auto_tags"))
+
+    if isinstance(body.get("set"), list):
+        manual_by_key = _tag_map(body["set"])
+    if isinstance(body.get("set_manual"), list):
+        manual_by_key = _tag_map(body["set_manual"])
+    if isinstance(body.get("set_hidden_auto_tags"), list):
+        hidden_by_key = _tag_map(body["set_hidden_auto_tags"])
+    elif isinstance(body.get("hidden_auto_tags"), list):
+        hidden_by_key = _tag_map(body["hidden_auto_tags"])
+
     for tag in body.get("add", []) if isinstance(body.get("add"), list) else []:
         cleaned = _clean_tag(tag)
         if cleaned:
-            tags.add(cleaned)
+            manual_by_key[cleaned.lower()] = cleaned
+            hidden_by_key.pop(cleaned.lower(), None)
     for tag in body.get("remove", []) if isinstance(body.get("remove"), list) else []:
         cleaned = _clean_tag(tag)
-        tags = {value for value in tags if value.lower() != cleaned.lower()}
-    if isinstance(body.get("set"), list):
-        tags = {_clean_tag(tag) for tag in body["set"] if _clean_tag(tag)}
-    record["manual_tags"] = sorted(tags, key=str.lower)
+        key = cleaned.lower()
+        manual_by_key.pop(key, None)
+        if key in auto_by_key:
+            hidden_by_key[key] = auto_by_key[key]
+    for tag in body.get("hide_auto", []) if isinstance(body.get("hide_auto"), list) else []:
+        cleaned = _clean_tag(tag)
+        key = cleaned.lower()
+        if key in auto_by_key and key not in manual_by_key:
+            hidden_by_key[key] = auto_by_key[key]
+    for tag in body.get("unhide_auto", []) if isinstance(body.get("unhide_auto"), list) else []:
+        cleaned = _clean_tag(tag)
+        hidden_by_key.pop(cleaned.lower(), None)
+
+    hidden_by_key = {
+        key: auto_by_key[key]
+        for key in hidden_by_key
+        if key in auto_by_key and key not in manual_by_key
+    }
+    record["manual_tags"] = sorted(manual_by_key.values(), key=str.lower)
+    record["hidden_auto_tags"] = sorted(hidden_by_key.values(), key=str.lower)
+    visible_auto_tags = [
+        tag
+        for key, tag in auto_by_key.items()
+        if key not in hidden_by_key
+    ]
+    record["all_tags"] = sorted({*visible_auto_tags, *record["manual_tags"]}, key=str.lower)
     _save_metadata(metadata)
-    return _json_response({"ok": True, "path": rel, "manual_tags": record["manual_tags"]})
+    return _json_response({
+        "ok": True,
+        "path": rel,
+        "manual_tags": record["manual_tags"],
+        "hidden_auto_tags": record["hidden_auto_tags"],
+        "all_tags": record["all_tags"],
+    })
 
 
 @PromptServer.instance.routes.post(f"{ROUTE_PREFIX}/favorite")
@@ -830,6 +1170,142 @@ async def duplicates(_request):
     canonical = _duplicate_groups(workflows, "canonical_hash")
     near = _duplicate_groups(workflows, "near_signature")
     return _json_response({"exact": exact, "canonical": canonical, "near": near, "generated_at": _now_ms()})
+
+
+@PromptServer.instance.routes.get(f"{ROUTE_PREFIX}/library/all")
+async def get_library_all(_request):
+    return _json_response({
+        "prompts": _load_library("prompts").get("prompts", []),
+        "presets": _load_library("presets").get("categories", []),
+        "node_snips": _load_library("node_snips").get("snips", []),
+        "generated_at": _now_ms(),
+    })
+
+
+@PromptServer.instance.routes.get(f"{ROUTE_PREFIX}/library/prompts")
+async def get_library_prompts(_request):
+    return _json_response({"prompts": _load_library("prompts").get("prompts", [])})
+
+
+@PromptServer.instance.routes.post(f"{ROUTE_PREFIX}/library/prompts/upsert")
+async def upsert_library_prompt(request):
+    body = await _read_json_request(request)
+    entry = _upsert_prompt(body)
+    return _json_response({"ok": True, "prompt": entry, "prompts": _load_library("prompts").get("prompts", [])})
+
+
+@PromptServer.instance.routes.post(f"{ROUTE_PREFIX}/library/prompts/delete")
+async def delete_library_prompt(request):
+    body = await _read_json_request(request)
+    entry_id = str(body.get("id") or "").strip()
+    if not entry_id:
+        return _json_response({"error": "id is required"}, status=400)
+    _delete_prompt(entry_id)
+    return _json_response({"ok": True, "prompts": _load_library("prompts").get("prompts", [])})
+
+
+@PromptServer.instance.routes.post(f"{ROUTE_PREFIX}/library/prompts/use")
+async def use_library_prompt(request):
+    body = await _read_json_request(request)
+    entry_id = str(body.get("id") or "").strip()
+    if not entry_id:
+        return _json_response({"error": "id is required"}, status=400)
+    entry = _touch_prompt(entry_id)
+    if entry is None:
+        return _json_response({"error": "prompt not found"}, status=404)
+    return _json_response({"ok": True, "prompt": entry})
+
+
+@PromptServer.instance.routes.get(f"{ROUTE_PREFIX}/library/presets")
+async def get_library_presets(_request):
+    return _json_response({"categories": _load_library("presets").get("categories", [])})
+
+
+@PromptServer.instance.routes.post(f"{ROUTE_PREFIX}/library/presets/category/upsert")
+async def upsert_library_preset_category(request):
+    body = await _read_json_request(request)
+    entry = _upsert_preset_category(body)
+    return _json_response({"ok": True, "category": entry, "categories": _load_library("presets").get("categories", [])})
+
+
+@PromptServer.instance.routes.post(f"{ROUTE_PREFIX}/library/presets/category/delete")
+async def delete_library_preset_category(request):
+    body = await _read_json_request(request)
+    entry_id = str(body.get("id") or "").strip()
+    if not entry_id:
+        return _json_response({"error": "id is required"}, status=400)
+    _delete_preset_category(entry_id)
+    return _json_response({"ok": True, "categories": _load_library("presets").get("categories", [])})
+
+
+@PromptServer.instance.routes.post(f"{ROUTE_PREFIX}/library/presets/snippet/upsert")
+async def upsert_library_preset_snippet(request):
+    body = await _read_json_request(request)
+    category_id = str(body.get("category_id") or "").strip()
+    if not category_id:
+        return _json_response({"error": "category_id is required"}, status=400)
+    entry = _upsert_preset_snippet(category_id, body)
+    if entry is None:
+        return _json_response({"error": "category not found"}, status=404)
+    return _json_response({"ok": True, "snippet": entry, "categories": _load_library("presets").get("categories", [])})
+
+
+@PromptServer.instance.routes.post(f"{ROUTE_PREFIX}/library/presets/snippet/delete")
+async def delete_library_preset_snippet(request):
+    body = await _read_json_request(request)
+    category_id = str(body.get("category_id") or "").strip()
+    entry_id = str(body.get("id") or "").strip()
+    if not category_id or not entry_id:
+        return _json_response({"error": "category_id and id are required"}, status=400)
+    _delete_preset_snippet(category_id, entry_id)
+    return _json_response({"ok": True, "categories": _load_library("presets").get("categories", [])})
+
+
+@PromptServer.instance.routes.post(f"{ROUTE_PREFIX}/library/presets/snippet/use")
+async def use_library_preset_snippet(request):
+    body = await _read_json_request(request)
+    category_id = str(body.get("category_id") or "").strip()
+    entry_id = str(body.get("id") or "").strip()
+    if not category_id or not entry_id:
+        return _json_response({"error": "category_id and id are required"}, status=400)
+    entry = _touch_preset_snippet(category_id, entry_id)
+    if entry is None:
+        return _json_response({"error": "snippet not found"}, status=404)
+    return _json_response({"ok": True, "snippet": entry})
+
+
+@PromptServer.instance.routes.get(f"{ROUTE_PREFIX}/library/node-snips")
+async def get_library_node_snips(_request):
+    return _json_response({"snips": _load_library("node_snips").get("snips", [])})
+
+
+@PromptServer.instance.routes.post(f"{ROUTE_PREFIX}/library/node-snips/upsert")
+async def upsert_library_node_snip(request):
+    body = await _read_json_request(request)
+    entry = _upsert_node_snip(body)
+    return _json_response({"ok": True, "snip": entry, "snips": _load_library("node_snips").get("snips", [])})
+
+
+@PromptServer.instance.routes.post(f"{ROUTE_PREFIX}/library/node-snips/delete")
+async def delete_library_node_snip(request):
+    body = await _read_json_request(request)
+    entry_id = str(body.get("id") or "").strip()
+    if not entry_id:
+        return _json_response({"error": "id is required"}, status=400)
+    _delete_node_snip(entry_id)
+    return _json_response({"ok": True, "snips": _load_library("node_snips").get("snips", [])})
+
+
+@PromptServer.instance.routes.post(f"{ROUTE_PREFIX}/library/node-snips/use")
+async def use_library_node_snip(request):
+    body = await _read_json_request(request)
+    entry_id = str(body.get("id") or "").strip()
+    if not entry_id:
+        return _json_response({"error": "id is required"}, status=400)
+    entry = _touch_node_snip(entry_id)
+    if entry is None:
+        return _json_response({"error": "node snip not found"}, status=404)
+    return _json_response({"ok": True, "snip": entry})
 
 
 def _duplicate_groups(workflows: list[dict], key: str) -> list[dict]:

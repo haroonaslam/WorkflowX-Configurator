@@ -4,6 +4,13 @@ import { $el } from "../../scripts/ui.js";
 
 const ROUTE = "/xflows";
 const STORE_PREFIX = "xflows";
+const WORKFLOWX_SETTING_PREFIX = "workflowx.setting";
+const XFLOW_SETTING = {
+  id: "WorkflowX.XFlows.Enabled",
+  name: "Enable XFlows",
+  defaultValue: true,
+  tooltip: "Show the WorkflowX workflow manager side panel.",
+};
 
 const XFM = {
   workflows: [],
@@ -25,6 +32,8 @@ const XFM = {
   dialog: null,
   refreshTimers: new Map(),
   recentlyUpdated: new Map(),
+  fallbackPanel: null,
+  fallbackButton: null,
 };
 
 const style = `
@@ -251,6 +260,45 @@ const style = `
   background: color-mix(in srgb, var(--xfm-warn) 18%, transparent);
   border-color: color-mix(in srgb, var(--xfm-warn) 48%, transparent);
 }
+.xfm-tag-manager {
+  border: 1px solid var(--xfm-border);
+  border-radius: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 250px;
+  overflow: auto;
+  padding: 8px;
+}
+.xfm-tag-chip {
+  align-items: center;
+  background: color-mix(in srgb, var(--xfm-panel-2) 82%, transparent);
+  border: 1px solid var(--xfm-border);
+  border-radius: 999px;
+  display: inline-flex;
+  gap: 5px;
+  max-width: 100%;
+  padding: 4px 5px 4px 8px;
+}
+.xfm-tag-chip.manual {
+  border-color: color-mix(in srgb, var(--xfm-warn) 52%, transparent);
+}
+.xfm-tag-chip.auto {
+  border-color: color-mix(in srgb, var(--xfm-accent) 52%, transparent);
+}
+.xfm-tag-text {
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.xfm-tag-source {
+  color: var(--xfm-muted);
+  font-size: 9px;
+  text-transform: uppercase;
+}
+.xfm-tag-remove {
+  min-height: 22px;
+  min-width: 22px;
+}
 .xfm-star {
   background: transparent;
   border-color: transparent;
@@ -421,6 +469,78 @@ function iconButton(iconName, title, onClick, className = "") {
   return makeButton({ iconName, title, onClick, className: `xfm-icon-btn ${className}` });
 }
 
+function settingStorageKey(id) {
+  return `${WORKFLOWX_SETTING_PREFIX}.${id}`;
+}
+
+function isXFlowsEnabled() {
+  try {
+    const value = app.ui?.settings?.getSettingValue?.(XFLOW_SETTING.id);
+    if (value !== undefined && value !== null) return value !== false && value !== "false";
+  } catch {}
+  const stored = localStorage.getItem(settingStorageKey(XFLOW_SETTING.id));
+  return stored == null ? XFLOW_SETTING.defaultValue : stored !== "false";
+}
+
+function setButtonVisible(buttonRef, visible) {
+  const target = buttonRef?.element || buttonRef?.button || buttonRef?.root || buttonRef;
+  if (target?.style) target.style.display = visible ? "" : "none";
+}
+
+function applyXFlowsVisibility() {
+  const enabled = isXFlowsEnabled();
+  setButtonVisible(XFM.fallbackButton, enabled);
+  if (!enabled && XFM.fallbackPanel) XFM.fallbackPanel.style.display = "none";
+  if (XFM.root) renderShell(XFM.root);
+}
+
+function registerXFlowsSetting() {
+  const apply = (value) => {
+    const enabled = value !== false && value !== "false";
+    localStorage.setItem(settingStorageKey(XFLOW_SETTING.id), String(enabled));
+    applyXFlowsVisibility();
+  };
+  try {
+    app.ui?.settings?.addSetting?.({
+      id: XFLOW_SETTING.id,
+      name: XFLOW_SETTING.name,
+      type: "boolean",
+      defaultValue: XFLOW_SETTING.defaultValue,
+      tooltip: XFLOW_SETTING.tooltip,
+      onChange: apply,
+      callback: apply,
+    });
+  } catch {
+    if (localStorage.getItem(settingStorageKey(XFLOW_SETTING.id)) == null) {
+      localStorage.setItem(settingStorageKey(XFLOW_SETTING.id), String(XFLOW_SETTING.defaultValue));
+    }
+  }
+}
+
+function lowerSet(values = []) {
+  return new Set((values || []).map((value) => String(value).toLowerCase()));
+}
+
+function tagSource(workflow, tag) {
+  const key = String(tag).toLowerCase();
+  const auto = lowerSet(workflow.auto_tags).has(key);
+  const manual = lowerSet(workflow.manual_tags).has(key);
+  if (auto && manual) return "auto + custom";
+  if (manual) return "custom";
+  return "auto";
+}
+
+function applyTagResponse(data) {
+  const workflow = XFM.workflows.find((item) => item.path === data.path);
+  if (!workflow) return;
+  workflow.manual_tags = data.manual_tags || [];
+  workflow.hidden_auto_tags = data.hidden_auto_tags || [];
+  workflow.all_tags = data.all_tags || [];
+  if (XFM.dialog?.workflow?.path === workflow.path) {
+    XFM.dialog.workflow = workflow;
+  }
+}
+
 function filteredWorkflows() {
   const query = XFM.query.trim().toLowerCase();
   let items = XFM.workflows.filter((workflow) => {
@@ -458,6 +578,12 @@ function renderShell(target, options = {}) {
   const header = $el("div.xfm-header", { parent: target });
   const titleRow = $el("div.xfm-title-row", { parent: header });
   $el("div.xfm-title", { textContent: "XFlows", parent: titleRow });
+  if (!isXFlowsEnabled()) {
+    $el("div.xfm-content", { parent: target }, [
+      $el("div.xfm-empty", { textContent: "XFlows is disabled in WorkflowX settings." }),
+    ]);
+    return;
+  }
   $el("div.xfm-count", {
     textContent: `${filteredWorkflows().length}/${XFM.workflows.length}`,
     parent: titleRow,
@@ -719,20 +845,16 @@ function renderCard(workflow) {
       },
     }));
   }
-  tagRow.append(iconButton("pi-plus", "Add manual tag", () => openTagDialog(workflow)));
+  tagRow.append(makeButton({
+    label: "Manage tags",
+    iconName: "pi-tags",
+    title: "Manage tags",
+    onClick: () => openTagDialog(workflow),
+  }));
 
   const actions = $el("div.xfm-card-actions", { parent: card });
   actions.append(
     makeButton({ label: "Use", iconName: "pi-play", className: "active", onClick: () => useWorkflow(workflow) }),
-    makeButton({
-      label: "Tags",
-      iconName: "pi-tags",
-      onClick: () => {
-        if (XFM.expandedTags.has(workflow.path)) XFM.expandedTags.delete(workflow.path);
-        else XFM.expandedTags.add(workflow.path);
-        renderShell(XFM.root, { preserveScroll: true });
-      },
-    }),
     iconButton("pi-ellipsis-v", "More actions", () => {
       if (XFM.expandedActions.has(workflow.path)) XFM.expandedActions.delete(workflow.path);
       else XFM.expandedActions.add(workflow.path);
@@ -744,8 +866,7 @@ function renderCard(workflow) {
     const more = $el("div.xfm-card-actions", { parent: card });
     more.append(
       makeButton({ label: "Move", iconName: "pi-folder", onClick: () => openMoveDialog(workflow) }),
-      makeButton({ label: "Delete", iconName: "pi-trash", className: "xfm-danger", onClick: () => deleteWorkflow(workflow) }),
-      makeButton({ label: "Remove tags", iconName: "pi-times", onClick: () => clearManualTags(workflow) })
+      makeButton({ label: "Delete", iconName: "pi-trash", className: "xfm-danger", onClick: () => deleteWorkflow(workflow) })
     );
   }
 
@@ -826,9 +947,57 @@ function workflowPathFromUserdataRoute(routeText) {
   return normalized.slice("workflows/".length);
 }
 
+function layoutSnapshot(graphData) {
+  const result = new Map();
+  for (const node of graphData?.nodes || []) {
+    const id = String(node.id);
+    result.set(id, {
+      pos: Array.isArray(node.pos) ? node.pos.map(Number) : null,
+      size: Array.isArray(node.size) ? node.size.map(Number) : null,
+    });
+  }
+  return result;
+}
+
+function sameNumberArray(a, b) {
+  if (!a && !b) return true;
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+  return a.every((value, index) => Math.abs(Number(value) - Number(b[index])) < 0.001);
+}
+
+function immediateLayoutDiff(sourceWorkflow, loadedGraph) {
+  const source = layoutSnapshot(sourceWorkflow);
+  const loaded = layoutSnapshot(loadedGraph);
+  const diffs = [];
+  for (const [id, before] of source.entries()) {
+    const after = loaded.get(id);
+    if (!after) {
+      diffs.push({ id, field: "missing-after-load" });
+      continue;
+    }
+    if (!sameNumberArray(before.pos, after.pos)) diffs.push({ id, field: "pos", source: before.pos, loaded: after.pos });
+    if (!sameNumberArray(before.size, after.size)) diffs.push({ id, field: "size", source: before.size, loaded: after.size });
+    if (diffs.length >= 12) break;
+  }
+  return diffs;
+}
+
+function warnIfLayoutChangedOnLoad(sourceWorkflow) {
+  if (localStorage.getItem("xflows.debugLayout") !== "true") return;
+  try {
+    const diffs = immediateLayoutDiff(sourceWorkflow, app.graph.serialize());
+    if (diffs.length) {
+      console.warn("[XFlows] Graph layout differs immediately after app.loadGraphData. XFlows did not normalize layout; this points to ComfyUI load/migration behavior.", diffs);
+    }
+  } catch (error) {
+    console.debug("[XFlows] Layout diagnostic skipped", error);
+  }
+}
+
 async function useWorkflow(workflow) {
   try {
     const data = await apiJson(`${ROUTE}/workflow?path=${encodeURIComponent(workflow.path)}`, { cache: "no-store" });
+    const sourceWorkflow = JSON.parse(JSON.stringify(data.workflow));
     XFM.loadingFromManager = true;
     try {
       await app.loadGraphData(
@@ -841,6 +1010,7 @@ async function useWorkflow(workflow) {
     } finally {
       XFM.loadingFromManager = false;
     }
+    warnIfLayoutChangedOnLoad(sourceWorkflow);
     XFM.activeWorkflow = {
       path: workflow.path,
       contentHash: workflow.content_hash,
@@ -859,26 +1029,27 @@ async function toggleFavorite(workflow) {
 }
 
 function openTagDialog(workflow) {
-  XFM.dialog = { type: "tag", workflow, tag: "" };
-  renderShell(XFM.root);
+  XFM.dialog = { type: "tags", workflow, tag: "" };
+  renderShell(XFM.root, { preserveScroll: true });
 }
 
 async function addTagFromDialog() {
   const tag = XFM.dialog?.tag?.trim();
   const workflow = XFM.dialog?.workflow;
   if (!tag || !workflow) return;
-  await postJson(`${ROUTE}/tags`, { path: workflow.path, add: [tag] });
-  XFM.dialog = null;
-  await loadData(false);
+  const data = await postJson(`${ROUTE}/tags`, { path: workflow.path, add: [tag] });
+  applyTagResponse(data);
+  XFM.dialog.tag = "";
   XFM.expandedTags.add(workflow.path);
-  renderShell(XFM.root);
+  renderShell(XFM.root, { preserveScroll: true });
 }
 
-async function clearManualTags(workflow) {
-  if (!(workflow.manual_tags || []).length) return;
-  if (!confirm(`Remove manual tags from ${workflow.name}?`)) return;
-  await postJson(`${ROUTE}/tags`, { path: workflow.path, set: [] });
-  await loadData(false);
+async function removeTagFromDialog(tag) {
+  const workflow = XFM.dialog?.workflow;
+  if (!tag || !workflow) return;
+  const data = await postJson(`${ROUTE}/tags`, { path: workflow.path, remove: [tag] });
+  applyTagResponse(data);
+  renderShell(XFM.root, { preserveScroll: true });
 }
 
 function openMoveDialog(workflow) {
@@ -1027,13 +1198,29 @@ function renderDialog(parent) {
     return;
   }
 
-  if (XFM.dialog.type === "tag") {
-    $el("div.xfm-title", { textContent: "Add tag", parent: title });
+  if (XFM.dialog.type === "tags") {
+    const workflow = XFM.dialog.workflow;
+    $el("div.xfm-title", { textContent: "Manage tags", parent: title });
     title.append(iconButton("pi-times", "Close", close));
-    $el("div.xfm-subtle", { textContent: XFM.dialog.workflow.path, parent: modal });
+    $el("div.xfm-subtle", { textContent: workflow.path, title: workflow.path, parent: modal });
+    const tags = workflow.all_tags || [];
+    const tagList = $el("div.xfm-tag-manager", { parent: modal });
+    if (!tags.length) {
+      $el("div.xfm-subtle", { textContent: "No tags yet.", parent: tagList });
+    }
+    for (const tag of tags) {
+      const source = tagSource(workflow, tag);
+      const chip = $el("div.xfm-tag-chip" + (source.includes("custom") ? ".manual" : ".auto"), {
+        title: source,
+        parent: tagList,
+      });
+      chip.append($el("span.xfm-tag-text", { textContent: tag }));
+      chip.append($el("span.xfm-tag-source", { textContent: source }));
+      chip.append(iconButton("pi-times", `Remove ${tag}`, () => removeTagFromDialog(tag), "xfm-tag-remove"));
+    }
     const input = $el("input.xfm-input", {
       value: XFM.dialog.tag,
-      placeholder: "Tag name",
+      placeholder: "Add custom tag",
       oninput: (event) => { XFM.dialog.tag = event.target.value; },
       onkeydown: (event) => {
         if (event.key === "Enter") addTagFromDialog();
@@ -1043,8 +1230,8 @@ function renderDialog(parent) {
     });
     const actions = $el("div.xfm-dialog-actions", { parent: modal });
     actions.append(
-      makeButton({ label: "Cancel", onClick: close }),
-      makeButton({ label: "Add tag", iconName: "pi-plus", className: "active", onClick: addTagFromDialog })
+      makeButton({ label: "Done", onClick: close }),
+      makeButton({ label: "Add custom tag", iconName: "pi-plus", className: "active", onClick: addTagFromDialog })
     );
     requestAnimationFrame(() => input.focus());
     return;
@@ -1149,8 +1336,10 @@ function registerSidebar() {
 
 async function registerFallbackButton() {
   const panel = $el("div.xfm-shell.xfm-floating-panel", { style: { display: "none" }, parent: document.body });
+  XFM.fallbackPanel = panel;
   renderShell(panel);
   const toggle = () => {
+    if (!isXFlowsEnabled()) return;
     panel.style.display = panel.style.display === "none" ? "flex" : "none";
     if (panel.style.display !== "none") loadData(false);
   };
@@ -1162,11 +1351,14 @@ async function registerFallbackButton() {
       tooltip: "XFlows Manager",
       content: "XFlows",
     });
+    XFM.fallbackButton = workflowButton;
     app.menu?.settingsGroup?.append(workflowButton);
   } catch {
     const menu = document.querySelector(".comfy-menu") || document.body;
-    menu.append(makeButton({ label: "XFlows", iconName: "pi-folder-open", onClick: toggle }));
+    XFM.fallbackButton = makeButton({ label: "XFlows", iconName: "pi-folder-open", onClick: toggle });
+    menu.append(XFM.fallbackButton);
   }
+  applyXFlowsVisibility();
 }
 
 app.registerExtension({
@@ -1177,10 +1369,14 @@ app.registerExtension({
     }
   },
   async setup() {
+    registerXFlowsSetting();
     wrapGraphLoading();
     wrapPromptTracking();
-    const registered = registerSidebar();
-    if (!registered) await registerFallbackButton();
-    await loadData(false);
+    if (isXFlowsEnabled()) {
+      const registered = registerSidebar();
+      if (!registered) await registerFallbackButton();
+      await loadData(false);
+    }
+    applyXFlowsVisibility();
   },
 });
