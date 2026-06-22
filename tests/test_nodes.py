@@ -20,6 +20,7 @@ from nodes import (
     ConfigSelector,
     ConfigSelectorAdvanced,
     GetRelay,
+    SetFloat,
     SetRelay,
 )
 
@@ -88,6 +89,21 @@ def test_relay_nodes_pass_through_materialized_values():
     payload = {"kind": "MODEL"}
     assert SetRelay().set_value("model", payload) == (payload,)
     assert GetRelay().get_value("model", payload) == (payload,)
+
+
+def test_set_float_widget_preserves_decimal_precision():
+    value_input = SetFloat.INPUT_TYPES()["required"]["value"]
+    assert value_input == ("FLOAT", {"default": 0.0, "step": 0.01, "round": False})
+    assert GetFloat().get_value(
+        "cfg",
+        extra_pnginfo=workflow(set_node(1, "KVGC_SetFloat", "cfg", 0.987654)),
+    ) == (0.987654,)
+    assert GetFloat().get_value(
+        "cfg",
+        "0.987654",
+        "Speed",
+        resolved_digest("Float", "cfg", "Speed", "0.987654"),
+    ) == (0.987654,)
 
 
 def test_config_selector_accepts_console_output_choice():

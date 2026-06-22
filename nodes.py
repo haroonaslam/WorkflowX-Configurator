@@ -583,7 +583,7 @@ class _IntValueMixin(_TypedKeyValueBase):
 class _FloatValueMixin(_TypedKeyValueBase):
     TYPE_NAME = "Float"
     DEFAULT_VALUE = 0.0
-    VALUE_INPUT = ("FLOAT", {"default": 0.0})
+    VALUE_INPUT = ("FLOAT", {"default": 0.0, "step": 0.01, "round": False})
     RETURN_TYPE = "FLOAT"
     RETURN_NAME = "float"
 
