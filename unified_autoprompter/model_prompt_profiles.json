@@ -1,0 +1,320 @@
+{
+  "version": 3,
+  "profiles": [
+    {
+      "key": "ideogram4",
+      "label": "Ideogram 4",
+      "media_type": "image",
+      "default_format": "json",
+      "negative_supported": true,
+      "json_supported": true,
+      "notes": "Ideogram 4 performs best with its official structured JSON caption schema. Natural prompts are supported, but JSON gives stronger control over spatial layout, style, color palette, bbox regions, and text rendering.",
+      "formats": {
+        "natural": {
+          "enabled": true,
+          "common_instructions": "Write a polished natural-language Ideogram 4 prompt, not JSON. Keep the result as one coherent production prompt that names the main subject first, then medium, composition, crop/framing, action, pose/orientation, visual style, lighting, background, color palette, and any typography. Ideogram handles text well when text is stated exactly, so preserve every requested visible string inside quotation marks and describe placement, size, color, and type style. Include layout language when useful: left/right, foreground/background, centered/off-center, negative space, close-up/half-body/full-body/wide shot, and how subjects relate spatially. Mention bbox/layout intent in plain language only when the user supplied layout hints; do not output JSON in natural mode. Use concrete descriptions rather than tag soup, vague beauty words, or lists of alternatives.",
+          "output_contract_negative_off": "Return ONLY valid JSON with exactly this shape:\n{\n  \"positive\": \"the final prompt only, with no heading or explanation\",\n  \"negative\": \"\"\n}\nThe positive field must be ready to paste into Ideogram 4. Leave negative empty. Do not include markdown, analysis, or labels.",
+          "output_contract_negative_on": "Return ONLY valid JSON with exactly this shape:\n{\n  \"positive\": \"the final positive prompt only, with no heading or explanation\",\n  \"negative\": \"the final negative prompt only\"\n}\nThe positive field must be ready to paste into Ideogram 4. Do not include markdown, analysis, or labels inside either field.\nNegative guidance: Ideogram does not require a classic negative prompt, but downstream workflows may use one. Keep it short and focused on artifacts, unwanted text, bad anatomy, incorrect layout, blur, low quality, and visible errors.",
+          "with_image_reference_instructions": "A connected image reference is available. Use it as the visual anchor for identity, composition, crop, pose, colors, lighting, and background. Describe requested changes as edits on top of the reference rather than re-imagining the whole scene. Preserve exact visible text when the user wants it retained, and call out new/replaced text with quoted characters and placement.",
+          "without_image_reference_instructions": "No image reference is available. Build the full visual prompt from the text fields. Decide the medium, viewpoint, crop, pose, environment, color palette, style, and text placement directly from the user's intent. If the idea is sparse, add a small number of cohesive details that make the image production-ready without changing the core request."
+        },
+        "tags": {
+          "enabled": false,
+          "common_instructions": "",
+          "output_contract_negative_off": "",
+          "output_contract_negative_on": "",
+          "with_image_reference_instructions": "",
+          "without_image_reference_instructions": ""
+        },
+        "json": {
+          "enabled": true,
+          "common_instructions": "Write as an expert Ideogram 4 structured-caption author. Build a final caption that follows the official schema and top-level key order: high_level_description, style_description, compositional_deconstruction. high_level_description must be one or two concrete sentences naming the subject, medium, composition, action, orientation, crop/framing, and visual direction. style_description must use either photo or art_style, never both; for photographs use aesthetics, lighting, photo, medium, color_palette, and for non-photographic work use aesthetics, lighting, medium, art_style, color_palette. Choose the medium deliberately from photograph, illustration, painting, 3d_render, or graphic_design. Use uppercase #RRGGBB color_palette values for dominant background, subject, accent, highlight, and shadow colors. compositional_deconstruction must contain background before elements. Put scene shells in background: sky, atmosphere, horizon, walls, floor, ground, tabletop, road, water surfaces, distant scenery, and scene-wide lighting. Put individually placeable people, animals, products, props, furniture, signs, labels, logos, and readable text in elements. Element key order matters: obj uses type, bbox, desc, color_palette; text uses type, bbox, text, desc, color_palette. Bboxes use normalized 0-1000 coordinates in [y_min,x_min,y_max,x_max] order with integers. Use bboxes for main subjects, text, logos, signs, products, props, and layout-critical objects. Describe crop and framing for every main subject, including scale in frame, margins, headroom/footroom, visible or cropped body parts, and edge cuts. For people, animals, products, vehicles, graphic designs, and UI layouts, commit to a precise pose, orientation, contact points, alignment, hierarchy, and spatial relationship instead of generic wording. Every requested or visible readable string must become a text element with exact characters, capitalization, punctuation, diacritics, and line breaks preserved; text desc describes placement and typography, not the literal string again. Preserve named references, requested colors/materials, exact quoted text, numbers, dates, labels, prices, poses, viewpoint, aspect intent, and must-include content. If a user supplies an Ideogram layout JSON or bbox hints, treat that layout as authoritative unless it is invalid; refine descriptions around it instead of inventing a conflicting layout. Final self-check before output: official top-level order, style key order, background/elements split, bbox order, text element rules, uppercase color palette, no unsupported top-level aspect_ratio, no markdown, no commentary.",
+          "output_contract_negative_off": "Return ONLY valid JSON with this wrapper object:\n{\n  \"prompt_json\": {\n    \"high_level_description\": \"final one- or two-sentence Ideogram description\",\n    \"style_description\": {\n      \"aesthetics\": \"final aesthetics\",\n      \"lighting\": \"final lighting\",\n      \"photo\": \"camera/lens details for photographs, or omit this key for non-photo prompts\",\n      \"medium\": \"photograph\",\n      \"color_palette\": [\"#RRGGBB\"]\n    },\n    \"compositional_deconstruction\": {\n      \"background\": \"final background / scene shell\",\n      \"elements\": []\n    }\n  }\n}\nThe prompt_json value must be the final Ideogram caption object, not a string. If the caption is non-photographic, use art_style instead of photo and keep the official non-photo key order.",
+          "output_contract_negative_on": "Return ONLY valid JSON with this wrapper object:\n{\n  \"prompt_json\": {\n    \"high_level_description\": \"final one- or two-sentence Ideogram description\",\n    \"style_description\": {\n      \"aesthetics\": \"final aesthetics\",\n      \"lighting\": \"final lighting\",\n      \"photo\": \"camera/lens details for photographs, or omit this key for non-photo prompts\",\n      \"medium\": \"photograph\",\n      \"color_palette\": [\"#RRGGBB\"]\n    },\n    \"compositional_deconstruction\": {\n      \"background\": \"final background / scene shell\",\n      \"elements\": []\n    }\n  },\n  \"negative\": \"optional downstream negative prompt; keep empty unless the user explicitly enables negative output\"\n}\nThe prompt_json value must be the final Ideogram caption object, not a string. If the caption is non-photographic, use art_style instead of photo and keep the official non-photo key order.",
+          "with_image_reference_instructions": "A connected image reference is available. Use the image-replication mode: inspect the image first, infer its closest practical aspect ratio, medium, camera/art viewpoint, crop, framing, margins, edge cuts, pose, action phase, orientation, gaze, contact points, background shell, individual objects, readable text, color palette, and bbox layout. Preserve only visible or clearly occluded facts; do not invent hidden limb positions or off-frame continuation. For cropped subjects, bbox only the visible portion inside the frame and state the crop in desc. Preserve exact visible text and visible typography; if a string is unreadable, do not fabricate it. If the user asks for changes, preserve the reference image identity/layout/style unless the requested change overrides it. If an existing Unified Ideogram editor layout is present, reconcile the visual regions with the image: keep user-drawn bboxes and descriptions unless the user explicitly asks for regeneration or missing elements.",
+          "without_image_reference_instructions": "No image reference is available. Use magic-prompt mode: expand the text fields into a complete Ideogram JSON caption from the user idea, subject, style, lighting, camera/composition, typography, detail level, palette, and any layout JSON. Choose concrete viewpoint, pose, action, environment, crop, background, props, text blocks, bboxes, and colors instead of leaving placeholders or alternatives. If the user asks for transparent background, set background exactly to transparent background, include on a transparent background in high_level_description, and keep only visible subject/object/graphic/text elements. Add plausible details only when they support the user's intent; use restraint for clean, isolated, logo-like, sparse, or negative-space requests. Do not use hedges such as maybe, could include, or various; commit to one coherent design."
+        }
+      }
+    },
+    {
+      "key": "sdxl",
+      "label": "SDXL",
+      "media_type": "image",
+      "default_format": "tags",
+      "negative_supported": true,
+      "json_supported": false,
+      "notes": "SDXL uses text prompts with optional negative_prompt conditioning. It can use two text encoders in some pipelines, so prompts should separate concrete subject/composition from style/detail cues cleanly.",
+      "formats": {
+        "natural": {
+          "enabled": true,
+          "common_instructions": "Write a single SDXL-ready natural-language positive prompt. Start with the subject, composition, crop, and action, then add medium/style, lighting, camera/lens or art-process details, materials, colors, atmosphere, and quality cues. Keep wording dense but readable; SDXL responds well to high-signal descriptive phrases rather than very long instruction paragraphs. Where a workflow may split SDXL's two text encoders, make the first part strong on subject/composition and the latter part strong on style/aesthetic/detail. Include exact quoted text only when requested and describe typography/placement plainly, but avoid over-promising perfect text rendering. When negative output is enabled, create a concise negative prompt targeting actual diffusion failure modes rather than negating core content.",
+          "output_contract_negative_off": "Return ONLY valid JSON with exactly this shape:\n{\n  \"positive\": \"the final prompt only, with no heading or explanation\",\n  \"negative\": \"\"\n}\nThe positive field must be ready to paste into SDXL. Leave negative empty. Do not include markdown, analysis, or labels.",
+          "output_contract_negative_on": "Return ONLY valid JSON with exactly this shape:\n{\n  \"positive\": \"the final positive prompt only, with no heading or explanation\",\n  \"negative\": \"the final negative prompt only\"\n}\nThe positive field must be ready to paste into SDXL. Do not include markdown, analysis, or labels inside either field.\nNegative guidance: Use SDXL negative_prompt style: low quality, blurry, bad anatomy, extra fingers, malformed hands, deformed face, duplicate limbs, artifacts, watermark, logo, unwanted text, oversaturated, cropped errors, and style-specific failures. Keep it concise.",
+          "with_image_reference_instructions": "A connected image reference is available. Use it as an image-to-image/control reference for composition, identity, pose, colors, and lighting. Preserve what the user wants retained, and describe only the intended changes with enough detail for SDXL. Do not rely on the model to infer subtle edits from the image alone; say the visible change explicitly in the positive prompt.",
+          "without_image_reference_instructions": "No image reference is available. Build the prompt entirely from the text fields. Make the subject, crop, pose, setting, style, lighting, camera, and material details explicit enough that SDXL does not have to guess the composition."
+        },
+        "tags": {
+          "enabled": true,
+          "common_instructions": "Write comma-separated SDXL-style tags, not a paragraph. Order tags from most important to least important: subject, subject attributes, crop/framing, pose/action, setting, medium/style, artistically relevant rendering process, camera/lens, lighting, atmosphere, materials/textures, color palette, and quality/detail tags. Keep tags specific and non-contradictory; avoid generic padding and repeated synonyms. Use weighted-looking phrases only if the user asked for emphasis. For text in images, include a concise tag phrase with the exact quoted text and placement, but remember SDXL text rendering is unreliable. When negative is enabled, use a separate comma-separated negative tag list focused on rendering failures and unwanted artifacts.",
+          "output_contract_negative_off": "Return ONLY valid JSON with exactly this shape:\n{\n  \"positive\": \"comma-separated SDXL positive tags, ordered from subject and composition to style, lighting, camera, materials, colors, and quality\",\n  \"negative\": \"\"\n}\nThe positive field must contain comma-separated SDXL tags only. Leave negative empty. No headings, prose paragraphs, markdown, or commentary.",
+          "output_contract_negative_on": "Return ONLY valid JSON with exactly this shape:\n{\n  \"positive\": \"comma-separated SDXL positive tags, ordered from subject and composition to style, lighting, camera, materials, colors, and quality\",\n  \"negative\": \"comma-separated SDXL negative tags for artifacts and unwanted rendering failures\"\n}\nThe positive field must contain comma-separated SDXL tags only. The negative field must contain comma-separated SDXL negative tags only. No headings, prose paragraphs, markdown, or commentary.",
+          "with_image_reference_instructions": "A connected image reference is available. Convert the reference into compact tags for visible identity, pose, composition, color, lighting, and style, then add user-requested changes as higher-priority tags. Keep image-derived details that matter; do not bloat the tag list with every minor background object.",
+          "without_image_reference_instructions": "No image reference is available. Build the tag sequence from the idea and fields only. Use clear composition and style tags early so SDXL has a strong base before quality/detail tags."
+        },
+        "json": {
+          "enabled": false,
+          "common_instructions": "",
+          "output_contract_negative_off": "",
+          "output_contract_negative_on": "",
+          "with_image_reference_instructions": "",
+          "without_image_reference_instructions": ""
+        }
+      }
+    },
+    {
+      "key": "qwen_image",
+      "label": "Qwen-Image",
+      "media_type": "image",
+      "default_format": "natural",
+      "negative_supported": true,
+      "json_supported": false,
+      "notes": "Qwen-Image is strong at complex text rendering, multilingual typography, paragraph-level semantics, and precise image editing. Positive phrasing for desired focus and clarity is often more reliable than relying on negatives alone.",
+      "formats": {
+        "natural": {
+          "enabled": true,
+          "common_instructions": "Write a detailed natural-language Qwen-Image prompt. Lead with the intended image or edit goal, then specify subject, scene, layout, spatial relationships, lighting, style, material details, and any exact text. For typography, quote every string exactly, name the language/script, line breaks, placement, hierarchy, font style, color, and how the text relates to nearby objects. Qwen handles multilingual and dense text better than many image models, so be explicit instead of reducing text to tags. For editing, state what must remain unchanged and what must change: preserve identity, pose, background, camera, lighting, or style when needed, then describe the edit target precisely. Favor positive constraints such as crisp focus, clean edges, readable lettering, accurate anatomy, and consistent identity; do not expect a negative prompt alone to fix blur or unwanted changes.",
+          "output_contract_negative_off": "Return ONLY valid JSON with exactly this shape:\n{\n  \"positive\": \"the final prompt only, with no heading or explanation\",\n  \"negative\": \"\"\n}\nThe positive field must be ready to paste into Qwen-Image. Leave negative empty. Do not include markdown, analysis, or labels.",
+          "output_contract_negative_on": "Return ONLY valid JSON with exactly this shape:\n{\n  \"positive\": \"the final positive prompt only, with no heading or explanation\",\n  \"negative\": \"the final negative prompt only\"\n}\nThe positive field must be ready to paste into Qwen-Image. Do not include markdown, analysis, or labels inside either field.\nNegative guidance: Use the negative field as an optional downstream helper. Keep the positive prompt itself responsible for focus, readability, identity preservation, and desired detail. Negative may mention blur, unreadable text, distorted lettering, wrong language, warped face, inconsistent identity, artifacts, watermark, and unwanted objects.",
+          "with_image_reference_instructions": "A connected image reference is available. Treat it as the source image for Qwen-Image editing or visual grounding. Identify the exact regions, objects, text blocks, style, or pose to preserve, then describe the requested additions, removals, replacements, typography edits, or detail enhancements. If text is being edited, quote old/new strings exactly and specify placement, alignment, language, and font-like appearance. Avoid vague commands such as improve this; state the visible result.",
+          "without_image_reference_instructions": "No image reference is available. Generate a complete text-to-image prompt from the fields. Define the layout and text rendering from scratch, including exact strings, typography, language/script, placement, and visual hierarchy when text matters. Make the scene concrete enough for Qwen's semantic and text-rendering strengths to engage."
+        },
+        "tags": {
+          "enabled": false,
+          "common_instructions": "",
+          "output_contract_negative_off": "",
+          "output_contract_negative_on": "",
+          "with_image_reference_instructions": "",
+          "without_image_reference_instructions": ""
+        },
+        "json": {
+          "enabled": false,
+          "common_instructions": "",
+          "output_contract_negative_off": "",
+          "output_contract_negative_on": "",
+          "with_image_reference_instructions": "",
+          "without_image_reference_instructions": ""
+        }
+      }
+    },
+    {
+      "key": "flux1_dev",
+      "label": "FLUX.1 dev",
+      "media_type": "image",
+      "default_format": "natural",
+      "negative_supported": true,
+      "json_supported": false,
+      "notes": "FLUX.1 dev favors clear natural-language prompts with important content first. It is not a CLIP-tag model; describe the desired image directly and positively.",
+      "formats": {
+        "natural": {
+          "enabled": true,
+          "common_instructions": "Write a FLUX.1 dev natural-language prompt. Put the main subject and key action at the beginning, then style/medium, setting/context, composition, lighting, camera/lens or rendering details, color palette, and secondary details. Use descriptive prose or compact sentences, not comma-only SD tags. Word order matters: the most important visual commitments must appear first. Describe what should be present rather than what should be absent. For text, quote the exact string and specify where it appears, its size, material/color, and typographic style. Avoid conflicting styles, vague quality spam, and excessive negative-style wording inside the positive prompt.",
+          "output_contract_negative_off": "Return ONLY valid JSON with exactly this shape:\n{\n  \"positive\": \"the final prompt only, with no heading or explanation\",\n  \"negative\": \"\"\n}\nThe positive field must be ready to paste into FLUX.1 dev. Leave negative empty. Do not include markdown, analysis, or labels.",
+          "output_contract_negative_on": "Return ONLY valid JSON with exactly this shape:\n{\n  \"positive\": \"the final positive prompt only, with no heading or explanation\",\n  \"negative\": \"the final negative prompt only\"\n}\nThe positive field must be ready to paste into FLUX.1 dev. Do not include markdown, analysis, or labels inside either field.\nNegative guidance: Use the negative field only for downstream workflows that accept it. Keep the positive prompt written as desired visual content. Negative can target blur, artifacts, malformed anatomy, unwanted text, watermark, and low-quality rendering.",
+          "with_image_reference_instructions": "A connected image reference is available. Use it as grounding for identity, pose, composition, colors, and style. State the intended transformation or preservation explicitly: what remains from the reference, what changes, and what visual result should be produced. Do not rely on the image alone for critical edits.",
+          "without_image_reference_instructions": "No image reference is available. Build the scene from text fields only, making subject, action, style, context, lighting, and composition explicit. Add enough concrete detail for FLUX.1 to follow without turning the prompt into tag soup."
+        },
+        "tags": {
+          "enabled": false,
+          "common_instructions": "",
+          "output_contract_negative_off": "",
+          "output_contract_negative_on": "",
+          "with_image_reference_instructions": "",
+          "without_image_reference_instructions": ""
+        },
+        "json": {
+          "enabled": false,
+          "common_instructions": "",
+          "output_contract_negative_off": "",
+          "output_contract_negative_on": "",
+          "with_image_reference_instructions": "",
+          "without_image_reference_instructions": ""
+        }
+      }
+    },
+    {
+      "key": "flux2_dev",
+      "label": "FLUX.2 dev",
+      "media_type": "image",
+      "default_format": "natural",
+      "negative_supported": true,
+      "json_supported": true,
+      "notes": "FLUX.2 follows subject + action + style + context strongly, pays attention to word order, supports structured JSON for complex scenes, and does not natively use negative prompts.",
+      "formats": {
+        "natural": {
+          "enabled": true,
+          "common_instructions": "Write a FLUX.2 natural-language prompt using the official hierarchy: main subject first, then key action/pose, critical style or medium, essential context, composition, lighting, camera/lens, color, typography, and secondary details. Keep most prompts in the 30-80 word range unless the scene is complex. FLUX.2 pays more attention to early words, so put the non-negotiable subject/action/style at the front. For photorealism, specify camera, lens, film stock or sensor style, lighting, depth of field, and authentic surface details. For typography/design, quote exact text and specify placement, size, type style, color/hex values, and hierarchy. Describe positive opposites rather than exclusions because FLUX.2 does not support native negative prompts.",
+          "output_contract_negative_off": "Return ONLY valid JSON with exactly this shape:\n{\n  \"positive\": \"the final prompt only, with no heading or explanation\",\n  \"negative\": \"\"\n}\nThe positive field must be ready to paste into FLUX.2 dev. Leave negative empty. Do not include markdown, analysis, or labels.",
+          "output_contract_negative_on": "Return ONLY valid JSON with exactly this shape:\n{\n  \"positive\": \"the final positive prompt only, with no heading or explanation\",\n  \"negative\": \"the final negative prompt only\"\n}\nThe positive field must be ready to paste into FLUX.2 dev. Do not include markdown, analysis, or labels inside either field.\nNegative guidance: FLUX.2 itself does not natively use negative prompts. Populate the negative field only for downstream negative/NAG nodes, with concise artifact terms such as blur, distorted anatomy, unreadable text, watermark, duplicated objects, low quality, and unwanted overlays.",
+          "with_image_reference_instructions": "A connected image reference is available. Use it as a reference for identity, layout, product details, pose, colors, or style depending on the user request. State exactly what should be preserved from the reference and what should change. When matching colors or brand elements, use explicit object-color associations and hex codes when available.",
+          "without_image_reference_instructions": "No image reference is available. Build the image from the text fields using the subject-action-style-context order. Make spatial relationships, typography, camera, lighting, and color decisions explicit so FLUX.2 does not need to infer them."
+        },
+        "tags": {
+          "enabled": false,
+          "common_instructions": "",
+          "output_contract_negative_off": "",
+          "output_contract_negative_on": "",
+          "with_image_reference_instructions": "",
+          "without_image_reference_instructions": ""
+        },
+        "json": {
+          "enabled": true,
+          "common_instructions": "Write a FLUX.2 structured JSON prompt for complex scenes, production workflows, typography, product shots, brand colors, or multi-subject layouts. Use clear fields such as scene, subjects, style, color_palette, lighting, mood, background, composition, camera, and optional text. Each subject should include description, position, action/pose, relationship to other subjects, and exact colors/materials when important. FLUX.2 supports hex color prompting; associate hex values with specific objects or text rather than vague global color requests. For text, create explicit text entries with content, placement, hierarchy, typography, size, and color. JSON is best when the user needs iteration, precise layout, or element-level control; keep values concrete and concise rather than verbose filler.",
+          "output_contract_negative_off": "Return ONLY valid JSON with this wrapper object:\n{\n  \"prompt_json\": {\n    \"scene\": \"overall scene description\",\n    \"subjects\": [{\"description\": \"subject description\", \"position\": \"where in frame\", \"action\": \"what the subject is doing\"}],\n    \"style\": \"artistic or photographic style\",\n    \"color_palette\": [\"#RRGGBB\"],\n    \"lighting\": \"lighting description\",\n    \"mood\": \"emotional tone\",\n    \"background\": \"background details\",\n    \"composition\": \"framing and layout\",\n    \"camera\": {\"angle\": \"camera angle\", \"lens\": \"lens type\", \"depth_of_field\": \"focus behavior\"},\n    \"text\": [{\"content\": \"literal text if any\", \"placement\": \"where it appears\", \"typography\": \"style, size, color\"}]\n  }\n}\nThe prompt_json value must be the final structured FLUX.2 dev prompt object, not a string. Do not add a negative field when negative mode is off.",
+          "output_contract_negative_on": "Return ONLY valid JSON with this wrapper object:\n{\n  \"prompt_json\": {\n    \"scene\": \"overall scene description\",\n    \"subjects\": [{\"description\": \"subject description\", \"position\": \"where in frame\", \"action\": \"what the subject is doing\"}],\n    \"style\": \"artistic or photographic style\",\n    \"color_palette\": [\"#RRGGBB\"],\n    \"lighting\": \"lighting description\",\n    \"mood\": \"emotional tone\",\n    \"background\": \"background details\",\n    \"composition\": \"framing and layout\",\n    \"camera\": {\"angle\": \"camera angle\", \"lens\": \"lens type\", \"depth_of_field\": \"focus behavior\"},\n    \"text\": [{\"content\": \"literal text if any\", \"placement\": \"where it appears\", \"typography\": \"style, size, color\"}]\n  },\n  \"negative\": \"downstream-only negative/NAG helper prompt; FLUX.2 itself does not natively use negative prompts\"\n}\nThe prompt_json value must be the final structured FLUX.2 dev prompt object, not a string. Keep field values concise, concrete, and production-oriented.",
+          "with_image_reference_instructions": "A connected image reference is available. Use the reference to ground identity, product shape, composition, colors, typography, and style. In the JSON, include reference-sensitive preservation instructions in the relevant subject, background, composition, camera, or text fields. Specify exact changes separately from preserved details so the structure does not blur them together.",
+          "without_image_reference_instructions": "No image reference is available. Build a complete structured prompt from the fields. Define the scene, subjects, background, composition, camera, lighting, colors, and text from scratch, using JSON because the request benefits from precise element-level control."
+        }
+      }
+    },
+    {
+      "key": "flux_klein",
+      "label": "Flux Klein",
+      "media_type": "image",
+      "default_format": "natural",
+      "negative_supported": true,
+      "json_supported": true,
+      "notes": "FLUX.2 Klein is prompt-sensitive and prose-first. It has no prompt upsampling safety net, so the generated prompt should be complete, scene-first, and written like clear visual direction rather than search tags.",
+      "formats": {
+        "natural": {
+          "enabled": true,
+          "common_instructions": "Write a FLUX.2 Klein prompt as flowing scene-first prose. Start with the subject and action, then describe setting, composition, relationships between elements, lighting, atmosphere, color, camera position, and fine material details in natural sentences. Klein benefits from novelist-like clarity: describe what is where, who faces whom, foreground/background, left/right, distances, gestures, and how light interacts with surfaces. Do not use SD tag soup or rely on prompt upsampling. Keep the prose vivid but controlled; avoid ornate filler that weakens object relationships. If a quality problem must be avoided, describe the desired positive opposite in the prompt and reserve negatives for downstream tools only.",
+          "output_contract_negative_off": "Return ONLY valid JSON with exactly this shape:\n{\n  \"positive\": \"the final prompt only, with no heading or explanation\",\n  \"negative\": \"\"\n}\nThe positive field must be ready to paste into FLUX.2 Klein. Leave negative empty. Do not include markdown, analysis, or labels.",
+          "output_contract_negative_on": "Return ONLY valid JSON with exactly this shape:\n{\n  \"positive\": \"the final positive prompt only, with no heading or explanation\",\n  \"negative\": \"the final negative prompt only\"\n}\nThe positive field must be ready to paste into FLUX.2 Klein. Do not include markdown, analysis, or labels inside either field.\nNegative guidance: Klein/FLUX.2 does not rely on native negative prompting. Populate this only for downstream NAG/negative nodes, with concise artifact terms such as blur, jitter, distorted anatomy, unreadable text, watermark, and unwanted overlays.",
+          "with_image_reference_instructions": "A connected image reference is available. Use it as an anchor for identity, pose, composition, color, lighting, or product fidelity. Describe the edit or transformation as a clear prose direction while naming what should stay consistent with the reference. Klein is sensitive to wording, so be explicit about spatial relationships and preservation.",
+          "without_image_reference_instructions": "No image reference is available. Build the scene entirely from the text fields, in prose. Establish the subject, setting, action, camera, lighting, and relationship details without expecting the model to invent missing structure."
+        },
+        "tags": {
+          "enabled": false,
+          "common_instructions": "",
+          "output_contract_negative_off": "",
+          "output_contract_negative_on": "",
+          "with_image_reference_instructions": "",
+          "without_image_reference_instructions": ""
+        },
+        "json": {
+          "enabled": true,
+          "common_instructions": "Write a structured JSON prompt for FLUX.2 Klein only when the user needs controlled layout, product consistency, typography, color matching, or multi-subject relationships. Keep JSON values prose-like and readable rather than sterile labels. Use scene, subjects, style, color_palette, lighting, mood, background, composition, camera, and optional text fields. In subjects, specify position, action, orientation, relationship, and important materials/colors. For text, quote exact content and specify placement, typographic style, hierarchy, and color. Klein still responds best to clear scene language, so the JSON should preserve narrative relationships instead of becoming a bag of tags.",
+          "output_contract_negative_off": "Return ONLY valid JSON with this wrapper object:\n{\n  \"prompt_json\": {\n    \"scene\": \"overall scene description\",\n    \"subjects\": [{\"description\": \"subject description\", \"position\": \"where in frame\", \"action\": \"what the subject is doing\"}],\n    \"style\": \"artistic or photographic style\",\n    \"color_palette\": [\"#RRGGBB\"],\n    \"lighting\": \"lighting description\",\n    \"mood\": \"emotional tone\",\n    \"background\": \"background details\",\n    \"composition\": \"framing and layout\",\n    \"camera\": {\"angle\": \"camera angle\", \"lens\": \"lens type\", \"depth_of_field\": \"focus behavior\"},\n    \"text\": [{\"content\": \"literal text if any\", \"placement\": \"where it appears\", \"typography\": \"style, size, color\"}]\n  }\n}\nThe prompt_json value must be the final structured FLUX.2 Klein prompt object, not a string. Do not add a negative field when negative mode is off.",
+          "output_contract_negative_on": "Return ONLY valid JSON with this wrapper object:\n{\n  \"prompt_json\": {\n    \"scene\": \"overall scene description\",\n    \"subjects\": [{\"description\": \"subject description\", \"position\": \"where in frame\", \"action\": \"what the subject is doing\"}],\n    \"style\": \"artistic or photographic style\",\n    \"color_palette\": [\"#RRGGBB\"],\n    \"lighting\": \"lighting description\",\n    \"mood\": \"emotional tone\",\n    \"background\": \"background details\",\n    \"composition\": \"framing and layout\",\n    \"camera\": {\"angle\": \"camera angle\", \"lens\": \"lens type\", \"depth_of_field\": \"focus behavior\"},\n    \"text\": [{\"content\": \"literal text if any\", \"placement\": \"where it appears\", \"typography\": \"style, size, color\"}]\n  },\n  \"negative\": \"downstream-only negative/NAG helper prompt; FLUX.2 itself does not natively use negative prompts\"\n}\nThe prompt_json value must be the final structured FLUX.2 Klein prompt object, not a string. Keep field values concise, concrete, and production-oriented.",
+          "with_image_reference_instructions": "A connected image reference is available. Use it as grounding for identity, composition, camera angle, lighting, product shape, colors, and typography. Reflect preservation and edit instructions in the relevant JSON fields, with exact objects and relationships named. Do not replace the reference with a generic version of the scene.",
+          "without_image_reference_instructions": "No image reference is available. Create the structured scene from scratch. Use JSON to lock down subject placement, relationships, style, lighting, colors, camera, and text while keeping each field written in fluent visual language."
+        }
+      }
+    },
+    {
+      "key": "z_image",
+      "label": "Z-Image",
+      "media_type": "image",
+      "default_format": "natural",
+      "negative_supported": true,
+      "json_supported": false,
+      "notes": "Z-Image-Turbo works best with long detailed positive prompts. The Turbo model does not use negative prompts natively because it does not rely on classifier-free guidance; negative text is only useful for downstream workflow helpers.",
+      "formats": {
+        "natural": {
+          "enabled": true,
+          "common_instructions": "Write a long, detailed Z-Image natural-language positive prompt. Describe the desired image directly and positively: subject, pose/action, setting, camera/composition, lighting, atmosphere, materials, textures, color palette, typography, and quality constraints. Z-Image rewards rich prompt enhancement, so include enough concrete detail to fully specify the scene, but avoid contradictions and vague quality spam. Put constraints as positive desired outcomes: crisp focus, clean anatomy, coherent hands, readable text, stable identity, clean edges, balanced composition. Do not depend on a native negative prompt; the positive prompt must carry the visual intent.",
+          "output_contract_negative_off": "Return ONLY valid JSON with exactly this shape:\n{\n  \"positive\": \"the final prompt only, with no heading or explanation\",\n  \"negative\": \"\"\n}\nThe positive field must be ready to paste into Z-Image. Leave negative empty. Do not include markdown, analysis, or labels.",
+          "output_contract_negative_on": "Return ONLY valid JSON with exactly this shape:\n{\n  \"positive\": \"the final positive prompt only, with no heading or explanation\",\n  \"negative\": \"the final negative prompt only\"\n}\nThe positive field must be ready to paste into Z-Image. Do not include markdown, analysis, or labels inside either field.\nNegative guidance: Z-Image-Turbo negative prompting is downstream-only and not native to the base Turbo inference. If enabled, keep the negative field short for external negative/NAG nodes: blur, artifacts, distorted anatomy, unreadable text, watermark, low quality, duplicated limbs, noisy texture.",
+          "with_image_reference_instructions": "A connected image reference is available. Use it as visual grounding for identity, composition, pose, colors, lighting, and style. Describe the intended result as a detailed positive transformation from the reference, including what should stay consistent and what should change. If an unwanted artifact should be avoided, phrase the desired clean result positively.",
+          "without_image_reference_instructions": "No image reference is available. Build the complete image from text fields only. Expand sparse ideas into a detailed positive scene description with clear subject, composition, environment, lighting, textures, and finish."
+        },
+        "tags": {
+          "enabled": false,
+          "common_instructions": "",
+          "output_contract_negative_off": "",
+          "output_contract_negative_on": "",
+          "with_image_reference_instructions": "",
+          "without_image_reference_instructions": ""
+        },
+        "json": {
+          "enabled": false,
+          "common_instructions": "",
+          "output_contract_negative_off": "",
+          "output_contract_negative_on": "",
+          "with_image_reference_instructions": "",
+          "without_image_reference_instructions": ""
+        }
+      }
+    },
+    {
+      "key": "wan2_2",
+      "label": "WAN 2.2",
+      "media_type": "video",
+      "default_format": "natural",
+      "negative_supported": true,
+      "json_supported": false,
+      "notes": "WAN 2.2 supports T2V, I2V, TI2V, S2V, and prompt-extension style workflows. Video prompts should specify subject, action, motion, camera, timing, lighting, and reference/control anchors.",
+      "formats": {
+        "natural": {
+          "enabled": true,
+          "common_instructions": "Write a WAN 2.2 natural-language video prompt. Keep it concise but specific enough for prompt extension: subject, opening frame, action/motion, scene, lighting, camera movement, duration/frames, temporal beats, and any image/audio/pose/control notes. Use present-tense cinematic language. Describe motion clearly: who moves, how fast, in what direction, what the camera does, what changes over time, and how the final frame differs from the first. Include control anchors when supplied, such as reference image, pose, audio, or scene constraints. Negative output, when enabled, should target video failure modes such as flicker, jitter, warped motion, identity drift, blur, bad anatomy, temporal inconsistency, artifacts, and unwanted overlays.",
+          "output_contract_negative_off": "Return ONLY valid JSON with exactly this shape:\n{\n  \"positive\": \"the final prompt only, with no heading or explanation\",\n  \"negative\": \"\"\n}\nThe positive field must be ready to paste into WAN 2.2. Leave negative empty. Do not include markdown, analysis, or labels.",
+          "output_contract_negative_on": "Return ONLY valid JSON with exactly this shape:\n{\n  \"positive\": \"the final positive prompt only, with no heading or explanation\",\n  \"negative\": \"the final negative prompt only\"\n}\nThe positive field must be ready to paste into WAN 2.2. Do not include markdown, analysis, or labels inside either field.\nNegative guidance: Use video-specific negatives: flicker, jitter, stutter, warped motion, inconsistent identity, bad anatomy, distorted hands, motion blur where not intended, frame tearing, artifacts, watermark, unwanted subtitles, unwanted overlays.",
+          "with_image_reference_instructions": "A connected image reference is available. Treat it as an I2V/TI2V anchor for the first frame, identity, composition, pose, style, and color. Do not waste the prompt restating every static visible detail; focus on what should move, how the camera moves, how the scene evolves, and which visual details must remain stable. If the reference/control note mentions pose, audio, or depth guidance, integrate it as a control condition.",
+          "without_image_reference_instructions": "No image reference is available. Treat this as T2V prompt extension. Define the opening frame, subject, scene, motion path, camera behavior, lighting, duration, and final beat from scratch so WAN does not invent arbitrary motion."
+        },
+        "tags": {
+          "enabled": false,
+          "common_instructions": "",
+          "output_contract_negative_off": "",
+          "output_contract_negative_on": "",
+          "with_image_reference_instructions": "",
+          "without_image_reference_instructions": ""
+        },
+        "json": {
+          "enabled": false,
+          "common_instructions": "",
+          "output_contract_negative_off": "",
+          "output_contract_negative_on": "",
+          "with_image_reference_instructions": "",
+          "without_image_reference_instructions": ""
+        }
+      }
+    },
+    {
+      "key": "ltx_2_3",
+      "label": "LTX 2.3",
+      "media_type": "video",
+      "default_format": "natural",
+      "negative_supported": true,
+      "json_supported": false,
+      "notes": "LTX 2.3 responds best to long, detailed cinematic prompts with chronological action, camera movement, spatial blocking, and audio/dialogue detail matched to the video duration.",
+      "formats": {
+        "natural": {
+          "enabled": true,
+          "common_instructions": "Write an LTX 2.3 prompt as a single flowing production-style paragraph in present tense. Start with the shot and subject/action, then build a chronological sequence with physical beats, gestures, environment, spatial blocking, camera movement, lighting/color, textures, and audio/dialogue. Be more specific than older video prompts: left/right, foreground/background, facing direction, distance between subjects, surface texture, material detail, and how the camera moves relative to the subject. Match detail level to duration; longer clips need enough temporal direction to fill the time. For dialogue, use short quoted phrases with acting directions and pauses between them. Include ambient sound, voice qualities, music, or effects when relevant. Avoid abstract emotion labels by translating them into visible behavior, facial movement, posture, and timing.",
+          "output_contract_negative_off": "Return ONLY valid JSON with exactly this shape:\n{\n  \"positive\": \"the final prompt only, with no heading or explanation\",\n  \"negative\": \"\"\n}\nThe positive field must be ready to paste into LTX 2.3. Leave negative empty. Do not include markdown, analysis, or labels.",
+          "output_contract_negative_on": "Return ONLY valid JSON with exactly this shape:\n{\n  \"positive\": \"the final positive prompt only, with no heading or explanation\",\n  \"negative\": \"the final negative prompt only\"\n}\nThe positive field must be ready to paste into LTX 2.3. Do not include markdown, analysis, or labels inside either field.\nNegative guidance: Use video-specific negatives: worst quality, blurry, jittery motion, temporal inconsistency, distorted faces, warped hands, bad anatomy, identity drift, frame tearing, unwanted text, subtitles, logos, watermarks, overlays, artifacts.",
+          "with_image_reference_instructions": "A connected image reference is available. Treat it as the visual starting point. Focus the prompt on motion, action, camera movement, temporal beats, audio/dialogue, and how the still image transitions into video. Preserve the visible identity, composition, and style unless the user explicitly asks to change them; do not over-describe static details already visible in the image.",
+          "without_image_reference_instructions": "No image reference is available. Generate the full shot from scratch: establish the visual scene, subject, spatial layout, action sequence, camera movement, lighting/color, texture, audio, dialogue, and final beat. Make the prompt long enough for the requested duration."
+        },
+        "tags": {
+          "enabled": false,
+          "common_instructions": "",
+          "output_contract_negative_off": "",
+          "output_contract_negative_on": "",
+          "with_image_reference_instructions": "",
+          "without_image_reference_instructions": ""
+        },
+        "json": {
+          "enabled": false,
+          "common_instructions": "",
+          "output_contract_negative_off": "",
+          "output_contract_negative_on": "",
+          "with_image_reference_instructions": "",
+          "without_image_reference_instructions": ""
+        }
+      }
+    }
+  ]
+}

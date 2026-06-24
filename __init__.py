@@ -13,6 +13,11 @@ from .xflows_manager import (
     NODE_CLASS_MAPPINGS as XFLOWS_NODE_CLASS_MAPPINGS,
     NODE_DISPLAY_NAME_MAPPINGS as XFLOWS_NODE_DISPLAY_NAME_MAPPINGS,
 )
+from .unified_autoprompter import (
+    NODE_CLASS_MAPPINGS as UNIFIED_AUTOPROMPTER_NODE_CLASS_MAPPINGS,
+    NODE_DISPLAY_NAME_MAPPINGS as UNIFIED_AUTOPROMPTER_NODE_DISPLAY_NAME_MAPPINGS,
+    register_routes as register_unified_autoprompter_routes,
+)
 
 WEB_DIRECTORY = "./web/js"
 DEBUG_LOG_ROUTE = "/workflowx_configurator/debug_log"
@@ -22,12 +27,14 @@ NODE_CLASS_MAPPINGS = {
     **WORKFLOWX_NODE_CLASS_MAPPINGS,
     **AFJ_NODE_CLASS_MAPPINGS,
     **XFLOWS_NODE_CLASS_MAPPINGS,
+    **UNIFIED_AUTOPROMPTER_NODE_CLASS_MAPPINGS,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     **WORKFLOWX_NODE_DISPLAY_NAME_MAPPINGS,
     **AFJ_NODE_DISPLAY_NAME_MAPPINGS,
     **XFLOWS_NODE_DISPLAY_NAME_MAPPINGS,
+    **UNIFIED_AUTOPROMPTER_NODE_DISPLAY_NAME_MAPPINGS,
 }
 
 
@@ -80,5 +87,26 @@ def _register_afj_routes() -> None:
 
 
 _register_afj_routes()
+
+
+def _register_unified_autoprompter_routes() -> None:
+    try:
+        from server import PromptServer
+    except Exception as exc:
+        logger.warning("[Unified Autoprompter X] Could not import PromptServer for routes: %s", exc)
+        return
+
+    prompt_server = getattr(PromptServer, "instance", None)
+    app = getattr(prompt_server, "app", None)
+    if app is None:
+        return
+
+    try:
+        register_unified_autoprompter_routes(app)
+    except Exception as exc:
+        logger.warning("[Unified Autoprompter X] Could not register API routes: %s", exc)
+
+
+_register_unified_autoprompter_routes()
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]
