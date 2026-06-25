@@ -3,6 +3,9 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
+import random
+import tempfile
 from typing import Any, ClassVar, NamedTuple
 
 logger = logging.getLogger(__name__)
@@ -944,6 +947,146 @@ class GroupScopes:
         return ()
 
 
+class ImageCompareEditX:
+    DESCRIPTION = (
+        "Compare two IMAGE inputs and edit a browser-side blend as image3. "
+        "The node stores image1/image2 previews for a professional in-node "
+        "compare and mask editor; image3 can be compared, copied, or saved "
+        "from the editor without adding downstream graph outputs."
+    )
+
+    CATEGORY = f"{CATEGORY}/Image"
+    FUNCTION = "compare_images"
+    RETURN_TYPES = ()
+    OUTPUT_NODE = True
+
+    def __init__(self) -> None:
+        self.output_dir = self._default_temp_directory()
+        self.type = "temp"
+        self.prefix_append = "_wfxcmpx_" + "".join(
+            random.choice("abcdefghijklmnopqrstuvwxyz") for _ in range(5)
+        )
+        self.compress_level = 4
+
+    @classmethod
+    def INPUT_TYPES(cls) -> dict[str, dict[str, Any]]:
+        return {
+            "required": {
+                "image1": (
+                    "IMAGE",
+                    {
+                        "tooltip": "First source image. It becomes image1 in the compare/editor UI.",
+                    },
+                ),
+                "image2": (
+                    "IMAGE",
+                    {
+                        "tooltip": "Second source image. It becomes image2 in the compare/editor UI.",
+                    },
+                ),
+            }
+        }
+
+    @staticmethod
+    def _folder_paths_module() -> Any | None:
+        try:
+            import folder_paths
+        except Exception:
+            return None
+        return folder_paths
+
+    @classmethod
+    def _default_temp_directory(cls) -> str:
+        folder_paths = cls._folder_paths_module()
+        if folder_paths is not None:
+            try:
+                return str(folder_paths.get_temp_directory())
+            except Exception:
+                pass
+        return tempfile.gettempdir()
+
+    @staticmethod
+    def _first_frame(tensor: Any) -> Any:
+        try:
+            return tensor[0]
+        except Exception:
+            return tensor
+
+    @classmethod
+    def _tensor_to_pil(cls, tensor: Any) -> Any:
+        import numpy as np
+        from PIL import Image
+
+        frame = cls._first_frame(tensor)
+        if hasattr(frame, "detach"):
+            frame = frame.detach()
+        if hasattr(frame, "cpu"):
+            frame = frame.cpu()
+        if hasattr(frame, "numpy"):
+            array = frame.numpy()
+        else:
+            array = np.asarray(frame)
+
+        if array.ndim == 4:
+            array = array[0]
+
+        array = np.asarray(array)
+        if array.dtype.kind == "f":
+            array = array * 255.0
+        array = np.clip(array, 0, 255).astype(np.uint8)
+
+        if array.ndim == 2:
+            return Image.fromarray(array)
+        if array.ndim == 3 and array.shape[2] == 4:
+            return Image.fromarray(array)
+        if array.ndim == 3 and array.shape[2] >= 3:
+            return Image.fromarray(array[:, :, :3])
+        raise ValueError("Image Compare Edit X expected IMAGE tensors with HxWxC data.")
+
+    def _save_image_refs(self, images: list[Any]) -> list[dict[str, str]]:
+        prefix = "workflowx_image_compare_edit_x" + self.prefix_append
+        folder_paths = self._folder_paths_module()
+
+        if folder_paths is not None:
+            full_output_folder, filename, counter, subfolder, _ = (
+                folder_paths.get_save_image_path(
+                    prefix,
+                    self.output_dir,
+                    images[0].width,
+                    images[0].height,
+                )
+            )
+        else:
+            full_output_folder = self.output_dir
+            filename = prefix
+            counter = 1
+            subfolder = ""
+
+        os.makedirs(full_output_folder, exist_ok=True)
+
+        results: list[dict[str, str]] = []
+        for img in images:
+            file = f"{filename}_{counter:05}_.png"
+            img.save(
+                os.path.join(full_output_folder, file),
+                "PNG",
+                compress_level=self.compress_level,
+            )
+            results.append(
+                {
+                    "filename": file,
+                    "subfolder": subfolder,
+                    "type": self.type,
+                }
+            )
+            counter += 1
+        return results
+
+    def compare_images(self, image1: Any, image2: Any) -> dict[str, Any]:
+        images = [self._tensor_to_pil(image1), self._tensor_to_pil(image2)]
+        return {"ui": {"images": self._save_image_refs(images)}}
+
+
 NODE_CLASS_MAPPINGS = {
     "KVGC_SetInt": SetInt,
     "KVGC_GetInt": GetInt,
@@ -965,6 +1108,7 @@ NODE_CLASS_MAPPINGS = {
     "KVGC_ConfigSelector": ConfigSelector,
     "KVGC_ConfigSelectorAdvanced": ConfigSelectorAdvanced,
     "KVGC_GroupScopes": GroupScopes,
+    "KVGC_ImageCompareEditX": ImageCompareEditX,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -988,4 +1132,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "KVGC_ConfigSelector": "Config Selector",
     "KVGC_ConfigSelectorAdvanced": "Config Selector Advanced",
     "KVGC_GroupScopes": "Group Scopes",
+    "KVGC_ImageCompareEditX": "Image Compare Edit X",
 }

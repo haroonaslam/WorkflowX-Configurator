@@ -5,7 +5,7 @@ from .prompt_io import build_outputs
 
 
 class UnifiedAutoprompterX:
-    CATEGORY = "WorkflowX/Prompting"
+    CATEGORY = "WorkflowX_Configurator/Prompting"
     FUNCTION = "build"
     RETURN_TYPES = ("STRING", "STRING", "STRING")
     RETURN_NAMES = ("prompt", "positive", "negative")
