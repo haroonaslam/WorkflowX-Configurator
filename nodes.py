@@ -16,6 +16,15 @@ MODE_OPTIONS = ("Active", "Bypass", "Mute", "Ignore")
 SCOPE_OPTIONS = ("Group Configurator", "Selector Mute", "Selector Bypass", "Ignore")
 SELECTOR_TYPES = {"KVGC_ConfigSelector", "KVGC_ConfigSelectorAdvanced"}
 INACTIVE_WORKFLOW_MODES = {2, 4}
+UNLOAD_MODEL_OPTIONS = (
+    "Text Encoder",
+    "Diffusion Model / UNet",
+    "VAE",
+    "CLIP Vision",
+    "Other Loaded Models",
+    "All Loaded Models",
+)
+UNLOAD_DEVICE_OPTIONS = ("Current Device", "All Devices")
 
 try:
     import comfy.samplers
@@ -778,6 +787,223 @@ class GetRelay:
         return (value,)
 
 
+class UnloadModelsByType:
+    DESCRIPTION = (
+        "Unload currently resident ComfyUI models by type. Use it inline as a "
+        "passthrough before CLIP Text Encode to unload the diffusion model, or "
+        "after CLIP Text Encode to unload the text encoder before sampling."
+    )
+
+    CATEGORY = f"{CATEGORY}/VRAM"
+    FUNCTION = "unload"
+    RETURN_TYPES = (ANY_TYPE, "MODEL", "CLIP", "VAE", "CONDITIONING", "STRING")
+    RETURN_NAMES = ("trigger", "model", "clip", "vae", "conditioning", "status")
+
+    @classmethod
+    def INPUT_TYPES(cls) -> dict[str, dict[str, Any]]:
+        return {
+            "required": {
+                "model_type": (
+                    UNLOAD_MODEL_OPTIONS,
+                    {"default": "Text Encoder"},
+                ),
+                "device_scope": (
+                    UNLOAD_DEVICE_OPTIONS,
+                    {"default": "Current Device"},
+                ),
+                "empty_cache": ("BOOLEAN", {"default": True}),
+            },
+            "optional": {
+                "trigger": (ANY_TYPE,),
+                "model": ("MODEL",),
+                "clip": ("CLIP",),
+                "vae": ("VAE",),
+                "conditioning": ("CONDITIONING",),
+            },
+        }
+
+    @classmethod
+    def IS_CHANGED(cls, *args: Any, **kwargs: Any) -> float:
+        return float("NaN")
+
+    @staticmethod
+    def _patcher_from_loaded_model(loaded_model: Any) -> Any | None:
+        try:
+            return loaded_model.model
+        except Exception:
+            return None
+
+    @staticmethod
+    def _real_model(patcher: Any) -> Any | None:
+        return getattr(patcher, "model", None)
+
+    @classmethod
+    def _is_text_encoder(cls, patcher: Any) -> bool:
+        return bool(getattr(patcher, "is_clip", False))
+
+    @classmethod
+    def _is_clip_vision(cls, patcher: Any) -> bool:
+        model = cls._real_model(patcher)
+        class_name = model.__class__.__name__.lower() if model is not None else ""
+        module_name = model.__class__.__module__.lower() if model is not None else ""
+        return "clipvision" in class_name or "clip_vision" in module_name
+
+    @classmethod
+    def _is_vae(cls, patcher: Any) -> bool:
+        model = cls._real_model(patcher)
+        class_name = model.__class__.__name__.lower() if model is not None else ""
+        module_name = model.__class__.__module__.lower() if model is not None else ""
+        return (
+            "vae" in class_name
+            or "autoencoder" in class_name
+            or ".vae" in module_name
+            or "autoencoder" in module_name
+        )
+
+    @classmethod
+    def _is_diffusion_model(cls, patcher: Any) -> bool:
+        if cls._is_text_encoder(patcher) or cls._is_vae(patcher) or cls._is_clip_vision(patcher):
+            return False
+
+        model = cls._real_model(patcher)
+        if model is None:
+            return False
+
+        return (
+            hasattr(model, "diffusion_model")
+            or hasattr(model, "model_sampling")
+            or hasattr(model, "model_type")
+        )
+
+    @classmethod
+    def _matches_target(cls, loaded_model: Any, model_type: str) -> bool:
+        patcher = cls._patcher_from_loaded_model(loaded_model)
+        if patcher is None:
+            return False
+
+        if model_type == "All Loaded Models":
+            return True
+        if model_type == "Text Encoder":
+            return cls._is_text_encoder(patcher)
+        if model_type == "Diffusion Model / UNet":
+            return cls._is_diffusion_model(patcher)
+        if model_type == "VAE":
+            return cls._is_vae(patcher)
+        if model_type == "CLIP Vision":
+            return cls._is_clip_vision(patcher)
+        if model_type == "Other Loaded Models":
+            return not (
+                cls._is_text_encoder(patcher)
+                or cls._is_diffusion_model(patcher)
+                or cls._is_vae(patcher)
+                or cls._is_clip_vision(patcher)
+            )
+        return False
+
+    @classmethod
+    def _describe_loaded_model(cls, loaded_model: Any) -> str:
+        patcher = cls._patcher_from_loaded_model(loaded_model)
+        model = cls._real_model(patcher) if patcher is not None else None
+        if model is not None:
+            return model.__class__.__name__
+        if patcher is not None:
+            return patcher.__class__.__name__
+        return "unknown"
+
+    @staticmethod
+    def _passthrough_value(
+        trigger: Any = None,
+        model: Any = None,
+        clip: Any = None,
+        vae: Any = None,
+        conditioning: Any = None,
+    ) -> Any:
+        if trigger is not None:
+            return trigger
+        for value in (conditioning, model, clip, vae):
+            if value is not None:
+                return value
+        return None
+
+    def unload(
+        self,
+        model_type: str,
+        device_scope: str,
+        empty_cache: bool,
+        trigger: Any = None,
+        model: Any = None,
+        clip: Any = None,
+        vae: Any = None,
+        conditioning: Any = None,
+    ) -> tuple[Any, Any, Any, Any, Any, str]:
+        try:
+            import comfy.model_management as model_management
+        except Exception as exc:
+            status = f"WorkflowX unload skipped: could not import ComfyUI model management ({exc})."
+            logger.warning(status)
+            return (
+                self._passthrough_value(trigger, model, clip, vae, conditioning),
+                model,
+                clip,
+                vae,
+                conditioning,
+                status,
+            )
+
+        loaded_models = list(getattr(model_management, "current_loaded_models", []))
+        keep_loaded = [
+            loaded_model
+            for loaded_model in loaded_models
+            if not self._matches_target(loaded_model, model_type)
+        ]
+
+        devices = []
+        if device_scope == "All Devices":
+            try:
+                devices = list(model_management.get_all_torch_devices())
+            except Exception:
+                devices = []
+        if not devices:
+            try:
+                devices = [model_management.get_torch_device()]
+            except Exception:
+                devices = [None]
+
+        unloaded = []
+        for device in devices:
+            try:
+                unloaded.extend(model_management.free_memory(1e30, device, keep_loaded=keep_loaded))
+            except Exception as exc:
+                logger.warning("WorkflowX unload failed for %s on %s: %s", model_type, device, exc)
+
+        if empty_cache:
+            try:
+                model_management.soft_empty_cache(force=True)
+            except TypeError:
+                model_management.soft_empty_cache()
+            except Exception as exc:
+                logger.warning("WorkflowX unload could not empty cache: %s", exc)
+
+        names = [self._describe_loaded_model(loaded_model) for loaded_model in unloaded]
+        if names:
+            preview = ", ".join(names[:8])
+            if len(names) > 8:
+                preview += f", +{len(names) - 8} more"
+            status = f"WorkflowX unloaded {len(names)} {model_type}: {preview}"
+        else:
+            status = f"WorkflowX unloaded 0 {model_type}."
+        logger.info(status)
+
+        return (
+            self._passthrough_value(trigger, model, clip, vae, conditioning),
+            model,
+            clip,
+            vae,
+            conditioning,
+            status,
+        )
+
+
 class GroupConfigurator:
     CATEGORY = CATEGORY
     FUNCTION = "configure"
@@ -1108,6 +1334,7 @@ NODE_CLASS_MAPPINGS = {
     "KVGC_ConfigSelector": ConfigSelector,
     "KVGC_ConfigSelectorAdvanced": ConfigSelectorAdvanced,
     "KVGC_GroupScopes": GroupScopes,
+    "KVGC_UnloadModelsByType": UnloadModelsByType,
     "KVGC_ImageCompareEditX": ImageCompareEditX,
 }
 
@@ -1132,5 +1359,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "KVGC_ConfigSelector": "Config Selector",
     "KVGC_ConfigSelectorAdvanced": "Config Selector Advanced",
     "KVGC_GroupScopes": "Group Scopes",
+    "KVGC_UnloadModelsByType": "Unload Models By Type",
     "KVGC_ImageCompareEditX": "Image Compare Edit X",
 }

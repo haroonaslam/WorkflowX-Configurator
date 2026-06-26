@@ -7,6 +7,7 @@ const PREPARE_ROUTE = "/workflowx_configurator/image_compare_edit_x/prepare";
 
 const BRAND = "#ff6847";
 const GREEN = "#36c48f";
+const AMBER = "#f6b44b";
 const PANEL = "#191b1e";
 const TEXT = "#e7eaee";
 const MUTED = "#9aa3ad";
@@ -17,6 +18,7 @@ const ROW_H = 20;
 const CONTROL_X = 118;
 const MIN_W = 620;
 const MIN_H = 520;
+const PREVIEW_MAX = 1400;
 
 const IMAGE_OPTIONS = [
   ["1", "Image 1"],
@@ -103,6 +105,8 @@ const DEFAULTS = {
   splitX: 0.5,
   splitY: 0.5,
   tool: "brush",
+  brushTarget: "blend",
+  showMask: true,
   brush: {
     size: 64,
     hardness: 0.65,
@@ -113,11 +117,17 @@ const DEFAULTS = {
   adjustments: { ...NEUTRAL },
   adjustmentPreset: "Original",
   adjustmentAmount: 1,
+  adjustmentMode: "global",
+  adjustmentLayers: [],
+  selectedAdjustmentLayerId: "",
   maskData: "",
+  adjustmentBrushData: "",
   images: [],
   editorZoom: 1,
   editorPanX: 0,
   editorPanY: 0,
+  performanceMode: "fast",
+  beforePreview: false,
   layoutVersion: 3,
 };
 
@@ -130,6 +140,7 @@ function cloneDefaults() {
     ...DEFAULTS,
     brush: { ...DEFAULTS.brush },
     adjustments: { ...NEUTRAL },
+    adjustmentLayers: [],
     images: [],
   };
 }
@@ -218,6 +229,92 @@ function isNeutral(adj, amount01) {
   if (amount01 <= 0) return true;
   const a = mergeAdjustments(adj);
   return Object.keys(a).every((key) => a[key] === 0);
+}
+
+function makeLayerId() {
+  return `adj_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function createAdjustmentLayer(mode = "global", options = {}) {
+  return {
+    id: options.id || makeLayerId(),
+    name: options.name || (mode === "brush" ? "Brush Adjustment" : "Global Adjustment"),
+    visible: options.visible !== false,
+    mode: options.mode === "brush" || mode === "brush" ? "brush" : "global",
+    amount: clamp01(safeNumber(options.amount, 1)),
+    preset: options.preset || "Original",
+    adjustments: mergeAdjustments(options.adjustments),
+    maskData: options.maskData || "",
+    maskCanvas: options.maskCanvas || null,
+    maskKey: options.maskKey || "",
+  };
+}
+
+function serializeAdjustmentLayer(layer, includeCanvas = true) {
+  return {
+    id: layer.id || makeLayerId(),
+    name: layer.name || "Adjustment",
+    visible: layer.visible !== false,
+    mode: layer.mode === "brush" ? "brush" : "global",
+    amount: clamp01(safeNumber(layer.amount, 1)),
+    preset: layer.preset || "Original",
+    adjustments: mergeAdjustments(layer.adjustments),
+    maskData: includeCanvas && layer.maskCanvas ? layer.maskCanvas.toDataURL("image/png") : layer.maskData || "",
+  };
+}
+
+function normalizeAdjustmentLayers(saved = {}, fallbackState = null) {
+  const source = Array.isArray(saved.adjustmentLayers) ? saved.adjustmentLayers : [];
+  const layers = source
+    .filter((layer) => layer && typeof layer === "object")
+    .map((layer, index) =>
+      createAdjustmentLayer(layer.mode, {
+        ...layer,
+        id: layer.id || `adj_${index + 1}`,
+        name: layer.name || `Adjustment ${index + 1}`,
+        amount: layer.amount,
+        preset: layer.preset,
+        adjustments: layer.adjustments,
+        maskData: layer.maskData || "",
+      }),
+    )
+    .filter(Boolean);
+
+  if (layers.length) return layers;
+
+  const oldMode = saved.adjustmentMode === "brush" ? "brush" : "global";
+  return [
+    createAdjustmentLayer(oldMode, {
+      id: "adj_legacy_1",
+      name: oldMode === "brush" ? "Brush Adjustment 1" : "Global Adjustment 1",
+      visible: true,
+      amount: safeNumber(saved.adjustmentAmount, fallbackState?.adjustmentAmount ?? 1),
+      preset: saved.adjustmentPreset || fallbackState?.adjustmentPreset || "Original",
+      adjustments: saved.adjustments || fallbackState?.adjustments || NEUTRAL,
+      maskData: saved.adjustmentBrushData || fallbackState?.adjustmentBrushData || "",
+    }),
+  ];
+}
+
+function selectedAdjustmentLayer(s) {
+  if (!Array.isArray(s.adjustmentLayers) || !s.adjustmentLayers.length) {
+    s.adjustmentLayers = [createAdjustmentLayer("global", { id: "adj_1", name: "Global Adjustment 1" })];
+  }
+  let layer = s.adjustmentLayers.find((candidate) => candidate.id === s.selectedAdjustmentLayerId);
+  if (!layer) {
+    layer = s.adjustmentLayers[0];
+    s.selectedAdjustmentLayerId = layer.id;
+  }
+  return layer;
+}
+
+function syncLegacyAdjustmentState(s) {
+  const layer = selectedAdjustmentLayer(s);
+  s.adjustments = mergeAdjustments(layer.adjustments);
+  s.adjustmentPreset = layer.preset || "Original";
+  s.adjustmentAmount = clamp01(safeNumber(layer.amount, 1));
+  s.adjustmentMode = layer.mode === "brush" ? "brush" : "global";
+  s.adjustmentBrushData = layer.maskData || "";
 }
 
 function hueMatrix(deg) {
@@ -402,12 +499,17 @@ function getState(node) {
     ...saved,
     brush: { ...DEFAULTS.brush, ...(saved.brush || {}) },
     adjustments: mergeAdjustments(saved.adjustments),
+    adjustmentLayers: normalizeAdjustmentLayers(saved, DEFAULTS),
     images: Array.isArray(saved.images) ? saved.images.slice(0, 2) : [],
     img1: null,
     img2: null,
     maskCanvas: null,
     maskKey: "",
     image3: null,
+    renderCache: {},
+    cacheRevision: 0,
+    previewDraft: false,
+    previewTimer: null,
     rects: [],
     splitDragging: false,
     opacityDragging: false,
@@ -416,6 +518,7 @@ function getState(node) {
     hoverTip: null,
     drawing: false,
     panning: false,
+    cursorPoint: null,
     lastPoint: null,
     panStart: null,
     undo: [],
@@ -426,6 +529,14 @@ function getState(node) {
     layoutVersion: saved.layoutVersion || 0,
   };
   migrateCompactState(state, saved);
+  state.brushTarget = state.brushTarget === "adjustment" ? "adjustment" : "blend";
+  state.selectedAdjustmentLayerId =
+    state.adjustmentLayers.find((layer) => layer.id === saved.selectedAdjustmentLayerId)?.id ||
+    state.adjustmentLayers[0]?.id ||
+    "";
+  state.performanceMode = state.performanceMode === "quality" ? "quality" : "fast";
+  state.showMask = state.showMask !== false;
+  syncLegacyAdjustmentState(state);
   node.__wfxIce = state;
   return node.__wfxIce;
 }
@@ -433,6 +544,10 @@ function getState(node) {
 function persist(node, includeMask = false) {
   const s = getState(node);
   syncLegacyState(s);
+  syncLegacyAdjustmentState(s);
+  const adjustmentLayers = s.adjustmentLayers.map((layer) => serializeAdjustmentLayer(layer, includeMask));
+  const selectedSerializedLayer = adjustmentLayers.find((layer) => layer.id === selectedAdjustmentLayer(s).id) || adjustmentLayers[0];
+  if (selectedSerializedLayer) s.adjustmentBrushData = selectedSerializedLayer.maskData || "";
   node.properties = node.properties || {};
   node.properties[STATE_KEY] = {
     pair: s.pair,
@@ -446,15 +561,22 @@ function persist(node, includeMask = false) {
     splitX: s.splitX,
     splitY: s.splitY,
     tool: s.tool,
+    brushTarget: s.brushTarget,
+    showMask: s.showMask !== false,
     brush: { ...s.brush },
     adjustments: mergeAdjustments(s.adjustments),
     adjustmentPreset: s.adjustmentPreset,
     adjustmentAmount: s.adjustmentAmount,
+    adjustmentMode: s.adjustmentMode === "brush" ? "brush" : "global",
+    adjustmentLayers,
+    selectedAdjustmentLayerId: selectedAdjustmentLayer(s).id,
     maskData: includeMask && s.maskCanvas ? s.maskCanvas.toDataURL("image/png") : s.maskData || "",
+    adjustmentBrushData: s.adjustmentBrushData || "",
     images: s.images || [],
     editorZoom: s.editorZoom,
     editorPanX: s.editorPanX,
     editorPanY: s.editorPanY,
+    performanceMode: s.performanceMode === "quality" ? "quality" : "fast",
     layoutVersion: 3,
   };
 }
@@ -503,6 +625,8 @@ function loadImage(node, meta, slot) {
     if (slot === 1) s.img1 = img;
     else s.img2 = img;
     ensureMask(s);
+    ensureAdjustmentBrush(s);
+    invalidateRenderCache(s);
     dirty(node);
     s.editor?.render?.();
   };
@@ -557,6 +681,32 @@ function outputSize(s) {
   return { w: Math.max(1, imageW(base) || 1), h: Math.max(1, imageH(base) || 1) };
 }
 
+function invalidateRenderCache(s) {
+  const working = s.renderCache?.working || {};
+  s.cacheRevision = (s.cacheRevision || 0) + 1;
+  s.renderCache = { working };
+}
+
+function workingCanvas(s, key, width, height) {
+  s.renderCache = s.renderCache || {};
+  s.renderCache.working = s.renderCache.working || {};
+  let canvas = s.renderCache.working[key];
+  if (!canvas) {
+    canvas = document.createElement("canvas");
+    s.renderCache.working[key] = canvas;
+  }
+  const w = Math.max(1, Math.round(width));
+  const h = Math.max(1, Math.round(height));
+  if (canvas.width !== w) canvas.width = w;
+  if (canvas.height !== h) canvas.height = h;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = "source-over";
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  return canvas;
+}
+
 function ensureMask(s) {
   const size = outputSize(s);
   const key = `${size.w}x${size.h}`;
@@ -583,38 +733,118 @@ function ensureMask(s) {
   return canvas;
 }
 
-function composeImage3(s, applyAdjustments = true) {
+function ensureAdjustmentBrush(s, layer = selectedAdjustmentLayer(s)) {
+  const size = outputSize(s);
+  const key = `${size.w}x${size.h}`;
+  if (layer.maskCanvas && layer.maskKey === key) return layer.maskCanvas;
+
+  const old = layer.maskCanvas;
+  const canvas = document.createElement("canvas");
+  canvas.width = size.w;
+  canvas.height = size.h;
+  const ctx = canvas.getContext("2d");
+  if (old) {
+    ctx.drawImage(old, 0, 0, canvas.width, canvas.height);
+  } else if (layer.maskData) {
+    const img = new Image();
+    img.onload = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      s.editor?.render?.();
+    };
+    img.src = layer.maskData;
+  }
+  layer.maskCanvas = canvas;
+  layer.maskKey = key;
+  return canvas;
+}
+
+function ensurePaintCanvas(s, target = s.brushTarget) {
+  return target === "adjustment" ? ensureAdjustmentBrush(s) : ensureMask(s);
+}
+
+function syncPaintData(s, target = s.brushTarget) {
+  const canvas = ensurePaintCanvas(s, target);
+  if (target === "adjustment") {
+    const layer = selectedAdjustmentLayer(s);
+    layer.maskData = canvas.toDataURL("image/png");
+    syncLegacyAdjustmentState(s);
+  } else s.maskData = canvas.toDataURL("image/png");
+}
+
+function applySingleAdjustmentLayer(out, s, layer) {
+  if (!layer?.visible || isNeutral(layer.adjustments, layer.amount)) return out;
+  const ctx = out.getContext("2d", { willReadFrequently: true });
+  if (layer.mode !== "brush") {
+    const id = ctx.getImageData(0, 0, out.width, out.height);
+    applyFx(id.data, out.width, out.height, layer.adjustments, layer.amount, 4517);
+    ctx.putImageData(id, 0, 0);
+    return out;
+  }
+
+  const adjusted = workingCanvas(s, "adjustedLayer", out.width, out.height);
+  const actx = adjusted.getContext("2d", { willReadFrequently: true });
+  actx.drawImage(out, 0, 0);
+  const id = actx.getImageData(0, 0, adjusted.width, adjusted.height);
+  applyFx(id.data, adjusted.width, adjusted.height, layer.adjustments, layer.amount, 4517);
+  actx.putImageData(id, 0, 0);
+
+  const area = ensureAdjustmentBrush(s, layer);
+  const local = workingCanvas(s, "localAdjustment", out.width, out.height);
+  const lctx = local.getContext("2d");
+  lctx.drawImage(adjusted, 0, 0);
+  lctx.globalCompositeOperation = "destination-in";
+  lctx.drawImage(area, 0, 0, out.width, out.height);
+  lctx.globalCompositeOperation = "source-over";
+  ctx.drawImage(local, 0, 0);
+  return out;
+}
+
+function applyAdjustmentLayers(out, s) {
+  if (!Array.isArray(s.adjustmentLayers)) return out;
+  for (let i = s.adjustmentLayers.length - 1; i >= 0; i -= 1) {
+    applySingleAdjustmentLayer(out, s, s.adjustmentLayers[i]);
+  }
+  return out;
+}
+
+function previewScaleFor(size, options = {}) {
+  if (!options.preview) return 1;
+  return Math.min(1, PREVIEW_MAX / Math.max(size.w, size.h, 1));
+}
+
+function composeBaseComposite(s, options = {}) {
   const { top, under } = layers(s);
   const size = outputSize(s);
-  const out = document.createElement("canvas");
-  out.width = size.w;
-  out.height = size.h;
+  const scale = previewScaleFor(size, options);
+  const out = workingCanvas(s, "baseComposite", Math.max(1, Math.round(size.w * scale)), Math.max(1, Math.round(size.h * scale)));
   const ctx = out.getContext("2d", { willReadFrequently: true });
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, out.width, out.height);
   if (under) ctx.drawImage(under, 0, 0, out.width, out.height);
 
   if (top) {
-    const layer = document.createElement("canvas");
-    layer.width = out.width;
-    layer.height = out.height;
+    const layer = workingCanvas(s, "topLayerComposite", out.width, out.height);
     const lctx = layer.getContext("2d");
     const r = fitRect(top, { x: 0, y: 0, w: out.width, h: out.height });
     lctx.globalAlpha = clamp(s.topOpacity, 0, 1);
     lctx.drawImage(top, r.x, r.y, r.w, r.h);
     lctx.globalAlpha = 1;
-    const mask = ensureMask(s);
-    lctx.globalCompositeOperation = "destination-out";
-    lctx.drawImage(mask, 0, 0, out.width, out.height);
-    lctx.globalCompositeOperation = "source-over";
+    if (options.includeBlendMask !== false) {
+      const mask = ensureMask(s);
+      lctx.globalCompositeOperation = "destination-out";
+      lctx.drawImage(mask, 0, 0, out.width, out.height);
+      lctx.globalCompositeOperation = "source-over";
+    }
     ctx.drawImage(layer, 0, 0);
   }
+  return out;
+}
 
-  if (applyAdjustments && !isNeutral(s.adjustments, s.adjustmentAmount)) {
-    const id = ctx.getImageData(0, 0, out.width, out.height);
-    applyFx(id.data, out.width, out.height, s.adjustments, s.adjustmentAmount, 4517);
-    ctx.putImageData(id, 0, 0);
-  }
+function composeImage3(s, applyAdjustments = true, options = {}) {
+  const out = composeBaseComposite(s, { ...options, includeBlendMask: true });
+
+  if (applyAdjustments) applyAdjustmentLayers(out, s);
 
   s.image3 = out;
   return out;
@@ -1222,54 +1452,64 @@ async function saveImage(node, which, toDisk) {
   }
 }
 
+function editorSnapshot(s) {
+  return {
+    layerOrder: s.layerOrder,
+    topOpacity: s.topOpacity,
+    maskData: s.maskCanvas ? s.maskCanvas.toDataURL("image/png") : s.maskData || "",
+    adjustmentLayers: s.adjustmentLayers.map((layer) => serializeAdjustmentLayer(layer)),
+    selectedAdjustmentLayerId: selectedAdjustmentLayer(s).id,
+  };
+}
+
 function pushUndo(s) {
-  const mask = ensureMask(s);
-  s.undo.push(mask.toDataURL("image/png"));
+  s.undo.push(editorSnapshot(s));
   if (s.undo.length > 30) s.undo.shift();
   s.redo = [];
 }
 
-function restoreMask(node, dataUrl, after) {
+function restoreEditorSnapshot(node, snapshot, after) {
   const s = getState(node);
-  const mask = ensureMask(s);
-  const ctx = mask.getContext("2d");
-  ctx.clearRect(0, 0, mask.width, mask.height);
-  if (!dataUrl) {
-    s.maskData = "";
-    persist(node, true);
-    dirty(node);
-    after?.();
-    return;
-  }
-  const img = new Image();
-  img.onload = () => {
-    ctx.drawImage(img, 0, 0, mask.width, mask.height);
-    s.maskData = mask.toDataURL("image/png");
-    persist(node, true);
-    dirty(node);
-    after?.();
-  };
-  img.src = dataUrl;
+  s.layerOrder = snapshot?.layerOrder || s.layerOrder;
+  s.topOpacity = clamp01(safeNumber(snapshot?.topOpacity, s.topOpacity));
+  s.maskData = snapshot?.maskData || "";
+  s.maskCanvas = null;
+  s.maskKey = "";
+  s.adjustmentLayers = normalizeAdjustmentLayers({ adjustmentLayers: snapshot?.adjustmentLayers || [] }, s);
+  s.selectedAdjustmentLayerId =
+    s.adjustmentLayers.find((layer) => layer.id === snapshot?.selectedAdjustmentLayerId)?.id ||
+    s.adjustmentLayers[0]?.id ||
+    "";
+  syncLegacyAdjustmentState(s);
+  persist(node, true);
+  dirty(node);
+  after?.();
 }
 
 function drawBrush(s, point) {
-  const mask = ensureMask(s);
-  if (point.x < -s.brush.size || point.y < -s.brush.size || point.x > mask.width + s.brush.size || point.y > mask.height + s.brush.size) return;
-  const ctx = mask.getContext("2d");
+  const target = s.brushTarget === "adjustment" ? "adjustment" : "blend";
+  const canvas = ensurePaintCanvas(s, target);
+  if (point.x < -s.brush.size || point.y < -s.brush.size || point.x > canvas.width + s.brush.size || point.y > canvas.height + s.brush.size) return;
+  const ctx = canvas.getContext("2d");
   const radius = Math.max(1, s.brush.size / 2);
   const alpha = clamp(s.brush.opacity * s.brush.flow, 0, 1);
-  const hard = clamp(s.brush.hardness, 0, 1) * radius;
-  const grad = ctx.createRadialGradient(point.x, point.y, hard, point.x, point.y, radius);
-  grad.addColorStop(0, `rgba(255,255,255,${alpha})`);
-  grad.addColorStop(clamp(1 - s.brush.softness * 0.5, 0.05, 1), `rgba(255,255,255,${alpha * 0.7})`);
-  grad.addColorStop(1, "rgba(255,255,255,0)");
+  const hardness = clamp(s.brush.hardness, 0, 1);
   ctx.save();
   if (s.tool === "eraser") ctx.globalCompositeOperation = "destination-out";
-  ctx.fillStyle = grad;
+  if (hardness >= 0.995) {
+    ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+  } else {
+    const hard = hardness * radius;
+    const grad = ctx.createRadialGradient(point.x, point.y, hard, point.x, point.y, radius);
+    grad.addColorStop(0, `rgba(255,255,255,${alpha})`);
+    grad.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = grad;
+  }
   ctx.beginPath();
   ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
+  invalidateRenderCache(s);
 }
 
 function strokeBrush(s, from, to) {
@@ -1380,7 +1620,7 @@ function injectEditorStyles() {
     .wfx-ice-side{background:${PANEL};border-right:1px solid #262b30;overflow:auto;padding:8px;box-sizing:border-box}
     .wfx-ice-right{border-right:0;border-left:1px solid #262b30}
     .wfx-ice-stage{position:relative;min-width:0;min-height:0;background:#111315;overflow:hidden}
-    .wfx-ice-canvas{width:100%;height:100%;display:block;cursor:crosshair}
+    .wfx-ice-canvas{width:100%;height:100%;display:block;cursor:none}
     .wfx-ice-panel{border:1px solid #30363d;background:#17191c;margin-bottom:8px}
     .wfx-ice-panel h3{display:flex;align-items:center;justify-content:space-between;margin:0;padding:7px 8px;border-bottom:1px solid #2b3036;color:${BRAND};font-size:11px;line-height:1;text-transform:uppercase;font-weight:700}
     .wfx-ice-panel-body{padding:8px}
@@ -1404,6 +1644,18 @@ function injectEditorStyles() {
     .wfx-ice-select{flex:1;height:24px;background:#111315;border:1px solid #333a41;color:#e8edf2;border-radius:4px;font:11px "Segoe UI",Arial,sans-serif;padding:0 7px;box-sizing:border-box}
     .wfx-ice-actions{display:grid;grid-template-columns:1fr 1fr;gap:6px}
     .wfx-ice-actions.three{grid-template-columns:1fr 1fr 1fr}
+    .wfx-ice-layer-list{display:grid;gap:5px;margin-bottom:8px}
+    .wfx-ice-layer{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:6px;min-height:28px;padding:5px 7px;border:1px solid #30363d;background:#111315;border-radius:4px;box-sizing:border-box}
+    .wfx-ice-layer.selected{border-color:${BRAND};box-shadow:0 0 0 1px rgba(255,104,71,.28) inset}
+    .wfx-ice-layer strong{font-size:11px;color:#edf1f5}
+    .wfx-ice-layer span{font-size:10px;color:${MUTED};white-space:nowrap}
+    .wfx-ice-layer.adjustments{border-color:#5f4420;background:#1e1a13}
+    .wfx-ice-layer.top{border-color:#694032;background:#211815}
+    .wfx-ice-layer-pick{display:grid;gap:1px;min-width:0;text-align:left;cursor:pointer}
+    .wfx-ice-layer-actions{display:flex;align-items:center;gap:3px}
+    .wfx-ice-icon-btn{width:22px;height:20px;border:1px solid #343b42;background:#202429;color:#dce2e8;border-radius:3px;padding:0;font:700 10px "Segoe UI",Arial,sans-serif;cursor:pointer}
+    .wfx-ice-icon-btn:hover{background:#293039;border-color:#4a545f}
+    .wfx-ice-icon-btn.active{background:${BRAND};border-color:${BRAND};color:#fff}
     .wfx-ice-meta{font-size:11px;color:${MUTED};line-height:1.55}
     .wfx-ice-warn{color:#ffb36b}
     @media(max-width:1050px){.wfx-ice-shell{grid-template-columns:240px minmax(240px,1fr) 260px}.wfx-ice-label{width:68px}.wfx-ice-presets{grid-template-columns:repeat(3,1fr)}}
@@ -1442,9 +1694,9 @@ function imagePointFromEditor(s, transform, x, y) {
   return { x: (x - transform.x) / transform.scale, y: (y - transform.y) / transform.scale };
 }
 
-function editorTransform(s, canvas, img) {
-  const iw = imageW(img);
-  const ih = imageH(img);
+function editorTransform(s, canvas, imgOrSize) {
+  const iw = imageW(imgOrSize) || imgOrSize?.w || imgOrSize?.width || 0;
+  const ih = imageH(imgOrSize) || imgOrSize?.h || imgOrSize?.height || 0;
   const pad = 52;
   if (!iw || !ih) return { x: 0, y: 0, scale: 1 };
   const base = Math.min((canvas.clientWidth - pad * 2) / iw, (canvas.clientHeight - pad * 2) / ih);
@@ -1485,15 +1737,44 @@ function openEditor(node) {
     raf = requestAnimationFrame(render);
   };
 
-  const setAndRefresh = (fn, includeMask = false) => {
-    fn();
-    persist(node, includeMask);
-    syncControls();
+  const markPreviewDraft = () => {
+    if (s.performanceMode !== "fast") return;
+    s.previewDraft = true;
+    clearTimeout(s.previewTimer);
+    s.previewTimer = setTimeout(() => {
+      s.previewDraft = false;
+      scheduleRender();
+    }, 180);
+  };
+
+  const invalidateAndRender = (draft = true) => {
+    invalidateRenderCache(s);
+    if (draft) markPreviewDraft();
     dirty(node);
     scheduleRender();
   };
 
+  const setAndRefresh = (fn, includeMask = false, options = {}) => {
+    if (options.history) pushUndo(s);
+    fn();
+    persist(node, includeMask);
+    syncControls();
+    invalidateAndRender(options.draft !== false);
+  };
+
+  const beforeButton = makeButton("Before", () => setAndRefresh(() => {
+    s.beforePreview = !s.beforePreview;
+  }, false, { draft: false }));
+  beforeButton.dataset.beforeToggle = "1";
+  const performanceButton = makeButton("Fast", () => setAndRefresh(() => {
+    s.performanceMode = s.performanceMode === "quality" ? "fast" : "quality";
+    s.previewDraft = false;
+  }, false, { draft: false }));
+  performanceButton.dataset.performanceToggle = "1";
+
   const topButtons = [
+    beforeButton,
+    performanceButton,
     makeButton("Fit", () => setAndRefresh(() => {
       s.editorZoom = 1;
       s.editorPanX = 0;
@@ -1521,6 +1802,7 @@ function openEditor(node) {
 
   const cleanup = () => {
     cancelAnimationFrame(raf);
+    clearTimeout(s.previewTimer);
     window.removeEventListener("resize", scheduleRender);
     window.removeEventListener("keydown", onKeyDown);
     root.remove();
@@ -1537,10 +1819,10 @@ function openEditor(node) {
   }
   window.addEventListener("keydown", onKeyDown);
 
-  function segmented(parent, options, getValue, setValue, cols = "") {
+  function segmented(parent, options, getValue, setValue, cols = "", config = {}) {
     const wrap = el("div", `wfx-ice-seg ${cols}`.trim());
     for (const [value, label] of options) {
-      const btn = makeButton(label, () => setAndRefresh(() => setValue(value)));
+      const btn = makeButton(label, () => setAndRefresh(() => setValue(value), config.persistMask, { history: !!config.history }));
       btn.dataset.value = value;
       btn.dataset.groupValue = "1";
       btn.__getValue = getValue;
@@ -1586,13 +1868,36 @@ function openEditor(node) {
       input.value = String(v);
       number.value = String(Math.round(v));
     };
+    let historyOpen = false;
+    const beginHistory = () => {
+      if (!options.history || historyOpen) return;
+      pushUndo(s);
+      historyOpen = true;
+    };
+    const endHistory = () => {
+      historyOpen = false;
+      s.previewDraft = false;
+      scheduleRender();
+    };
     const commit = (raw) => {
       const v = clamp(safeNumber(raw, valueGetter()), min, max);
       setAndRefresh(() => valueSetter(v), options.persistMask);
     };
-    input.addEventListener("input", () => commit(input.value));
-    number.addEventListener("change", () => commit(number.value));
-    number.addEventListener("dblclick", () => commit(options.defaultValue ?? 0));
+    input.addEventListener("pointerdown", beginHistory);
+    input.addEventListener("input", () => {
+      beginHistory();
+      commit(input.value);
+    });
+    input.addEventListener("change", endHistory);
+    input.addEventListener("pointerup", endHistory);
+    number.addEventListener("change", () => {
+      if (options.history) pushUndo(s);
+      commit(number.value);
+    });
+    number.addEventListener("dblclick", () => {
+      if (options.history) pushUndo(s);
+      commit(options.defaultValue ?? 0);
+    });
     row.append(lab, input, number);
     parent.appendChild(row);
     return input;
@@ -1637,36 +1942,59 @@ function openEditor(node) {
   );
   left.appendChild(compare.panel);
 
-  const adjust = makePanel("Adjustments");
+  const activeAdjustment = () => selectedAdjustmentLayer(s);
+  const adjust = makePanel("Adjustment Controls");
   const presetWrap = el("div", "wfx-ice-presets");
   for (const name of Object.keys(PRESETS)) {
     const chip = el("button", "wfx-ice-chip", name);
     chip.type = "button";
     chip.dataset.preset = name;
     chip.onclick = () => setAndRefresh(() => {
-      s.adjustments = { ...NEUTRAL, ...PRESETS[name] };
-      s.adjustmentPreset = name;
-    });
+      const layer = activeAdjustment();
+      layer.adjustments = { ...NEUTRAL, ...PRESETS[name] };
+      layer.preset = name;
+      syncLegacyAdjustmentState(s);
+    }, true, { history: true });
     presetWrap.appendChild(chip);
   }
   adjust.body.appendChild(presetWrap);
-  sliderRow(adjust.body, "Amount", 0, 100, () => Math.round(s.adjustmentAmount * 100), (v) => {
-    s.adjustmentAmount = v / 100;
-  }, { defaultValue: 100 });
+  const adjustActions = el("div", "wfx-ice-actions");
+  adjustActions.append(
+    makeButton("Reset Layer", () => setAndRefresh(() => {
+      const layer = activeAdjustment();
+      layer.adjustments = { ...NEUTRAL };
+      layer.amount = 1;
+      layer.preset = "Original";
+      layer.maskData = "";
+      layer.maskCanvas = null;
+      layer.maskKey = "";
+      syncLegacyAdjustmentState(s);
+    }, true, { history: true })),
+    makeButton("Clear All", () => clearAdjustmentLayers()),
+  );
+  adjust.body.appendChild(adjustActions);
+  sliderRow(adjust.body, "Amount", 0, 100, () => Math.round(activeAdjustment().amount * 100), (v) => {
+    activeAdjustment().amount = v / 100;
+    syncLegacyAdjustmentState(s);
+  }, { defaultValue: 100, history: true });
   for (const [group, keys] of FX_GROUPS) {
     const groupRow = el("div", "wfx-ice-row");
     groupRow.style.marginTop = "9px";
     groupRow.append(el("div", "wfx-ice-label", group), makeButton("reset", () => setAndRefresh(() => {
-      for (const key of keys) s.adjustments[key] = 0;
-      s.adjustmentPreset = "Custom";
-    })));
+      const layer = activeAdjustment();
+      for (const key of keys) layer.adjustments[key] = 0;
+      layer.preset = "Custom";
+      syncLegacyAdjustmentState(s);
+    }, true, { history: true })));
     adjust.body.appendChild(groupRow);
     for (const key of keys) {
       const [min, max] = FX_RANGES[key] || [-100, 100];
-      sliderRow(adjust.body, labelForKey(key), min, max, () => s.adjustments[key] ?? 0, (v) => {
-        s.adjustments[key] = Math.round(v);
-        s.adjustmentPreset = "Custom";
-      });
+      sliderRow(adjust.body, labelForKey(key), min, max, () => activeAdjustment().adjustments[key] ?? 0, (v) => {
+        const layer = activeAdjustment();
+        layer.adjustments[key] = Math.round(v);
+        layer.preset = "Custom";
+        syncLegacyAdjustmentState(s);
+      }, { history: true });
     }
   }
   left.appendChild(adjust.panel);
@@ -1676,17 +2004,54 @@ function openEditor(node) {
   info.body.appendChild(meta);
   left.appendChild(info.panel);
 
-  const layerPanel = makePanel("Layer Blend");
+  const layerPanel = makePanel("Layers");
+  const layerList = el("div", "wfx-ice-layer-list");
+  const topLayer = el("div", "wfx-ice-layer top");
+  topLayer.append(el("span", "", ""), el("div", "wfx-ice-layer-pick"));
+  const topLayerName = el("strong", "", "Top Image");
+  const topLayerMeta = el("span", "", "Image 2");
+  topLayer.children[1].append(topLayerName, topLayerMeta);
+  const underLayer = el("div", "wfx-ice-layer");
+  underLayer.append(el("span", "", ""), el("div", "wfx-ice-layer-pick"));
+  const underLayerName = el("strong", "", "Under Image");
+  const underLayerMeta = el("span", "", "Image 1");
+  underLayer.children[1].append(underLayerName, underLayerMeta);
+  layerList.append(topLayer, underLayer);
+  layerPanel.body.appendChild(layerList);
+  const layerActions = el("div", "wfx-ice-actions");
+  layerActions.append(
+    makeButton("Add Global", () => addAdjustmentLayer("global")),
+    makeButton("Add Brush", () => addAdjustmentLayer("brush")),
+    makeButton("Duplicate", () => duplicateSelectedLayer()),
+    makeButton("Delete", () => deleteSelectedLayer()),
+  );
+  layerPanel.body.appendChild(layerActions);
   segmented(layerPanel.body, [["2over1", "Image 2 over 1"], ["1over2", "Image 1 over 2"]], () => s.layerOrder, (v) => {
     s.layerOrder = v;
     s.maskCanvas = null;
-  });
+    for (const layer of s.adjustmentLayers) {
+      layer.maskCanvas = null;
+      layer.maskKey = "";
+    }
+  }, "", { history: true, persistMask: true });
   sliderRow(layerPanel.body, "Opacity", 0, 100, () => Math.round(s.topOpacity * 100), (v) => {
     s.topOpacity = v / 100;
-  }, { defaultValue: 65 });
+  }, { defaultValue: 65, history: true });
+  segmented(layerPanel.body, [["global", "Global"], ["brush", "Brush"]], () => activeAdjustment().mode, (v) => {
+    activeAdjustment().mode = v;
+    if (v === "brush") s.brushTarget = "adjustment";
+    syncLegacyAdjustmentState(s);
+  }, "", { history: true, persistMask: true });
   right.appendChild(layerPanel.panel);
 
-  const maskPanel = makePanel("Mask");
+  const maskPanel = makePanel("Brush");
+  segmented(maskPanel.body, [["blend", "Blend Brush"], ["adjustment", "Adjustment Brush"]], () => s.brushTarget, (v) => {
+    s.brushTarget = v;
+    if (v === "adjustment") {
+      activeAdjustment().mode = "brush";
+      syncLegacyAdjustmentState(s);
+    }
+  });
   segmented(maskPanel.body, [["brush", "Brush"], ["eraser", "Eraser"], ["pan", "Pan"]], () => s.tool, (v) => {
     s.tool = v;
   }, "three");
@@ -1696,21 +2061,21 @@ function openEditor(node) {
   sliderRow(maskPanel.body, "Hardness", 0, 100, () => Math.round(s.brush.hardness * 100), (v) => {
     s.brush.hardness = v / 100;
   }, { defaultValue: 65 });
-  sliderRow(maskPanel.body, "Softness", 0, 100, () => Math.round(s.brush.softness * 100), (v) => {
-    s.brush.softness = v / 100;
-  }, { defaultValue: 35 });
   sliderRow(maskPanel.body, "Opacity", 0, 100, () => Math.round(s.brush.opacity * 100), (v) => {
     s.brush.opacity = v / 100;
   }, { defaultValue: 85 });
-  sliderRow(maskPanel.body, "Flow", 0, 100, () => Math.round(s.brush.flow * 100), (v) => {
-    s.brush.flow = v / 100;
+  sliderRow(maskPanel.body, "Flow", 1, 100, () => Math.max(1, Math.round(s.brush.flow * 100)), (v) => {
+    s.brush.flow = clamp(v / 100, 0.01, 1);
   }, { defaultValue: 65 });
   const maskActions = el("div", "wfx-ice-actions");
+  const showMaskButton = makeButton("Show Mask", () => setAndRefresh(() => {
+    s.showMask = !s.showMask;
+  }));
+  showMaskButton.dataset.maskToggle = "1";
   maskActions.append(
-    makeButton("Reset Mask", () => resetMask()),
-    makeButton("Invert Mask", () => invertMask()),
-    makeButton("Undo", () => undoMask()),
-    makeButton("Redo", () => redoMask()),
+    showMaskButton,
+    makeButton("Reset Area", () => resetPaintArea()),
+    makeButton("Invert Area", () => invertPaintArea()),
   );
   maskPanel.body.appendChild(maskActions);
   right.appendChild(maskPanel.panel);
@@ -1725,18 +2090,115 @@ function openEditor(node) {
   savePanel.body.appendChild(saveActions);
   right.appendChild(savePanel.panel);
 
+  function addAdjustmentLayer(mode) {
+    setAndRefresh(() => {
+      const layer = createAdjustmentLayer(mode, {
+        name: `${mode === "brush" ? "Brush" : "Global"} Adjustment ${s.adjustmentLayers.length + 1}`,
+      });
+      s.adjustmentLayers.unshift(layer);
+      s.selectedAdjustmentLayerId = layer.id;
+      if (mode === "brush") s.brushTarget = "adjustment";
+      syncLegacyAdjustmentState(s);
+    }, true, { history: true });
+  }
+
+  function duplicateSelectedLayer() {
+    setAndRefresh(() => {
+      const current = selectedAdjustmentLayer(s);
+      const index = Math.max(0, s.adjustmentLayers.findIndex((layer) => layer.id === current.id));
+      const copy = createAdjustmentLayer(current.mode, {
+        ...serializeAdjustmentLayer(current),
+        id: makeLayerId(),
+        name: `${current.name || "Adjustment"} Copy`,
+      });
+      s.adjustmentLayers.splice(index, 0, copy);
+      s.selectedAdjustmentLayerId = copy.id;
+      syncLegacyAdjustmentState(s);
+    }, true, { history: true });
+  }
+
+  function deleteSelectedLayer() {
+    setAndRefresh(() => {
+      const current = selectedAdjustmentLayer(s);
+      const index = s.adjustmentLayers.findIndex((layer) => layer.id === current.id);
+      if (s.adjustmentLayers.length <= 1) {
+        s.adjustmentLayers = [createAdjustmentLayer("global", { name: "Global Adjustment 1" })];
+        s.selectedAdjustmentLayerId = s.adjustmentLayers[0].id;
+      } else {
+        const removeIndex = index >= 0 ? index : 0;
+        s.adjustmentLayers.splice(removeIndex, 1);
+        s.selectedAdjustmentLayerId = s.adjustmentLayers[Math.min(removeIndex, s.adjustmentLayers.length - 1)].id;
+      }
+      syncLegacyAdjustmentState(s);
+    }, true, { history: true });
+  }
+
+  function clearAdjustmentLayers() {
+    setAndRefresh(() => {
+      s.adjustmentLayers = [createAdjustmentLayer("global", { name: "Global Adjustment 1" })];
+      s.selectedAdjustmentLayerId = s.adjustmentLayers[0].id;
+      s.brushTarget = "blend";
+      syncLegacyAdjustmentState(s);
+    }, true, { history: true });
+  }
+
+  function renderLayerStack() {
+    layerList.replaceChildren();
+    for (const layer of s.adjustmentLayers) {
+      const row = el("div", `wfx-ice-layer adjustments${layer.id === s.selectedAdjustmentLayerId ? " selected" : ""}`);
+      const visible = el("button", `wfx-ice-icon-btn${layer.visible !== false ? " active" : ""}`, layer.visible !== false ? "V" : "-");
+      visible.type = "button";
+      visible.title = layer.visible !== false ? "Hide adjustment layer" : "Show adjustment layer";
+      visible.onclick = (event) => {
+        event.stopPropagation();
+        setAndRefresh(() => {
+          layer.visible = layer.visible === false;
+          syncLegacyAdjustmentState(s);
+        }, true, { history: true });
+      };
+      const pick = el("div", "wfx-ice-layer-pick");
+      pick.append(
+        el("strong", "", layer.name || "Adjustment"),
+        el("span", "", `${layer.mode === "brush" ? "Brush" : "Global"}  ${Math.round(layer.amount * 100)}%`),
+      );
+      pick.onclick = () => setAndRefresh(() => {
+        s.selectedAdjustmentLayerId = layer.id;
+        syncLegacyAdjustmentState(s);
+      }, false, { draft: false });
+      const marker = el("span", "", layer.id === s.selectedAdjustmentLayerId ? "Selected" : "");
+      row.append(visible, pick, marker);
+      layerList.appendChild(row);
+    }
+    layerList.append(topLayer, underLayer);
+  }
+
   function syncControls() {
     syncLegacyState(s);
+    syncLegacyAdjustmentState(s);
+    renderLayerStack();
     root.querySelectorAll("[data-group-value]").forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.value === btn.__getValue?.());
     });
+    root.querySelectorAll("[data-mask-toggle]").forEach((btn) => {
+      btn.classList.toggle("active", s.showMask !== false);
+    });
+    root.querySelectorAll("[data-before-toggle]").forEach((btn) => {
+      btn.classList.toggle("active", !!s.beforePreview);
+    });
+    root.querySelectorAll("[data-performance-toggle]").forEach((btn) => {
+      btn.textContent = s.performanceMode === "quality" ? "Quality" : "Fast";
+      btn.classList.toggle("active", s.performanceMode === "quality");
+    });
     root.querySelectorAll("[data-preset]").forEach((btn) => {
-      btn.classList.toggle("active", btn.dataset.preset === s.adjustmentPreset);
+      btn.classList.toggle("active", btn.dataset.preset === activeAdjustment().preset);
     });
     root.querySelectorAll(".wfx-ice-select").forEach((select) => select.__sync?.());
     root.querySelectorAll(".wfx-ice-slider").forEach((input) => input.__sync?.());
     const { topName, underName } = layers(s);
     const size = outputSize(s);
+    topLayerMeta.textContent = `Image ${topName}  ${Math.round(s.topOpacity * 100)}%`;
+    underLayerMeta.textContent = `Image ${underName}`;
+    canvas.style.cursor = s.tool === "pan" ? (s.panning ? "grabbing" : "grab") : "none";
     const warning = dimensionsDiffer(s) ? `<span class="wfx-ice-warn">Source sizes differ. Image 3 uses image ${underName}'s canvas.</span>` : "Source sizes match.";
     meta.innerHTML = `
       <div>Image 1: ${s.img1 ? `${imageW(s.img1)} x ${imageH(s.img1)}` : "not run"}</div>
@@ -1770,6 +2232,63 @@ function openEditor(node) {
     }
   }
 
+  function drawPaintTint(ctx, paintCanvas, fillStyle, alphaScale, dw, dh) {
+    if (!paintCanvas) return;
+    const tint = workingCanvas(s, "paintTint", paintCanvas.width, paintCanvas.height);
+    const tctx = tint.getContext("2d");
+    tctx.fillStyle = fillStyle;
+    tctx.fillRect(0, 0, tint.width, tint.height);
+    tctx.globalCompositeOperation = "destination-in";
+    tctx.drawImage(paintCanvas, 0, 0);
+    tctx.globalCompositeOperation = "source-in";
+    tctx.globalAlpha = alphaScale;
+    tctx.fillStyle = fillStyle;
+    tctx.fillRect(0, 0, tint.width, tint.height);
+    tctx.globalAlpha = 1;
+    tctx.globalCompositeOperation = "source-over";
+    ctx.drawImage(tint, transform.x, transform.y, dw, dh);
+  }
+
+  function drawBrushCursor(ctx) {
+    if (!s.cursorPoint || s.tool === "pan" || !s.img1 || !s.img2) return;
+    const radius = Math.max(2, (s.brush.size * transform.scale) / 2);
+    const hardRadius = Math.max(1, radius * clamp(s.brush.hardness, 0, 1));
+    const accent = s.tool === "eraser" ? "#ff6f61" : s.brushTarget === "adjustment" ? AMBER : GREEN;
+    const label = s.tool === "eraser" ? "E" : s.brushTarget === "adjustment" ? "A" : "B";
+
+    ctx.save();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = "rgba(0,0,0,.72)";
+    ctx.beginPath();
+    ctx.arc(s.cursorPoint.x, s.cursorPoint.y, radius + 1, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(s.cursorPoint.x, s.cursorPoint.y, hardRadius + 1, 0, Math.PI * 2);
+    ctx.stroke();
+
+    if (s.tool === "eraser") ctx.setLineDash([5, 4]);
+    ctx.strokeStyle = accent;
+    ctx.beginPath();
+    ctx.arc(s.cursorPoint.x, s.cursorPoint.y, radius, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.strokeStyle = "rgba(255,255,255,.86)";
+    ctx.beginPath();
+    ctx.arc(s.cursorPoint.x, s.cursorPoint.y, hardRadius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.font = "10px Segoe UI, Arial, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "rgba(0,0,0,.65)";
+    ctx.beginPath();
+    ctx.arc(s.cursorPoint.x, s.cursorPoint.y, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#fff";
+    ctx.fillText(label, s.cursorPoint.x, s.cursorPoint.y + 0.5);
+    ctx.restore();
+  }
+
   function render() {
     raf = 0;
     resizeCanvas();
@@ -1791,49 +2310,51 @@ function openEditor(node) {
       return;
     }
 
-    const img = composeImage3(s);
-    transform = editorTransform(s, canvas, img);
-    const dw = imageW(img) * transform.scale;
-    const dh = imageH(img) * transform.scale;
+    const fullSize = outputSize(s);
+    const useDraft = s.performanceMode === "fast" && s.previewDraft;
+    const img = s.beforePreview
+      ? composeBaseComposite(s, { includeBlendMask: false, preview: useDraft })
+      : composeImage3(s, true, { preview: useDraft });
+    transform = editorTransform(s, canvas, fullSize);
+    const dw = fullSize.w * transform.scale;
+    const dh = fullSize.h * transform.scale;
 
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "high";
     ctx.drawImage(img, transform.x, transform.y, dw, dh);
 
     const mask = ensureMask(s);
-    if (mask) {
-      const tint = document.createElement("canvas");
-      tint.width = mask.width;
-      tint.height = mask.height;
-      const tctx = tint.getContext("2d");
-      tctx.fillStyle = "rgba(54,196,143,.34)";
-      tctx.fillRect(0, 0, tint.width, tint.height);
-      tctx.globalCompositeOperation = "destination-in";
-      tctx.drawImage(mask, 0, 0);
-      ctx.drawImage(tint, transform.x, transform.y, dw, dh);
+    if (!s.beforePreview && mask && s.showMask !== false) drawPaintTint(ctx, mask, GREEN, 1, dw, dh);
+    const activeLayer = activeAdjustment();
+    if (!s.beforePreview && s.brushTarget === "adjustment" && activeLayer.mode === "brush") {
+      drawPaintTint(ctx, ensureAdjustmentBrush(s, activeLayer), AMBER, 0.72, dw, dh);
     }
 
     ctx.strokeStyle = BRAND;
     ctx.lineWidth = 1;
     ctx.strokeRect(Math.round(transform.x) + 0.5, Math.round(transform.y) + 0.5, Math.round(dw), Math.round(dh));
-    setStatus(`Image 3: ${imageW(img)} x ${imageH(img)}`);
+    drawBrushCursor(ctx);
+    setStatus(`${s.beforePreview ? "Before" : "Image 3"}: ${fullSize.w} x ${fullSize.h}${useDraft ? "  Fast preview" : ""}`);
   }
 
-  function resetMask() {
+  function resetPaintArea() {
     setAndRefresh(() => {
       pushUndo(s);
-      const mask = ensureMask(s);
-      mask.getContext("2d").clearRect(0, 0, mask.width, mask.height);
-      s.maskData = "";
+      const target = s.brushTarget === "adjustment" ? "adjustment" : "blend";
+      const canvas = ensurePaintCanvas(s, target);
+      canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
+      if (target === "adjustment") s.adjustmentBrushData = "";
+      else s.maskData = "";
     }, true);
   }
 
-  function invertMask() {
+  function invertPaintArea() {
     setAndRefresh(() => {
       pushUndo(s);
-      const mask = ensureMask(s);
-      const ctx = mask.getContext("2d", { willReadFrequently: true });
-      const data = ctx.getImageData(0, 0, mask.width, mask.height);
+      const target = s.brushTarget === "adjustment" ? "adjustment" : "blend";
+      const canvas = ensurePaintCanvas(s, target);
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
       for (let i = 0; i < data.data.length; i += 4) {
         data.data[i] = 255;
         data.data[i + 1] = 255;
@@ -1841,14 +2362,14 @@ function openEditor(node) {
         data.data[i + 3] = 255 - data.data[i + 3];
       }
       ctx.putImageData(data, 0, 0);
-      s.maskData = mask.toDataURL("image/png");
+      syncPaintData(s, target);
     }, true);
   }
 
   function undoMask() {
     if (!s.undo.length) return;
-    s.redo.push(ensureMask(s).toDataURL("image/png"));
-    restoreMask(node, s.undo.pop(), () => {
+    s.redo.push(editorSnapshot(s));
+    restoreEditorSnapshot(node, s.undo.pop(), () => {
       syncControls();
       scheduleRender();
     });
@@ -1856,8 +2377,8 @@ function openEditor(node) {
 
   function redoMask() {
     if (!s.redo.length) return;
-    s.undo.push(ensureMask(s).toDataURL("image/png"));
-    restoreMask(node, s.redo.pop(), () => {
+    s.undo.push(editorSnapshot(s));
+    restoreEditorSnapshot(node, s.redo.pop(), () => {
       syncControls();
       scheduleRender();
     });
@@ -1885,13 +2406,19 @@ function openEditor(node) {
     if (!s.img1 || !s.img2) return;
     canvas.setPointerCapture?.(event.pointerId);
     const p = canvasPoint(event);
+    s.cursorPoint = p;
     if (s.tool === "pan" || event.altKey || event.button === 1 || event.getModifierState?.("Space")) {
       s.panning = true;
       s.panStart = { x: p.x, y: p.y, panX: s.editorPanX, panY: s.editorPanY };
       return;
     }
+    if (s.brushTarget === "adjustment") {
+      activeAdjustment().mode = "brush";
+      syncLegacyAdjustmentState(s);
+    }
     pushUndo(s);
     s.drawing = true;
+    s.previewDraft = s.performanceMode === "fast";
     s.lastPoint = imagePointFromEditor(s, transform, p.x, p.y);
     drawBrush(s, s.lastPoint);
     scheduleRender();
@@ -1899,6 +2426,7 @@ function openEditor(node) {
 
   canvas.addEventListener("pointermove", (event) => {
     const p = canvasPoint(event);
+    s.cursorPoint = p;
     if (s.panning && s.panStart) {
       s.editorPanX = s.panStart.panX + p.x - s.panStart.x;
       s.editorPanY = s.panStart.panY + p.y - s.panStart.y;
@@ -1911,11 +2439,14 @@ function openEditor(node) {
       strokeBrush(s, s.lastPoint || next, next);
       s.lastPoint = next;
       scheduleRender();
+    } else {
+      scheduleRender();
     }
   });
 
   const finishStroke = () => {
-    if (s.drawing && s.maskCanvas) s.maskData = s.maskCanvas.toDataURL("image/png");
+    if (s.drawing) syncPaintData(s);
+    s.previewDraft = false;
     s.drawing = false;
     s.panning = false;
     s.lastPoint = null;
@@ -1926,6 +2457,12 @@ function openEditor(node) {
   };
   canvas.addEventListener("pointerup", finishStroke);
   canvas.addEventListener("pointercancel", finishStroke);
+  canvas.addEventListener("pointerleave", () => {
+    if (!s.drawing && !s.panning) {
+      s.cursorPoint = null;
+      scheduleRender();
+    }
+  });
   window.addEventListener("resize", scheduleRender);
 
   syncControls();

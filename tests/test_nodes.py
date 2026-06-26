@@ -22,6 +22,7 @@ from nodes import (
     GetRelay,
     SetFloat,
     SetRelay,
+    UnloadModelsByType,
 )
 
 
@@ -72,7 +73,7 @@ def resolved_digest(type_name, key, config, value):
 
 
 def test_all_nodes_registered():
-    assert len(NODE_CLASS_MAPPINGS) == 20
+    assert len(NODE_CLASS_MAPPINGS) == 22
     assert "KVGC_SetSampler" in NODE_CLASS_MAPPINGS
     assert "KVGC_GetSampler" in NODE_CLASS_MAPPINGS
     assert "KVGC_SetScheduler" in NODE_CLASS_MAPPINGS
@@ -83,12 +84,62 @@ def test_all_nodes_registered():
     assert "KVGC_ConfigSelector" in NODE_CLASS_MAPPINGS
     assert "KVGC_ConfigSelectorAdvanced" in NODE_CLASS_MAPPINGS
     assert "KVGC_GroupScopes" in NODE_CLASS_MAPPINGS
+    assert "KVGC_UnloadModelsByType" in NODE_CLASS_MAPPINGS
 
 
 def test_relay_nodes_pass_through_materialized_values():
     payload = {"kind": "MODEL"}
     assert SetRelay().set_value("model", payload) == (payload,)
     assert GetRelay().get_value("model", payload) == (payload,)
+
+
+def test_unload_models_by_type_inputs_and_passthrough():
+    inputs = UnloadModelsByType.INPUT_TYPES()
+    assert inputs["required"]["model_type"][0][0] == "Text Encoder"
+    assert inputs["optional"]["trigger"][0] == "*"
+
+    payload = {"kind": "prompt"}
+    assert UnloadModelsByType._passthrough_value(trigger=payload) is payload
+    assert UnloadModelsByType._passthrough_value(conditioning=payload) is payload
+
+
+def test_unload_models_by_type_classifies_loaded_patchers():
+    class TextModel:
+        pass
+
+    class DiffusionModel:
+        model_sampling = object()
+
+    class AutoencoderKL:
+        pass
+
+    class CLIPVisionModelProjection:
+        pass
+
+    class OtherModel:
+        pass
+
+    class Patcher:
+        def __init__(self, model, is_clip=False):
+            self.model = model
+            self.is_clip = is_clip
+
+    class Loaded:
+        def __init__(self, model, is_clip=False):
+            self.model = Patcher(model, is_clip=is_clip)
+
+    text = Loaded(TextModel(), is_clip=True)
+    diffusion = Loaded(DiffusionModel())
+    vae = Loaded(AutoencoderKL())
+    clip_vision = Loaded(CLIPVisionModelProjection())
+    other = Loaded(OtherModel())
+
+    assert UnloadModelsByType._matches_target(text, "Text Encoder")
+    assert UnloadModelsByType._matches_target(diffusion, "Diffusion Model / UNet")
+    assert UnloadModelsByType._matches_target(vae, "VAE")
+    assert UnloadModelsByType._matches_target(clip_vision, "CLIP Vision")
+    assert UnloadModelsByType._matches_target(other, "Other Loaded Models")
+    assert UnloadModelsByType._matches_target(text, "All Loaded Models")
 
 
 def test_set_float_widget_preserves_decimal_precision():
