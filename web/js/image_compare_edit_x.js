@@ -93,6 +93,23 @@ const FX_RANGES = {
   fade: [0, 100],
 };
 
+// Curve editor behavior is based on the MIT-licensed ComfyUI-Curve
+// PhotoshopCurveNode by aiaiaikkk: RGB/R/G/B channels, draggable control
+// points, interpolation, strength, histogram, and live preview.
+const CURVE_CHANNELS = [
+  ["RGB", "RGB"],
+  ["R", "Red"],
+  ["G", "Green"],
+  ["B", "Blue"],
+];
+const CURVE_IDENTITY = [[0, 0], [255, 255]];
+const CURVE_COLORS = {
+  RGB: "#e8edf2",
+  R: "#ff6f61",
+  G: "#36c48f",
+  B: "#5fa8ff",
+};
+
 const DEFAULTS = {
   pair: "1-2",
   mode: "show2",
@@ -108,11 +125,12 @@ const DEFAULTS = {
   brushTarget: "blend",
   showMask: true,
   brush: {
-    size: 64,
-    hardness: 0.65,
-    softness: 0.35,
-    opacity: 0.85,
-    flow: 0.65,
+    size: 100,
+    hardness: 0,
+    softness: 0.5,
+    feather: 0.5,
+    opacity: 1,
+    flow: 1,
   },
   adjustments: { ...NEUTRAL },
   adjustmentPreset: "Original",
@@ -225,10 +243,76 @@ function mergeAdjustments(adj) {
   return out;
 }
 
+function cloneCurvePoints(points = CURVE_IDENTITY) {
+  return points.map(([x, y]) => [Math.round(clamp(safeNumber(x, 0), 0, 255)), Math.round(clamp(safeNumber(y, 0), 0, 255))]);
+}
+
+function normalizeCurvePoints(points) {
+  let source = points;
+  if (typeof source === "string") {
+    try {
+      source = JSON.parse(source);
+    } catch {
+      source = CURVE_IDENTITY;
+    }
+  }
+  if (!Array.isArray(source)) source = CURVE_IDENTITY;
+  const byX = new Map();
+  for (const point of source) {
+    const px = Array.isArray(point) ? point[0] : point?.x;
+    const py = Array.isArray(point) ? point[1] : point?.y;
+    const x = Math.round(clamp(safeNumber(px, NaN), 0, 255));
+    const y = Math.round(clamp(safeNumber(py, NaN), 0, 255));
+    if (Number.isFinite(x) && Number.isFinite(y)) byX.set(x, [x, y]);
+  }
+  const out = [...byX.values()].sort((a, b) => a[0] - b[0]);
+  if (!out.length) return cloneCurvePoints();
+  if (out.length === 1) {
+    if (out[0][0] <= 127) out.push([255, 255]);
+    else out.unshift([0, 0]);
+  }
+  return out;
+}
+
+function areCurveChannelsNeutral(channels, strength = 100) {
+  if (safeNumber(strength, 100) <= 0) return true;
+  return CURVE_CHANNELS.every(([channel]) => isIdentityCurvePoints(channels?.[channel]));
+}
+
+function normalizeCurveState(curve = {}) {
+  const channels = curve?.channels || curve?.curves || curve || {};
+  const out = {
+    enabled: curve?.enabled === true,
+    channel: CURVE_CHANNELS.some(([key]) => key === curve?.channel) ? curve.channel : "RGB",
+    interpolation: curve?.interpolation === "linear" ? "linear" : "cubic",
+    strength: clamp(safeNumber(curve?.strength, 100), 0, 200),
+    channels: {},
+  };
+  for (const [channel] of CURVE_CHANNELS) out.channels[channel] = normalizeCurvePoints(channels[channel]);
+  out.enabled = out.enabled || !areCurveChannelsNeutral(out.channels, out.strength);
+  return out;
+}
+
+function isIdentityCurvePoints(points) {
+  const p = normalizeCurvePoints(points);
+  return p.length === 2 && p[0][0] === 0 && p[0][1] === 0 && p[1][0] === 255 && p[1][1] === 255;
+}
+
+function isCurveStateNeutral(curve) {
+  const c = normalizeCurveState(curve);
+  return areCurveChannelsNeutral(c.channels, c.strength);
+}
+
 function isNeutral(adj, amount01) {
   if (amount01 <= 0) return true;
   const a = mergeAdjustments(adj);
   return Object.keys(a).every((key) => a[key] === 0);
+}
+
+function isLayerNeutral(layer) {
+  const amount = clamp01(safeNumber(layer?.amount, 1));
+  if (amount <= 0) return true;
+  return isNeutral(layer?.adjustments, amount) && isCurveStateNeutral(layer?.curve);
 }
 
 function makeLayerId() {
@@ -238,12 +322,13 @@ function makeLayerId() {
 function createAdjustmentLayer(mode = "global", options = {}) {
   return {
     id: options.id || makeLayerId(),
-    name: options.name || (mode === "brush" ? "Brush Adjustment" : "Global Adjustment"),
+    name: options.name || "Adjustment",
     visible: options.visible !== false,
     mode: options.mode === "brush" || mode === "brush" ? "brush" : "global",
     amount: clamp01(safeNumber(options.amount, 1)),
     preset: options.preset || "Original",
     adjustments: mergeAdjustments(options.adjustments),
+    curve: normalizeCurveState(options.curve || options.curves),
     maskData: options.maskData || "",
     maskCanvas: options.maskCanvas || null,
     maskKey: options.maskKey || "",
@@ -259,6 +344,7 @@ function serializeAdjustmentLayer(layer, includeCanvas = true) {
     amount: clamp01(safeNumber(layer.amount, 1)),
     preset: layer.preset || "Original",
     adjustments: mergeAdjustments(layer.adjustments),
+    curve: normalizeCurveState(layer.curve),
     maskData: includeCanvas && layer.maskCanvas ? layer.maskCanvas.toDataURL("image/png") : layer.maskData || "",
   };
 }
@@ -275,6 +361,7 @@ function normalizeAdjustmentLayers(saved = {}, fallbackState = null) {
         amount: layer.amount,
         preset: layer.preset,
         adjustments: layer.adjustments,
+        curve: layer.curve,
         maskData: layer.maskData || "",
       }),
     )
@@ -282,24 +369,34 @@ function normalizeAdjustmentLayers(saved = {}, fallbackState = null) {
 
   if (layers.length) return layers;
 
+  const legacyAdjustments = mergeAdjustments(saved.adjustments || fallbackState?.adjustments);
+  const legacyAmount = safeNumber(saved.adjustmentAmount, fallbackState?.adjustmentAmount ?? 1);
+  const legacyHasAdjustments = !isNeutral(legacyAdjustments, legacyAmount);
+  const legacyHasMask = !!(saved.adjustmentBrushData || fallbackState?.adjustmentBrushData);
+  const hasLegacyShape =
+    saved.adjustments != null ||
+    saved.adjustmentMode != null ||
+    saved.adjustmentAmount != null ||
+    saved.adjustmentPreset != null ||
+    saved.adjustmentBrushData != null;
+  if (!hasLegacyShape || (!legacyHasAdjustments && !legacyHasMask)) return [];
+
   const oldMode = saved.adjustmentMode === "brush" ? "brush" : "global";
   return [
     createAdjustmentLayer(oldMode, {
       id: "adj_legacy_1",
-      name: oldMode === "brush" ? "Brush Adjustment 1" : "Global Adjustment 1",
+      name: "Adjustment 1",
       visible: true,
-      amount: safeNumber(saved.adjustmentAmount, fallbackState?.adjustmentAmount ?? 1),
+      amount: legacyAmount,
       preset: saved.adjustmentPreset || fallbackState?.adjustmentPreset || "Original",
-      adjustments: saved.adjustments || fallbackState?.adjustments || NEUTRAL,
+      adjustments: legacyAdjustments,
       maskData: saved.adjustmentBrushData || fallbackState?.adjustmentBrushData || "",
     }),
   ];
 }
 
 function selectedAdjustmentLayer(s) {
-  if (!Array.isArray(s.adjustmentLayers) || !s.adjustmentLayers.length) {
-    s.adjustmentLayers = [createAdjustmentLayer("global", { id: "adj_1", name: "Global Adjustment 1" })];
-  }
+  if (!Array.isArray(s.adjustmentLayers) || !s.adjustmentLayers.length) return null;
   let layer = s.adjustmentLayers.find((candidate) => candidate.id === s.selectedAdjustmentLayerId);
   if (!layer) {
     layer = s.adjustmentLayers[0];
@@ -310,6 +407,15 @@ function selectedAdjustmentLayer(s) {
 
 function syncLegacyAdjustmentState(s) {
   const layer = selectedAdjustmentLayer(s);
+  if (!layer) {
+    s.adjustments = { ...NEUTRAL };
+    s.adjustmentPreset = "Original";
+    s.adjustmentAmount = 1;
+    s.adjustmentMode = "global";
+    s.adjustmentBrushData = "";
+    s.selectedAdjustmentLayerId = "";
+    return;
+  }
   s.adjustments = mergeAdjustments(layer.adjustments);
   s.adjustmentPreset = layer.preset || "Original";
   s.adjustmentAmount = clamp01(safeNumber(layer.amount, 1));
@@ -491,6 +597,122 @@ function applyFx(rgba, width, height, adj, amount01, seed = 9167) {
   return rgba;
 }
 
+function curvePointsWithBounds(points) {
+  const p = normalizeCurvePoints(points);
+  const out = p.map(([x, y]) => [x, y]);
+  if (out[0][0] > 0) out.unshift([0, out[0][1]]);
+  if (out[out.length - 1][0] < 255) out.push([255, out[out.length - 1][1]]);
+  return out;
+}
+
+function calculateNaturalSpline(points) {
+  const n = points.length;
+  if (n < 3) return null;
+  const h = [];
+  const alpha = [];
+  const l = [];
+  const mu = [];
+  const z = [];
+  const c = new Array(n).fill(0);
+  const b = [];
+  const d = [];
+
+  for (let i = 0; i < n - 1; i += 1) h[i] = Math.max(1e-6, points[i + 1][0] - points[i][0]);
+  for (let i = 1; i < n - 1; i += 1) {
+    alpha[i] = (3 / h[i]) * (points[i + 1][1] - points[i][1]) - (3 / h[i - 1]) * (points[i][1] - points[i - 1][1]);
+  }
+  l[0] = 1;
+  mu[0] = 0;
+  z[0] = 0;
+  for (let i = 1; i < n - 1; i += 1) {
+    l[i] = 2 * (points[i + 1][0] - points[i - 1][0]) - h[i - 1] * mu[i - 1];
+    mu[i] = h[i] / Math.max(1e-6, l[i]);
+    z[i] = (alpha[i] - h[i - 1] * z[i - 1]) / Math.max(1e-6, l[i]);
+  }
+  l[n - 1] = 1;
+  z[n - 1] = 0;
+  c[n - 1] = 0;
+  for (let j = n - 2; j >= 0; j -= 1) {
+    c[j] = z[j] - mu[j] * c[j + 1];
+    b[j] = (points[j + 1][1] - points[j][1]) / h[j] - (h[j] * (c[j + 1] + 2 * c[j])) / 3;
+    d[j] = (c[j + 1] - c[j]) / (3 * h[j]);
+  }
+  return { b, c, d };
+}
+
+function evaluateCurvePoint(x, points, coeffs) {
+  const n = points.length;
+  if (x <= points[0][0]) return points[0][1];
+  if (x >= points[n - 1][0]) return points[n - 1][1];
+  let i = 0;
+  for (; i < n - 1; i += 1) {
+    if (x >= points[i][0] && x <= points[i + 1][0]) break;
+  }
+  if (!coeffs) {
+    const span = Math.max(1e-6, points[i + 1][0] - points[i][0]);
+    const t = (x - points[i][0]) / span;
+    return points[i][1] + t * (points[i + 1][1] - points[i][1]);
+  }
+  const dx = x - points[i][0];
+  return points[i][1] + coeffs.b[i] * dx + coeffs.c[i] * dx * dx + coeffs.d[i] * dx * dx * dx;
+}
+
+function createCurveLut(points, interpolation = "cubic") {
+  const p = curvePointsWithBounds(points);
+  const lut = new Uint8Array(256);
+  if (isIdentityCurvePoints(p)) {
+    for (let i = 0; i < 256; i += 1) lut[i] = i;
+    return lut;
+  }
+  const coeffs = interpolation === "linear" || p.length < 3 ? null : calculateNaturalSpline(p);
+  for (let i = 0; i < 256; i += 1) {
+    lut[i] = Math.round(clamp(evaluateCurvePoint(i, p, coeffs), 0, 255));
+  }
+  return lut;
+}
+
+function applyCurves(rgba, width, height, curve, amount01) {
+  const c = normalizeCurveState(curve);
+  const strength = clamp((c.strength / 100) * clamp01(amount01), 0, 2);
+  if (strength <= 0 || isCurveStateNeutral(c)) return rgba;
+
+  const rgbLut = createCurveLut(c.channels.RGB, c.interpolation);
+  const rLut = createCurveLut(c.channels.R, c.interpolation);
+  const gLut = createCurveLut(c.channels.G, c.interpolation);
+  const bLut = createCurveLut(c.channels.B, c.interpolation);
+  const useRgb = !isIdentityCurvePoints(c.channels.RGB);
+  const useR = !isIdentityCurvePoints(c.channels.R);
+  const useG = !isIdentityCurvePoints(c.channels.G);
+  const useB = !isIdentityCurvePoints(c.channels.B);
+
+  for (let p = 0; p < width * height * 4; p += 4) {
+    const or = rgba[p];
+    const og = rgba[p + 1];
+    const ob = rgba[p + 2];
+    let cr = or;
+    let cg = og;
+    let cb = ob;
+    if (useRgb) {
+      cr = rgbLut[cr];
+      cg = rgbLut[cg];
+      cb = rgbLut[cb];
+    }
+    if (useR) cr = rLut[cr];
+    if (useG) cg = gLut[cg];
+    if (useB) cb = bLut[cb];
+    rgba[p] = Math.round(clamp(or + (cr - or) * strength, 0, 255));
+    rgba[p + 1] = Math.round(clamp(og + (cg - og) * strength, 0, 255));
+    rgba[p + 2] = Math.round(clamp(ob + (cb - ob) * strength, 0, 255));
+  }
+  return rgba;
+}
+
+function applyLayerAdjustmentsToImageData(id, width, height, layer, seed = 4517) {
+  applyFx(id.data, width, height, layer.adjustments, layer.amount, seed);
+  applyCurves(id.data, width, height, layer.curve, layer.amount);
+  return id;
+}
+
 function getState(node) {
   if (node.__wfxIce) return node.__wfxIce;
   const saved = node.properties?.[STATE_KEY] || {};
@@ -546,7 +768,8 @@ function persist(node, includeMask = false) {
   syncLegacyState(s);
   syncLegacyAdjustmentState(s);
   const adjustmentLayers = s.adjustmentLayers.map((layer) => serializeAdjustmentLayer(layer, includeMask));
-  const selectedSerializedLayer = adjustmentLayers.find((layer) => layer.id === selectedAdjustmentLayer(s).id) || adjustmentLayers[0];
+  const selectedLayer = selectedAdjustmentLayer(s);
+  const selectedSerializedLayer = selectedLayer ? adjustmentLayers.find((layer) => layer.id === selectedLayer.id) : null;
   if (selectedSerializedLayer) s.adjustmentBrushData = selectedSerializedLayer.maskData || "";
   node.properties = node.properties || {};
   node.properties[STATE_KEY] = {
@@ -569,7 +792,7 @@ function persist(node, includeMask = false) {
     adjustmentAmount: s.adjustmentAmount,
     adjustmentMode: s.adjustmentMode === "brush" ? "brush" : "global",
     adjustmentLayers,
-    selectedAdjustmentLayerId: selectedAdjustmentLayer(s).id,
+    selectedAdjustmentLayerId: selectedLayer?.id || "",
     maskData: includeMask && s.maskCanvas ? s.maskCanvas.toDataURL("image/png") : s.maskData || "",
     adjustmentBrushData: s.adjustmentBrushData || "",
     images: s.images || [],
@@ -625,9 +848,10 @@ function loadImage(node, meta, slot) {
     if (slot === 1) s.img1 = img;
     else s.img2 = img;
     ensureMask(s);
-    ensureAdjustmentBrush(s);
+    if (selectedAdjustmentLayer(s)) ensureAdjustmentBrush(s);
     invalidateRenderCache(s);
     dirty(node);
+    s.editor?.sync?.();
     s.editor?.render?.();
   };
   img.onerror = () => dirty(node);
@@ -683,8 +907,9 @@ function outputSize(s) {
 
 function invalidateRenderCache(s) {
   const working = s.renderCache?.working || {};
+  const brushStamps = s.renderCache?.brushStamps || {};
   s.cacheRevision = (s.cacheRevision || 0) + 1;
-  s.renderCache = { working };
+  s.renderCache = { working, brushStamps };
 }
 
 function workingCanvas(s, key, width, height) {
@@ -704,6 +929,19 @@ function workingCanvas(s, key, width, height) {
   ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = "source-over";
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  return canvas;
+}
+
+function cachedCanvas(s, key) {
+  const entry = s.renderCache?.outputs?.[key];
+  if (entry?.revision === s.cacheRevision) return entry.canvas;
+  return null;
+}
+
+function storeCachedCanvas(s, key, canvas) {
+  s.renderCache = s.renderCache || {};
+  s.renderCache.outputs = s.renderCache.outputs || {};
+  s.renderCache.outputs[key] = { revision: s.cacheRevision, canvas };
   return canvas;
 }
 
@@ -734,6 +972,7 @@ function ensureMask(s) {
 }
 
 function ensureAdjustmentBrush(s, layer = selectedAdjustmentLayer(s)) {
+  if (!layer) return null;
   const size = outputSize(s);
   const key = `${size.w}x${size.h}`;
   if (layer.maskCanvas && layer.maskKey === key) return layer.maskCanvas;
@@ -765,19 +1004,21 @@ function ensurePaintCanvas(s, target = s.brushTarget) {
 
 function syncPaintData(s, target = s.brushTarget) {
   const canvas = ensurePaintCanvas(s, target);
+  if (!canvas) return;
   if (target === "adjustment") {
     const layer = selectedAdjustmentLayer(s);
+    if (!layer) return;
     layer.maskData = canvas.toDataURL("image/png");
     syncLegacyAdjustmentState(s);
   } else s.maskData = canvas.toDataURL("image/png");
 }
 
 function applySingleAdjustmentLayer(out, s, layer) {
-  if (!layer?.visible || isNeutral(layer.adjustments, layer.amount)) return out;
+  if (!layer?.visible || isLayerNeutral(layer)) return out;
   const ctx = out.getContext("2d", { willReadFrequently: true });
   if (layer.mode !== "brush") {
     const id = ctx.getImageData(0, 0, out.width, out.height);
-    applyFx(id.data, out.width, out.height, layer.adjustments, layer.amount, 4517);
+    applyLayerAdjustmentsToImageData(id, out.width, out.height, layer, 4517);
     ctx.putImageData(id, 0, 0);
     return out;
   }
@@ -786,10 +1027,11 @@ function applySingleAdjustmentLayer(out, s, layer) {
   const actx = adjusted.getContext("2d", { willReadFrequently: true });
   actx.drawImage(out, 0, 0);
   const id = actx.getImageData(0, 0, adjusted.width, adjusted.height);
-  applyFx(id.data, adjusted.width, adjusted.height, layer.adjustments, layer.amount, 4517);
+  applyLayerAdjustmentsToImageData(id, adjusted.width, adjusted.height, layer, 4517);
   actx.putImageData(id, 0, 0);
 
   const area = ensureAdjustmentBrush(s, layer);
+  if (!area) return out;
   const local = workingCanvas(s, "localAdjustment", out.width, out.height);
   const lctx = local.getContext("2d");
   lctx.drawImage(adjusted, 0, 0);
@@ -817,14 +1059,19 @@ function composeBaseComposite(s, options = {}) {
   const { top, under } = layers(s);
   const size = outputSize(s);
   const scale = previewScaleFor(size, options);
-  const out = workingCanvas(s, "baseComposite", Math.max(1, Math.round(size.w * scale)), Math.max(1, Math.round(size.h * scale)));
+  const modeKey = options.includeBlendMask === false ? "nomask" : "mask";
+  const scaleKey = options.preview ? "preview" : "full";
+  const cacheKey = `baseComposite:${modeKey}:${scaleKey}`;
+  const cached = cachedCanvas(s, cacheKey);
+  if (cached) return cached;
+  const out = workingCanvas(s, cacheKey, Math.max(1, Math.round(size.w * scale)), Math.max(1, Math.round(size.h * scale)));
   const ctx = out.getContext("2d", { willReadFrequently: true });
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, out.width, out.height);
   if (under) ctx.drawImage(under, 0, 0, out.width, out.height);
 
   if (top) {
-    const layer = workingCanvas(s, "topLayerComposite", out.width, out.height);
+    const layer = workingCanvas(s, `${cacheKey}:topLayer`, out.width, out.height);
     const lctx = layer.getContext("2d");
     const r = fitRect(top, { x: 0, y: 0, w: out.width, h: out.height });
     lctx.globalAlpha = clamp(s.topOpacity, 0, 1);
@@ -838,16 +1085,25 @@ function composeBaseComposite(s, options = {}) {
     }
     ctx.drawImage(layer, 0, 0);
   }
-  return out;
+  return storeCachedCanvas(s, cacheKey, out);
 }
 
 function composeImage3(s, applyAdjustments = true, options = {}) {
-  const out = composeBaseComposite(s, { ...options, includeBlendMask: true });
+  const scaleKey = options.preview ? "preview" : "full";
+  const cacheKey = `image3:${applyAdjustments ? "adjusted" : "base"}:${scaleKey}`;
+  const cached = cachedCanvas(s, cacheKey);
+  if (cached) {
+    s.image3 = cached;
+    return cached;
+  }
+  const base = composeBaseComposite(s, { ...options, includeBlendMask: true });
+  const out = workingCanvas(s, cacheKey, base.width, base.height);
+  out.getContext("2d", { willReadFrequently: true }).drawImage(base, 0, 0);
 
   if (applyAdjustments) applyAdjustmentLayers(out, s);
 
   s.image3 = out;
-  return out;
+  return storeCachedCanvas(s, cacheKey, out);
 }
 
 function sourceImage(s, key) {
@@ -1453,12 +1709,13 @@ async function saveImage(node, which, toDisk) {
 }
 
 function editorSnapshot(s) {
+  const layer = selectedAdjustmentLayer(s);
   return {
     layerOrder: s.layerOrder,
     topOpacity: s.topOpacity,
     maskData: s.maskCanvas ? s.maskCanvas.toDataURL("image/png") : s.maskData || "",
     adjustmentLayers: s.adjustmentLayers.map((layer) => serializeAdjustmentLayer(layer)),
-    selectedAdjustmentLayerId: selectedAdjustmentLayer(s).id,
+    selectedAdjustmentLayerId: layer?.id || "",
   };
 }
 
@@ -1486,28 +1743,66 @@ function restoreEditorSnapshot(node, snapshot, after) {
   after?.();
 }
 
+function brushCoreRadius(radius, hardness, feather) {
+  const hardCore = radius * clamp(hardness, 0, 1);
+  const featherWidth = radius * clamp(feather, 0, 1);
+  return clamp(Math.max(hardCore, radius - featherWidth), 0, radius);
+}
+
+function brushStamp(s, radius, alpha, hardness, feather) {
+  const diameter = Math.max(2, Math.ceil(radius * 2) + 2);
+  const hardKey = Math.round(hardness * 100);
+  const featherKey = Math.round(feather * 100);
+  const alphaKey = Math.round(alpha * 255);
+  const key = `${diameter}:${hardKey}:${featherKey}:${alphaKey}`;
+  s.renderCache = s.renderCache || {};
+  s.renderCache.brushStamps = s.renderCache.brushStamps || {};
+  if (s.renderCache.brushStamps[key]) return s.renderCache.brushStamps[key];
+
+  const stamp = document.createElement("canvas");
+  stamp.width = diameter;
+  stamp.height = diameter;
+  const ctx = stamp.getContext("2d", { willReadFrequently: true });
+  const id = ctx.createImageData(diameter, diameter);
+  const center = diameter / 2;
+  const core = brushCoreRadius(radius, hardness, feather);
+  const transition = radius - core;
+
+  for (let y = 0; y < diameter; y += 1) {
+    for (let x = 0; x < diameter; x += 1) {
+      const dx = x + 0.5 - center;
+      const dy = y + 0.5 - center;
+      const d = Math.hypot(dx, dy);
+      if (d > radius) continue;
+      const fade = transition <= 1e-6 || d <= core ? 1 : 1 - clamp01((d - core) / transition);
+      const edgeAA = Math.min(1, Math.max(0, radius + 0.5 - d));
+      const a = Math.round(alpha * fade * edgeAA * 255);
+      const p = (y * diameter + x) * 4;
+      id.data[p] = 255;
+      id.data[p + 1] = 255;
+      id.data[p + 2] = 255;
+      id.data[p + 3] = a;
+    }
+  }
+  ctx.putImageData(id, 0, 0);
+  s.renderCache.brushStamps[key] = stamp;
+  return stamp;
+}
+
 function drawBrush(s, point) {
   const target = s.brushTarget === "adjustment" ? "adjustment" : "blend";
   const canvas = ensurePaintCanvas(s, target);
+  if (!canvas) return;
   if (point.x < -s.brush.size || point.y < -s.brush.size || point.x > canvas.width + s.brush.size || point.y > canvas.height + s.brush.size) return;
   const ctx = canvas.getContext("2d");
   const radius = Math.max(1, s.brush.size / 2);
   const alpha = clamp(s.brush.opacity * s.brush.flow, 0, 1);
   const hardness = clamp(s.brush.hardness, 0, 1);
+  const feather = clamp(s.brush.feather ?? s.brush.softness ?? 0.65, 0, 1);
+  const stamp = brushStamp(s, radius, alpha, hardness, feather);
   ctx.save();
   if (s.tool === "eraser") ctx.globalCompositeOperation = "destination-out";
-  if (hardness >= 0.995) {
-    ctx.fillStyle = `rgba(255,255,255,${alpha})`;
-  } else {
-    const hard = hardness * radius;
-    const grad = ctx.createRadialGradient(point.x, point.y, hard, point.x, point.y, radius);
-    grad.addColorStop(0, `rgba(255,255,255,${alpha})`);
-    grad.addColorStop(1, "rgba(255,255,255,0)");
-    ctx.fillStyle = grad;
-  }
-  ctx.beginPath();
-  ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.drawImage(stamp, point.x - stamp.width / 2, point.y - stamp.height / 2);
   ctx.restore();
   invalidateRenderCache(s);
 }
@@ -1616,7 +1911,7 @@ function injectEditorStyles() {
     .wfx-ice-dot{width:9px;height:9px;border-radius:999px;background:${BRAND};box-shadow:0 0 0 3px rgba(255,104,71,.16)}
     .wfx-ice-status{color:${MUTED};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:100px}
     .wfx-ice-spacer{flex:1}
-    .wfx-ice-shell{display:grid;grid-template-columns:288px minmax(320px,1fr) 304px;min-height:0}
+    .wfx-ice-shell{display:grid;grid-template-columns:320px minmax(320px,1fr) 304px;min-height:0}
     .wfx-ice-side{background:${PANEL};border-right:1px solid #262b30;overflow:auto;padding:8px;box-sizing:border-box}
     .wfx-ice-right{border-right:0;border-left:1px solid #262b30}
     .wfx-ice-stage{position:relative;min-width:0;min-height:0;background:#111315;overflow:hidden}
@@ -1627,6 +1922,7 @@ function injectEditorStyles() {
     .wfx-ice-row{display:flex;align-items:center;gap:6px;margin-bottom:7px}
     .wfx-ice-row:last-child{margin-bottom:0}
     .wfx-ice-label{width:82px;color:#c5ccd3;white-space:nowrap}
+    .wfx-ice-grow{flex:1;min-width:0}
     .wfx-ice-value{width:36px;text-align:right;color:#cbd2d9;font-variant-numeric:tabular-nums}
     .wfx-ice-btn,.wfx-ice-chip{height:24px;border:1px solid #3a4148;background:#202429;color:#dce2e8;border-radius:4px;padding:0 9px;font:600 11px "Segoe UI",Arial,sans-serif;cursor:pointer;box-sizing:border-box}
     .wfx-ice-btn:hover,.wfx-ice-chip:hover{background:#293039;border-color:#4a545f}
@@ -1657,8 +1953,13 @@ function injectEditorStyles() {
     .wfx-ice-icon-btn:hover{background:#293039;border-color:#4a545f}
     .wfx-ice-icon-btn.active{background:${BRAND};border-color:${BRAND};color:#fff}
     .wfx-ice-meta{font-size:11px;color:${MUTED};line-height:1.55}
+    .wfx-ice-curve-wrap{display:grid;gap:7px}
+    .wfx-ice-curve-tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:5px}
+    .wfx-ice-curve-canvas{width:100%;min-width:0;aspect-ratio:1;background:#101214;border:1px solid #30363d;border-radius:4px;display:block;cursor:crosshair;touch-action:none;box-sizing:border-box}
+    .wfx-ice-curve-help{color:${MUTED};font-size:10px;line-height:1.35}
+    .wfx-ice-curve-points{width:100%;height:24px;background:#111315;border:1px solid #333a41;color:#cbd2d9;border-radius:4px;font:10px "Consolas","Segoe UI",monospace;padding:0 6px;box-sizing:border-box}
     .wfx-ice-warn{color:#ffb36b}
-    @media(max-width:1050px){.wfx-ice-shell{grid-template-columns:240px minmax(240px,1fr) 260px}.wfx-ice-label{width:68px}.wfx-ice-presets{grid-template-columns:repeat(3,1fr)}}
+    @media(max-width:1050px){.wfx-ice-shell{grid-template-columns:280px minmax(240px,1fr) 260px}.wfx-ice-label{width:68px}.wfx-ice-presets{grid-template-columns:repeat(3,1fr)}}
   `;
   document.head.appendChild(style);
 }
@@ -1727,6 +2028,7 @@ function openEditor(node) {
 
   let raf = 0;
   let transform = { x: 0, y: 0, scale: 1 };
+  const editorDisposers = [];
 
   const setStatus = (text) => {
     status.textContent = text;
@@ -1762,19 +2064,30 @@ function openEditor(node) {
     invalidateAndRender(options.draft !== false);
   };
 
-  const beforeButton = makeButton("Before", () => setAndRefresh(() => {
-    s.beforePreview = !s.beforePreview;
+  const currentButton = makeButton("Current", () => setAndRefresh(() => {
+    s.beforePreview = false;
   }, false, { draft: false }));
-  beforeButton.dataset.beforeToggle = "1";
-  const performanceButton = makeButton("Fast", () => setAndRefresh(() => {
-    s.performanceMode = s.performanceMode === "quality" ? "fast" : "quality";
+  currentButton.dataset.beforeValue = "current";
+  const beforeButton = makeButton("Before", () => setAndRefresh(() => {
+    s.beforePreview = true;
+  }, false, { draft: false }));
+  beforeButton.dataset.beforeValue = "before";
+  const fastButton = makeButton("Fast", () => setAndRefresh(() => {
+    s.performanceMode = "fast";
     s.previewDraft = false;
   }, false, { draft: false }));
-  performanceButton.dataset.performanceToggle = "1";
+  fastButton.dataset.performanceValue = "fast";
+  const qualityButton = makeButton("Quality", () => setAndRefresh(() => {
+    s.performanceMode = "quality";
+    s.previewDraft = false;
+  }, false, { draft: false }));
+  qualityButton.dataset.performanceValue = "quality";
 
   const topButtons = [
+    currentButton,
     beforeButton,
-    performanceButton,
+    fastButton,
+    qualityButton,
     makeButton("Fit", () => setAndRefresh(() => {
       s.editorZoom = 1;
       s.editorPanX = 0;
@@ -1803,6 +2116,13 @@ function openEditor(node) {
   const cleanup = () => {
     cancelAnimationFrame(raf);
     clearTimeout(s.previewTimer);
+    for (const dispose of editorDisposers.splice(0)) {
+      try {
+        dispose();
+      } catch (err) {
+        console.warn("[WorkflowX] Image Compare Edit X editor cleanup failed:", err);
+      }
+    }
     window.removeEventListener("resize", scheduleRender);
     window.removeEventListener("keydown", onKeyDown);
     root.remove();
@@ -1812,7 +2132,7 @@ function openEditor(node) {
 
   const closeEditor = () => cleanup();
 
-  s.editor = { root, render: scheduleRender, setStatus };
+  s.editor = { root, render: scheduleRender, setStatus, sync: syncControls };
 
   function onKeyDown(event) {
     if (event.key === "Escape") closeEditor();
@@ -1870,12 +2190,14 @@ function openEditor(node) {
     };
     let historyOpen = false;
     const beginHistory = () => {
+      s.sliderEditing = true;
       if (!options.history || historyOpen) return;
       pushUndo(s);
       historyOpen = true;
     };
     const endHistory = () => {
       historyOpen = false;
+      s.sliderEditing = false;
       s.previewDraft = false;
       scheduleRender();
     };
@@ -1901,6 +2223,439 @@ function openEditor(node) {
     row.append(lab, input, number);
     parent.appendChild(row);
     return input;
+  }
+
+  function createCurveEditor(parent) {
+    const SVG_NS = "http://www.w3.org/2000/svg";
+    const svgEl = (tag, attrs = {}) => {
+      const node = document.createElementNS(SVG_NS, tag);
+      for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
+      return node;
+    };
+    const wrap = el("div", "wfx-ice-curve-wrap");
+    const tabs = el("div", "wfx-ice-curve-tabs");
+    const surface = svgEl("svg", {
+      class: "wfx-ice-curve-canvas",
+      viewBox: "0 0 256 256",
+      preserveAspectRatio: "none",
+      tabindex: "0",
+    });
+    const curveControls = el("div");
+    const pointInput = el("input", "wfx-ice-curve-points");
+    pointInput.placeholder = "0,0;128,128;255,255";
+    const help = el("div", "wfx-ice-curve-help", "Click or drag the curve to add a point. Drag points to shape the curve. Right-click an inner point to delete.");
+    let selectedPoint = -1;
+    let dragging = false;
+    let histogramCache = { key: "", paths: {} };
+
+    function requireCurveLayer() {
+      let current = activeAdjustment();
+      if (!current) {
+        requireAdjustmentLayer();
+        return null;
+      }
+      current.curve = normalizeCurveState(current.curve);
+      return current;
+    }
+
+    function layer(required = false) {
+      if (required) return requireCurveLayer();
+      const current = activeAdjustment();
+      if (!current) return null;
+      current.curve = normalizeCurveState(current.curve);
+      return current;
+    }
+
+    function curve(required = false) {
+      const current = layer(required);
+      return current?.curve || null;
+    }
+
+    function points() {
+      const c = curve();
+      return c ? normalizeCurvePoints(c.channels[c.channel]) : cloneCurvePoints();
+    }
+
+    function pointString(list = points()) {
+      return list.map(([x, y]) => `${Math.round(x)},${Math.round(y)}`).join(";");
+    }
+
+    function parsePointString(value) {
+      const parsed = String(value || "")
+        .split(";")
+        .map((part) => part.trim().split(",").map((v) => Number(v.trim())))
+        .filter((pair) => pair.length === 2 && Number.isFinite(pair[0]) && Number.isFinite(pair[1]))
+        .map(([x, y]) => [x, y]);
+      return normalizeCurvePoints(parsed);
+    }
+
+    function setPoints(nextPoints) {
+      const current = layer(true);
+      const c = current?.curve;
+      if (!c || !current) return false;
+      c.channels[c.channel] = normalizeCurvePoints(nextPoints);
+      c.enabled = true;
+      current.preset = "Custom";
+      syncLegacyAdjustmentState(s);
+      return true;
+    }
+
+    function commit(draft = true) {
+      persist(node, false);
+      invalidateAndRender(draft);
+      draw();
+    }
+
+    function posFromEvent(event) {
+      const rect = surface.getBoundingClientRect();
+      return {
+        x: clamp(((event.clientX - rect.left) / Math.max(1, rect.width)) * 255, 0, 255),
+        y: clamp(255 - ((event.clientY - rect.top) / Math.max(1, rect.height)) * 255, 0, 255),
+      };
+    }
+
+    function nearestPoint(pos, list = points()) {
+      const rect = surface.getBoundingClientRect();
+      const threshold = (12 / Math.max(1, rect.width)) * 255;
+      let best = -1;
+      let bestDist = Infinity;
+      for (let i = 0; i < list.length; i += 1) {
+        const dx = list[i][0] - pos.x;
+        const dy = list[i][1] - pos.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist < bestDist && dist <= threshold) {
+          best = i;
+          bestDist = dist;
+        }
+      }
+      return best;
+    }
+
+    function nearCurve(pos, list = points()) {
+      const rect = surface.getBoundingClientRect();
+      const threshold = (10 / Math.max(1, rect.width)) * 255;
+      const lut = createCurveLut(list, curve()?.interpolation || "cubic");
+      const x = Math.round(clamp(pos.x, 0, 255));
+      return Math.abs((lut[x] ?? pos.y) - pos.y) <= threshold;
+    }
+
+    function insertPoint(list, pos) {
+      const minX = list[0][0] + 1;
+      const maxX = list[list.length - 1][0] - 1;
+      if (maxX <= minX) return -1;
+      const inserted = [clamp(pos.x, minX, maxX), pos.y];
+      let insertIndex = list.length;
+      for (let i = 0; i < list.length; i += 1) {
+        if (inserted[0] < list[i][0]) {
+          insertIndex = i;
+          break;
+        }
+      }
+      list.splice(insertIndex, 0, inserted);
+      setPoints(list);
+      return insertIndex;
+    }
+
+    function updateDraggedPoint(event) {
+      if (!dragging || selectedPoint < 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const next = points();
+      const pos = posFromEvent(event);
+      const prevX = selectedPoint > 0 ? next[selectedPoint - 1][0] + 1 : 0;
+      const nextX = selectedPoint < next.length - 1 ? next[selectedPoint + 1][0] - 1 : 255;
+      const x = clamp(pos.x, prevX, nextX);
+      next[selectedPoint] = [x, pos.y];
+      setPoints(next);
+      pointInput.value = pointString(next);
+      commit(true);
+    }
+
+    function histogramKey() {
+      return [
+        s.cacheRevision || 0,
+        s.img1?.src || "",
+        s.img1?.naturalWidth || 0,
+        s.img1?.naturalHeight || 0,
+        s.img2?.src || "",
+        s.img2?.naturalWidth || 0,
+        s.img2?.naturalHeight || 0,
+        s.layerOrder,
+        Math.round(clamp(s.topOpacity, 0, 1) * 1000),
+        s.maskKey || "",
+        s.maskData?.length || 0,
+      ].join("|");
+    }
+
+    function buildHistogramPaths() {
+      const paths = {};
+      if (!s.img1 || !s.img2) return paths;
+      const base = composeBaseComposite(s, { includeBlendMask: true, preview: true });
+      const bctx = base.getContext("2d", { willReadFrequently: true });
+      const data = bctx.getImageData(0, 0, base.width, base.height).data;
+      const hist = { RGB: new Array(256).fill(0), R: new Array(256).fill(0), G: new Array(256).fill(0), B: new Array(256).fill(0) };
+      const samples = base.width * base.height;
+      const step = Math.max(1, Math.floor(samples / 70000));
+      for (let i = 0, px = 0; i < samples; i += step, px = i * 4) {
+        const r = data[px];
+        const g = data[px + 1];
+        const b = data[px + 2];
+        const lum = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
+        hist.RGB[lum] += 1;
+        hist.R[r] += 1;
+        hist.G[g] += 1;
+        hist.B[b] += 1;
+      }
+      for (const [channel] of CURVE_CHANNELS) {
+        const values = hist[channel] || hist.RGB;
+        const max = Math.max(1, ...values);
+        let path = "M0 256";
+        for (let i = 0; i < 256; i += 1) {
+          path += ` L${i} ${256 - (values[i] / max) * 150}`;
+        }
+        paths[channel] = `${path} L255 256 Z`;
+      }
+      return paths;
+    }
+
+    function histogramPath(channel) {
+      if (dragging) {
+        if (!histogramCache.paths[channel]) histogramCache = { key: "drag", paths: buildHistogramPaths() };
+        return histogramCache.paths[channel] || "";
+      }
+      const key = histogramKey();
+      if (histogramCache.key !== key) histogramCache = { key, paths: buildHistogramPaths() };
+      return histogramCache.paths[channel] || "";
+    }
+
+    function draw() {
+      const c = curve();
+      const channel = c?.channel || "RGB";
+      const color = CURVE_COLORS[channel] || CURVE_COLORS.RGB;
+      surface.replaceChildren();
+
+      surface.appendChild(svgEl("rect", { x: 0, y: 0, width: 256, height: 256, fill: "#101214" }));
+      surface.appendChild(svgEl("rect", { x: 0, y: 0, width: 256, height: 256, fill: color, opacity: 0.1 }));
+      const hist = histogramPath(channel);
+      if (hist) surface.appendChild(svgEl("path", { d: hist, fill: color, opacity: 0.28 }));
+
+      for (let i = 0; i <= 4; i += 1) {
+        const p = i * 64;
+        surface.appendChild(svgEl("line", { x1: p, y1: 0, x2: p, y2: 256, stroke: "rgba(255,255,255,.12)", "stroke-width": 1 }));
+        surface.appendChild(svgEl("line", { x1: 0, y1: p, x2: 256, y2: p, stroke: "rgba(255,255,255,.12)", "stroke-width": 1 }));
+      }
+      surface.appendChild(svgEl("line", {
+        x1: 0,
+        y1: 256,
+        x2: 256,
+        y2: 0,
+        stroke: "rgba(255,255,255,.38)",
+        "stroke-width": 1,
+        "stroke-dasharray": "4 4",
+      }));
+
+      const list = points();
+      const lut = createCurveLut(list, c?.interpolation || "cubic");
+      let curvePath = `M0 ${255 - lut[0]}`;
+      for (let x = 1; x < 256; x += 1) curvePath += ` L${x} ${255 - lut[x]}`;
+      surface.appendChild(svgEl("path", {
+        d: curvePath,
+        fill: "none",
+        stroke: color,
+        "stroke-width": 2.5,
+        "stroke-linecap": "round",
+        "stroke-linejoin": "round",
+      }));
+      surface.appendChild(svgEl("path", {
+        d: curvePath,
+        fill: "none",
+        stroke: "rgba(255,255,255,0)",
+        "stroke-width": 22,
+        "stroke-linecap": "round",
+        "stroke-linejoin": "round",
+        "pointer-events": "stroke",
+        "data-curve-hit": "1",
+      }));
+
+      list.forEach(([x, y], index) => {
+        const circle = svgEl("circle", {
+          cx: x,
+          cy: 255 - y,
+          r: index === selectedPoint ? 7 : 5,
+          fill: index === selectedPoint ? BRAND : "#f4f7fa",
+          stroke: color,
+          "stroke-width": 2,
+          "data-index": index,
+        });
+        circle.style.cursor = "move";
+        surface.appendChild(circle);
+      });
+
+      if (!activeAdjustment()) {
+        surface.appendChild(svgEl("rect", { x: 0, y: 0, width: 256, height: 256, fill: "rgba(16,18,20,.78)" }));
+        const text = svgEl("text", {
+          x: 128,
+          y: 128,
+          fill: MUTED,
+          "font-family": "Segoe UI, Arial, sans-serif",
+          "font-size": 12,
+          "text-anchor": "middle",
+          "dominant-baseline": "middle",
+        });
+        text.textContent = "Add Global or Brush to edit curves";
+        surface.appendChild(text);
+      }
+    }
+
+    for (const [channel, label] of CURVE_CHANNELS) {
+      const btn = makeButton(label, () => {
+        const c = curve(true);
+        if (!c) return;
+        pushUndo(s);
+        c.channel = channel;
+        commit(false);
+        sync();
+      });
+      btn.dataset.curveChannel = channel;
+      tabs.appendChild(btn);
+    }
+
+    const curveActions = el("div", "wfx-ice-actions");
+    curveActions.append(
+      makeButton("Reset Channel", () => {
+        const c = curve(true);
+        if (!c) return;
+        pushUndo(s);
+        c.channels[c.channel] = cloneCurvePoints();
+        c.enabled = !isCurveStateNeutral(c);
+        layer(true).preset = "Custom";
+        commit(true);
+        sync();
+      }),
+      makeButton("Reset All", () => {
+        const c = curve(true);
+        if (!c) return;
+        pushUndo(s);
+        for (const [channel] of CURVE_CHANNELS) c.channels[channel] = cloneCurvePoints();
+        c.enabled = false;
+        layer(true).preset = "Custom";
+        commit(true);
+        sync();
+      }),
+    );
+
+    selectRow(curveControls, "Type", [["cubic", "Cubic"], ["linear", "Linear"]], () => curve()?.interpolation || "cubic", (v) => {
+      const c = curve(true);
+      if (!c) return;
+      c.interpolation = v === "linear" ? "linear" : "cubic";
+      c.enabled = !isCurveStateNeutral(c);
+      layer(true).preset = "Custom";
+    });
+    sliderRow(curveControls, "Strength", 0, 200, () => Math.round(curve()?.strength ?? 100), (v) => {
+      const c = curve(true);
+      if (!c) return;
+      c.strength = v;
+      c.enabled = !isCurveStateNeutral(c);
+      layer(true).preset = "Custom";
+    }, { defaultValue: 100, history: true });
+
+    pointInput.addEventListener("change", () => {
+      if (!activeAdjustment()) {
+        requireAdjustmentLayer();
+        sync();
+        return;
+      }
+      pushUndo(s);
+      if (!setPoints(parsePointString(pointInput.value))) {
+        sync();
+        return;
+      }
+      commit(true);
+      sync();
+    });
+
+    function endCurveDrag(event) {
+      if (!dragging) return;
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
+      dragging = false;
+      selectedPoint = -1;
+      s.sliderEditing = false;
+      s.previewDraft = false;
+      window.removeEventListener("mousemove", updateDraggedPoint, true);
+      window.removeEventListener("mouseup", endCurveDrag, true);
+      commit(false);
+      sync();
+    }
+    editorDisposers.push(() => {
+      dragging = false;
+      window.removeEventListener("mousemove", updateDraggedPoint, true);
+      window.removeEventListener("mouseup", endCurveDrag, true);
+    });
+
+    surface.addEventListener("contextmenu", (event) => event.preventDefault());
+    surface.addEventListener("mousedown", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.button !== 0 && event.button !== 2) return;
+      if (!layer(true)) return;
+      const list = points();
+      const pos = posFromEvent(event);
+      const targetIndexAttr = event.target?.getAttribute?.("data-index");
+      const targetIndex = targetIndexAttr == null ? NaN : Number(targetIndexAttr);
+      const hitIndex = Number.isFinite(targetIndex) ? targetIndex : nearestPoint(pos, list);
+      if (event.button === 2) {
+        if (hitIndex > 0 && hitIndex < list.length - 1) {
+          pushUndo(s);
+          list.splice(hitIndex, 1);
+          selectedPoint = -1;
+          setPoints(list);
+          commit(true);
+          sync();
+        }
+        return;
+      }
+      pushUndo(s);
+      if (hitIndex >= 0) {
+        selectedPoint = hitIndex;
+      } else {
+        selectedPoint = insertPoint(list, pos);
+        if (selectedPoint < 0) return;
+      }
+      dragging = true;
+      s.sliderEditing = true;
+      s.previewDraft = s.performanceMode === "fast";
+      window.addEventListener("mousemove", updateDraggedPoint, true);
+      window.addEventListener("mouseup", endCurveDrag, true);
+      updateDraggedPoint(event);
+      sync();
+    });
+    surface.addEventListener("mousemove", (event) => {
+      if (dragging) return;
+      const pos = posFromEvent(event);
+      const list = points();
+      surface.style.cursor = nearestPoint(pos, list) >= 0 || nearCurve(pos, list) ? "move" : "crosshair";
+    });
+    surface.addEventListener("pointerleave", () => {
+      if (!dragging) selectedPoint = -1;
+      draw();
+    });
+
+    function sync() {
+      const c = curve();
+      tabs.querySelectorAll("[data-curve-channel]").forEach((btn) => {
+        btn.classList.toggle("active", btn.dataset.curveChannel === (c?.channel || "RGB"));
+      });
+      pointInput.value = pointString();
+      draw();
+    }
+
+    const heading = el("div", "wfx-ice-row");
+    heading.style.marginTop = "9px";
+    heading.append(el("div", "wfx-ice-label", "Curves"));
+    wrap.append(heading, tabs, surface, curveControls, pointInput, curveActions, help);
+    parent.appendChild(wrap);
+    return { sync, draw };
   }
 
   const compare = makePanel("Compare");
@@ -1943,6 +2698,11 @@ function openEditor(node) {
   left.appendChild(compare.panel);
 
   const activeAdjustment = () => selectedAdjustmentLayer(s);
+  const requireAdjustmentLayer = () => {
+    const layer = activeAdjustment();
+    if (!layer) flash(node, "Add an adjustment layer first");
+    return layer;
+  };
   const adjust = makePanel("Adjustment Controls");
   const presetWrap = el("div", "wfx-ice-presets");
   for (const name of Object.keys(PRESETS)) {
@@ -1950,7 +2710,8 @@ function openEditor(node) {
     chip.type = "button";
     chip.dataset.preset = name;
     chip.onclick = () => setAndRefresh(() => {
-      const layer = activeAdjustment();
+      const layer = requireAdjustmentLayer();
+      if (!layer) return;
       layer.adjustments = { ...NEUTRAL, ...PRESETS[name] };
       layer.preset = name;
       syncLegacyAdjustmentState(s);
@@ -1961,8 +2722,10 @@ function openEditor(node) {
   const adjustActions = el("div", "wfx-ice-actions");
   adjustActions.append(
     makeButton("Reset Layer", () => setAndRefresh(() => {
-      const layer = activeAdjustment();
+      const layer = requireAdjustmentLayer();
+      if (!layer) return;
       layer.adjustments = { ...NEUTRAL };
+      layer.curve = normalizeCurveState();
       layer.amount = 1;
       layer.preset = "Original";
       layer.maskData = "";
@@ -1973,15 +2736,18 @@ function openEditor(node) {
     makeButton("Clear All", () => clearAdjustmentLayers()),
   );
   adjust.body.appendChild(adjustActions);
-  sliderRow(adjust.body, "Amount", 0, 100, () => Math.round(activeAdjustment().amount * 100), (v) => {
-    activeAdjustment().amount = v / 100;
+  sliderRow(adjust.body, "Amount", 0, 100, () => Math.round((activeAdjustment()?.amount ?? 1) * 100), (v) => {
+    const layer = requireAdjustmentLayer();
+    if (!layer) return;
+    layer.amount = v / 100;
     syncLegacyAdjustmentState(s);
   }, { defaultValue: 100, history: true });
   for (const [group, keys] of FX_GROUPS) {
     const groupRow = el("div", "wfx-ice-row");
     groupRow.style.marginTop = "9px";
     groupRow.append(el("div", "wfx-ice-label", group), makeButton("reset", () => setAndRefresh(() => {
-      const layer = activeAdjustment();
+      const layer = requireAdjustmentLayer();
+      if (!layer) return;
       for (const key of keys) layer.adjustments[key] = 0;
       layer.preset = "Custom";
       syncLegacyAdjustmentState(s);
@@ -1989,14 +2755,16 @@ function openEditor(node) {
     adjust.body.appendChild(groupRow);
     for (const key of keys) {
       const [min, max] = FX_RANGES[key] || [-100, 100];
-      sliderRow(adjust.body, labelForKey(key), min, max, () => activeAdjustment().adjustments[key] ?? 0, (v) => {
-        const layer = activeAdjustment();
+      sliderRow(adjust.body, labelForKey(key), min, max, () => activeAdjustment()?.adjustments[key] ?? 0, (v) => {
+        const layer = requireAdjustmentLayer();
+        if (!layer) return;
         layer.adjustments[key] = Math.round(v);
         layer.preset = "Custom";
         syncLegacyAdjustmentState(s);
       }, { history: true });
     }
   }
+  const curveEditor = createCurveEditor(adjust.body);
   left.appendChild(adjust.panel);
 
   const info = makePanel("Images");
@@ -2034,11 +2802,18 @@ function openEditor(node) {
       layer.maskKey = "";
     }
   }, "", { history: true, persistMask: true });
-  sliderRow(layerPanel.body, "Opacity", 0, 100, () => Math.round(s.topOpacity * 100), (v) => {
+  sliderRow(layerPanel.body, "Top Opacity", 0, 100, () => Math.round(s.topOpacity * 100), (v) => {
     s.topOpacity = v / 100;
   }, { defaultValue: 65, history: true });
-  segmented(layerPanel.body, [["global", "Global"], ["brush", "Brush"]], () => activeAdjustment().mode, (v) => {
-    activeAdjustment().mode = v;
+  const modeRow = el("div", "wfx-ice-row");
+  modeRow.append(el("div", "wfx-ice-label", "Adjust Mode"));
+  const modeCell = el("div", "wfx-ice-grow");
+  modeRow.appendChild(modeCell);
+  layerPanel.body.appendChild(modeRow);
+  segmented(modeCell, [["global", "Global"], ["brush", "Brush"]], () => activeAdjustment()?.mode || "global", (v) => {
+    const layer = requireAdjustmentLayer();
+    if (!layer) return;
+    layer.mode = v;
     if (v === "brush") s.brushTarget = "adjustment";
     syncLegacyAdjustmentState(s);
   }, "", { history: true, persistMask: true });
@@ -2046,6 +2821,7 @@ function openEditor(node) {
 
   const maskPanel = makePanel("Brush");
   segmented(maskPanel.body, [["blend", "Blend Brush"], ["adjustment", "Adjustment Brush"]], () => s.brushTarget, (v) => {
+    if (v === "adjustment" && !requireAdjustmentLayer()) return;
     s.brushTarget = v;
     if (v === "adjustment") {
       activeAdjustment().mode = "brush";
@@ -2057,16 +2833,19 @@ function openEditor(node) {
   }, "three");
   sliderRow(maskPanel.body, "Size", 1, 300, () => Math.round(s.brush.size), (v) => {
     s.brush.size = v;
-  }, { defaultValue: 64 });
+  }, { defaultValue: 100 });
   sliderRow(maskPanel.body, "Hardness", 0, 100, () => Math.round(s.brush.hardness * 100), (v) => {
     s.brush.hardness = v / 100;
-  }, { defaultValue: 65 });
+  }, { defaultValue: 0 });
+  sliderRow(maskPanel.body, "Feather", 0, 100, () => Math.round((s.brush.feather ?? s.brush.softness ?? 0.5) * 100), (v) => {
+    s.brush.feather = v / 100;
+  }, { defaultValue: 50 });
   sliderRow(maskPanel.body, "Opacity", 0, 100, () => Math.round(s.brush.opacity * 100), (v) => {
     s.brush.opacity = v / 100;
-  }, { defaultValue: 85 });
+  }, { defaultValue: 100 });
   sliderRow(maskPanel.body, "Flow", 1, 100, () => Math.max(1, Math.round(s.brush.flow * 100)), (v) => {
     s.brush.flow = clamp(v / 100, 0.01, 1);
-  }, { defaultValue: 65 });
+  }, { defaultValue: 100 });
   const maskActions = el("div", "wfx-ice-actions");
   const showMaskButton = makeButton("Show Mask", () => setAndRefresh(() => {
     s.showMask = !s.showMask;
@@ -2083,17 +2862,26 @@ function openEditor(node) {
   const savePanel = makePanel("Save / Copy");
   const saveActions = el("div", "wfx-ice-actions three");
   saveActions.append(
-    makeButton("Save O3", () => saveImage(node, "3", false), { primary: true }),
+    makeButton("Save O3", () => saveImage(node, "3", false)),
     makeButton("Save D3", () => saveImage(node, "3", true)),
     makeButton("Copy 3", () => copyImage(node, "3")),
   );
+  const cacheActions = el("div", "wfx-ice-actions");
+  cacheActions.style.gridTemplateColumns = "1fr";
+  cacheActions.style.marginTop = "6px";
+  cacheActions.append(
+    makeButton("Clear Editor Cache", () => clearEditorCache(), {
+      title: "Clear browser-side preview/render caches without removing masks, layers, or saved workflow state.",
+    }),
+  );
   savePanel.body.appendChild(saveActions);
+  savePanel.body.appendChild(cacheActions);
   right.appendChild(savePanel.panel);
 
   function addAdjustmentLayer(mode) {
     setAndRefresh(() => {
       const layer = createAdjustmentLayer(mode, {
-        name: `${mode === "brush" ? "Brush" : "Global"} Adjustment ${s.adjustmentLayers.length + 1}`,
+        name: `Adjustment ${s.adjustmentLayers.length + 1}`,
       });
       s.adjustmentLayers.unshift(layer);
       s.selectedAdjustmentLayerId = layer.id;
@@ -2105,6 +2893,7 @@ function openEditor(node) {
   function duplicateSelectedLayer() {
     setAndRefresh(() => {
       const current = selectedAdjustmentLayer(s);
+      if (!current) return flash(node, "Add an adjustment layer first");
       const index = Math.max(0, s.adjustmentLayers.findIndex((layer) => layer.id === current.id));
       const copy = createAdjustmentLayer(current.mode, {
         ...serializeAdjustmentLayer(current),
@@ -2120,10 +2909,12 @@ function openEditor(node) {
   function deleteSelectedLayer() {
     setAndRefresh(() => {
       const current = selectedAdjustmentLayer(s);
+      if (!current) return flash(node, "Add an adjustment layer first");
       const index = s.adjustmentLayers.findIndex((layer) => layer.id === current.id);
       if (s.adjustmentLayers.length <= 1) {
-        s.adjustmentLayers = [createAdjustmentLayer("global", { name: "Global Adjustment 1" })];
-        s.selectedAdjustmentLayerId = s.adjustmentLayers[0].id;
+        s.adjustmentLayers = [];
+        s.selectedAdjustmentLayerId = "";
+        s.brushTarget = "blend";
       } else {
         const removeIndex = index >= 0 ? index : 0;
         s.adjustmentLayers.splice(removeIndex, 1);
@@ -2135,15 +2926,31 @@ function openEditor(node) {
 
   function clearAdjustmentLayers() {
     setAndRefresh(() => {
-      s.adjustmentLayers = [createAdjustmentLayer("global", { name: "Global Adjustment 1" })];
-      s.selectedAdjustmentLayerId = s.adjustmentLayers[0].id;
+      s.adjustmentLayers = [];
+      s.selectedAdjustmentLayerId = "";
       s.brushTarget = "blend";
       syncLegacyAdjustmentState(s);
     }, true, { history: true });
   }
 
+  function clearEditorCache() {
+    s.image3 = null;
+    s.previewDraft = false;
+    s.renderCache = {};
+    s.cacheRevision = (s.cacheRevision || 0) + 1;
+    dirty(node);
+    scheduleRender();
+    flash(node, "Editor cache cleared");
+  }
+
   function renderLayerStack() {
     layerList.replaceChildren();
+    if (!s.adjustmentLayers.length) {
+      const empty = el("div", "wfx-ice-layer");
+      empty.append(el("span", "", ""), el("div", "wfx-ice-layer-pick"));
+      empty.children[1].append(el("strong", "", "No Adjustment Layers"), el("span", "", "Add Global or Add Brush when needed"));
+      layerList.appendChild(empty);
+    }
     for (const layer of s.adjustmentLayers) {
       const row = el("div", `wfx-ice-layer adjustments${layer.id === s.selectedAdjustmentLayerId ? " selected" : ""}`);
       const visible = el("button", `wfx-ice-icon-btn${layer.visible !== false ? " active" : ""}`, layer.visible !== false ? "V" : "-");
@@ -2157,9 +2964,10 @@ function openEditor(node) {
         }, true, { history: true });
       };
       const pick = el("div", "wfx-ice-layer-pick");
+      const hasCurves = !isCurveStateNeutral(layer.curve);
       pick.append(
         el("strong", "", layer.name || "Adjustment"),
-        el("span", "", `${layer.mode === "brush" ? "Brush" : "Global"}  ${Math.round(layer.amount * 100)}%`),
+        el("span", "", `${layer.mode === "brush" ? "Brush" : "Global"}  ${Math.round(layer.amount * 100)}%${hasCurves ? "  Curves" : ""}`),
       );
       pick.onclick = () => setAndRefresh(() => {
         s.selectedAdjustmentLayerId = layer.id;
@@ -2182,18 +2990,18 @@ function openEditor(node) {
     root.querySelectorAll("[data-mask-toggle]").forEach((btn) => {
       btn.classList.toggle("active", s.showMask !== false);
     });
-    root.querySelectorAll("[data-before-toggle]").forEach((btn) => {
-      btn.classList.toggle("active", !!s.beforePreview);
+    root.querySelectorAll("[data-before-value]").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.beforeValue === (s.beforePreview ? "before" : "current"));
     });
-    root.querySelectorAll("[data-performance-toggle]").forEach((btn) => {
-      btn.textContent = s.performanceMode === "quality" ? "Quality" : "Fast";
-      btn.classList.toggle("active", s.performanceMode === "quality");
+    root.querySelectorAll("[data-performance-value]").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.performanceValue === s.performanceMode);
     });
     root.querySelectorAll("[data-preset]").forEach((btn) => {
-      btn.classList.toggle("active", btn.dataset.preset === activeAdjustment().preset);
+      btn.classList.toggle("active", btn.dataset.preset === activeAdjustment()?.preset);
     });
     root.querySelectorAll(".wfx-ice-select").forEach((select) => select.__sync?.());
     root.querySelectorAll(".wfx-ice-slider").forEach((input) => input.__sync?.());
+    curveEditor.sync();
     const { topName, underName } = layers(s);
     const size = outputSize(s);
     topLayerMeta.textContent = `Image ${topName}  ${Math.round(s.topOpacity * 100)}%`;
@@ -2251,8 +3059,21 @@ function openEditor(node) {
 
   function drawBrushCursor(ctx) {
     if (!s.cursorPoint || s.tool === "pan" || !s.img1 || !s.img2) return;
+    const fullSize = outputSize(s);
+    const imageWOnStage = fullSize.w * transform.scale;
+    const imageHOnStage = fullSize.h * transform.scale;
+    if (
+      s.cursorPoint.x < transform.x ||
+      s.cursorPoint.y < transform.y ||
+      s.cursorPoint.x > transform.x + imageWOnStage ||
+      s.cursorPoint.y > transform.y + imageHOnStage
+    ) {
+      return;
+    }
     const radius = Math.max(2, (s.brush.size * transform.scale) / 2);
-    const hardRadius = Math.max(1, radius * clamp(s.brush.hardness, 0, 1));
+    const hardness = clamp(s.brush.hardness, 0, 1);
+    const feather = clamp(s.brush.feather ?? s.brush.softness ?? 0.65, 0, 1);
+    const hardRadius = Math.max(1, brushCoreRadius(radius, hardness, feather));
     const accent = s.tool === "eraser" ? "#ff6f61" : s.brushTarget === "adjustment" ? AMBER : GREEN;
     const label = s.tool === "eraser" ? "E" : s.brushTarget === "adjustment" ? "A" : "B";
 
@@ -2292,7 +3113,7 @@ function openEditor(node) {
   function render() {
     raf = 0;
     resizeCanvas();
-    syncControls();
+    zoomLabel.textContent = `${Math.round(s.editorZoom * 100)}%`;
     const dpr = window.devicePixelRatio || 1;
     const ctx = canvas.getContext("2d");
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -2311,7 +3132,7 @@ function openEditor(node) {
     }
 
     const fullSize = outputSize(s);
-    const useDraft = s.performanceMode === "fast" && s.previewDraft;
+    const useDraft = s.performanceMode === "fast" && s.previewDraft && (s.drawing || s.sliderEditing);
     const img = s.beforePreview
       ? composeBaseComposite(s, { includeBlendMask: false, preview: useDraft })
       : composeImage3(s, true, { preview: useDraft });
@@ -2326,7 +3147,7 @@ function openEditor(node) {
     const mask = ensureMask(s);
     if (!s.beforePreview && mask && s.showMask !== false) drawPaintTint(ctx, mask, GREEN, 1, dw, dh);
     const activeLayer = activeAdjustment();
-    if (!s.beforePreview && s.brushTarget === "adjustment" && activeLayer.mode === "brush") {
+    if (!s.beforePreview && s.brushTarget === "adjustment" && activeLayer?.mode === "brush") {
       drawPaintTint(ctx, ensureAdjustmentBrush(s, activeLayer), AMBER, 0.72, dw, dh);
     }
 
@@ -2342,6 +3163,7 @@ function openEditor(node) {
       pushUndo(s);
       const target = s.brushTarget === "adjustment" ? "adjustment" : "blend";
       const canvas = ensurePaintCanvas(s, target);
+      if (!canvas) return;
       canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
       if (target === "adjustment") s.adjustmentBrushData = "";
       else s.maskData = "";
@@ -2353,6 +3175,7 @@ function openEditor(node) {
       pushUndo(s);
       const target = s.brushTarget === "adjustment" ? "adjustment" : "blend";
       const canvas = ensurePaintCanvas(s, target);
+      if (!canvas) return;
       const ctx = canvas.getContext("2d", { willReadFrequently: true });
       const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
       for (let i = 0; i < data.data.length; i += 4) {
@@ -2413,7 +3236,9 @@ function openEditor(node) {
       return;
     }
     if (s.brushTarget === "adjustment") {
-      activeAdjustment().mode = "brush";
+      const layer = requireAdjustmentLayer();
+      if (!layer) return;
+      layer.mode = "brush";
       syncLegacyAdjustmentState(s);
     }
     pushUndo(s);
