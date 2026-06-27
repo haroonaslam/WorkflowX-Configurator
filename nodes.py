@@ -65,6 +65,25 @@ except Exception:
     ANY_TYPE = "*"
 
 
+class _FlexibleOptionalInputType(dict):
+    """Optional input map that accepts dynamic serialized widget values."""
+
+    def __init__(self, input_type: Any, data: dict[str, Any] | None = None) -> None:
+        super().__init__()
+        self.input_type = input_type
+        self.data = data or {}
+        for key, value in self.data.items():
+            self[key] = value
+
+    def __getitem__(self, key: str) -> Any:
+        if key in self.data:
+            return self.data[key]
+        return (self.input_type,)
+
+    def __contains__(self, key: object) -> bool:
+        return True
+
+
 class _Rect(NamedTuple):
     x: float
     y: float
@@ -1004,6 +1023,233 @@ class UnloadModelsByType:
         )
 
 
+class LoraX:
+    DESCRIPTION = (
+        "Load multiple LoRAs in order with one editable strength per row. The browser "
+        "extension provides the rich picker and serializes dynamic lora_* rows."
+    )
+
+    CATEGORY = f"{CATEGORY}/Loaders"
+    FUNCTION = "load_loras"
+    RETURN_TYPES = ("MODEL", "CLIP", "STRING", "STRING")
+    RETURN_NAMES = ("MODEL", "CLIP", "trigger_words", "loaded_loras")
+    LORA_EXTENSIONS = (".safetensors", ".ckpt", ".pt", ".bin")
+
+    @classmethod
+    def INPUT_TYPES(cls) -> dict[str, dict[str, Any]]:
+        return {
+            "required": {
+                "model": ("MODEL",),
+            },
+            "optional": _FlexibleOptionalInputType(
+                ANY_TYPE,
+                {
+                    "clip": ("CLIP",),
+                },
+            ),
+        }
+
+    @staticmethod
+    def _row_index(key: str) -> int:
+        suffix = key.rsplit("_", 1)[-1]
+        try:
+            return int(suffix)
+        except (TypeError, ValueError):
+            return 0
+
+    @staticmethod
+    def _as_float(value: Any, default: float = 0.0) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _as_bool(value: Any, default: bool = True) -> bool:
+        if value is None:
+            return default
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return bool(value)
+        if isinstance(value, str):
+            return value.strip().lower() not in {"0", "false", "no", "off", ""}
+        return bool(value)
+
+    @classmethod
+    def _strip_lora_extension(cls, name: str) -> str:
+        normalized = str(name or "").replace("\\", "/").strip()
+        lower = normalized.lower()
+        for ext in cls.LORA_EXTENSIONS:
+            if lower.endswith(ext):
+                return normalized[: -len(ext)]
+        return normalized
+
+    @classmethod
+    def _lora_syntax_name(cls, load_name: str) -> str:
+        return cls._strip_lora_extension(load_name)
+
+    @staticmethod
+    def _first_present(data: dict[str, Any], *keys: str) -> Any:
+        for key in keys:
+            value = data.get(key)
+            if value not in (None, ""):
+                return value
+        return None
+
+    @classmethod
+    def _trigger_words_from_value(cls, value: dict[str, Any]) -> list[str]:
+        raw = cls._first_present(value, "trigger_words", "trained_words", "trainedWords")
+        if raw is None:
+            metadata = value.get("metadata")
+            if isinstance(metadata, dict):
+                raw = cls._first_present(metadata, "trigger_words", "trained_words", "trainedWords")
+                civitai = metadata.get("civitai")
+                if raw is None and isinstance(civitai, dict):
+                    raw = civitai.get("trainedWords")
+
+        if isinstance(raw, str):
+            parts = [part.strip() for part in raw.replace(",,", ",").split(",")]
+            return [part for part in parts if part]
+        if isinstance(raw, list | tuple):
+            return [str(part).strip() for part in raw if str(part).strip()]
+        return []
+
+    @classmethod
+    def _entry_from_value(cls, value: Any) -> dict[str, Any] | None:
+        if not isinstance(value, dict):
+            return None
+
+        enabled = cls._as_bool(
+            cls._first_present(value, "on", "enabled", "active"),
+            default=True,
+        )
+        if not enabled:
+            return None
+
+        load_name = cls._first_present(value, "load_name", "loadName", "lora", "name")
+        if load_name is None:
+            return None
+
+        load_name = str(load_name).replace("\\", "/").strip()
+        if not load_name or load_name.lower() == "none":
+            return None
+
+        model_strength = cls._as_float(
+            cls._first_present(value, "strength_model", "model_strength", "modelStrength", "strength"),
+            default=1.0,
+        )
+
+        return {
+            "load_name": load_name,
+            "display_name": str(cls._first_present(value, "display_name", "displayName", "model_name") or load_name),
+            "model_strength": model_strength,
+            "trigger_words": cls._trigger_words_from_value(value),
+        }
+
+    @classmethod
+    def _collect_entries(cls, kwargs: dict[str, Any]) -> list[dict[str, Any]]:
+        entries: list[dict[str, Any]] = []
+        for key, value in sorted(kwargs.items(), key=lambda item: cls._row_index(str(item[0]))):
+            if not str(key).lower().startswith("lora_"):
+                continue
+            entry = cls._entry_from_value(value)
+            if entry is not None:
+                entries.append(entry)
+        return entries
+
+    @classmethod
+    def _resolve_lora_path(cls, load_name: str) -> str:
+        if os.path.isfile(load_name):
+            return load_name
+
+        try:
+            import folder_paths
+        except Exception as exc:
+            raise ValueError(f"LoraX could not import folder_paths to resolve '{load_name}'.") from exc
+
+        candidates = [load_name]
+        if not load_name.lower().endswith(cls.LORA_EXTENSIONS):
+            candidates.extend(f"{load_name}{ext}" for ext in cls.LORA_EXTENSIONS)
+
+        for candidate in candidates:
+            try:
+                resolved = folder_paths.get_full_path("loras", candidate)
+            except Exception:
+                resolved = None
+            if resolved and os.path.isfile(resolved):
+                return resolved
+
+        raise ValueError(f"LoraX could not find LoRA '{load_name}'.")
+
+    @classmethod
+    def _load_lora_for_models(
+        cls,
+        model: Any,
+        clip: Any,
+        load_name: str,
+        model_strength: float,
+        applied_clip_weight: float,
+    ) -> tuple[Any, Any]:
+        try:
+            import comfy.sd
+            import comfy.utils
+        except Exception as exc:
+            raise RuntimeError(f"LoraX could not import ComfyUI LoRA loaders: {exc}") from exc
+
+        lora_path = cls._resolve_lora_path(load_name)
+        try:
+            lora, lora_metadata = comfy.utils.load_torch_file(
+                lora_path,
+                safe_load=True,
+                return_metadata=True,
+            )
+        except TypeError:
+            lora = comfy.utils.load_torch_file(lora_path, safe_load=True)
+            lora_metadata = None
+        return comfy.sd.load_lora_for_models(
+            model,
+            clip,
+            lora,
+            model_strength,
+            applied_clip_weight,
+            lora_metadata=lora_metadata,
+        )
+
+    @classmethod
+    def _format_loaded_lora(cls, entry: dict[str, Any]) -> str:
+        name = cls._lora_syntax_name(entry["load_name"])
+        model_strength = entry["model_strength"]
+        return f"<lora:{name}:{model_strength:g}>"
+
+    def load_loras(self, model: Any, clip: Any = None, **kwargs: Any) -> tuple[Any, Any, str, str]:
+        loaded_loras: list[str] = []
+        trigger_words: list[str] = []
+
+        for entry in self._collect_entries(kwargs):
+            model_strength = entry["model_strength"]
+            if model_strength == 0:
+                continue
+            applied_clip_weight = 1.0 if clip is not None else 0.0
+
+            model, clip = self._load_lora_for_models(
+                model,
+                clip,
+                entry["load_name"],
+                model_strength,
+                applied_clip_weight,
+            )
+            loaded_loras.append(self._format_loaded_lora(entry))
+            trigger_words.extend(entry["trigger_words"])
+
+        return (
+            model,
+            clip,
+            ",, ".join(trigger_words) if trigger_words else "",
+            " ".join(loaded_loras),
+        )
+
+
 class GroupConfigurator:
     CATEGORY = CATEGORY
     FUNCTION = "configure"
@@ -1335,6 +1581,7 @@ NODE_CLASS_MAPPINGS = {
     "KVGC_ConfigSelectorAdvanced": ConfigSelectorAdvanced,
     "KVGC_GroupScopes": GroupScopes,
     "KVGC_UnloadModelsByType": UnloadModelsByType,
+    "KVGC_LoraX": LoraX,
     "KVGC_ImageCompareEditX": ImageCompareEditX,
 }
 
@@ -1360,5 +1607,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "KVGC_ConfigSelectorAdvanced": "Config Selector Advanced",
     "KVGC_GroupScopes": "Group Scopes",
     "KVGC_UnloadModelsByType": "Unload Models By Type",
+    "KVGC_LoraX": "LoraX",
     "KVGC_ImageCompareEditX": "Image Compare Edit X",
 }

@@ -9,6 +9,9 @@ WorkflowX Configurator turns sprawling ComfyUI graphs into selectable workflow p
 ## Quick Links
 
 - [WorkflowX Configurator Nodes](#workflowx-configurator-nodes)
+- [Full Node Reference](docs/NODE_REFERENCE.md)
+- [Image Compare Edit X Editor Guide](docs/IMAGE_COMPARE_EDIT_X_EDITOR.md)
+- [Unified Autoprompter X Guide](docs/UNIFIED_AUTOPROMPTER_X.md)
 - [XFlows Workflow Manager](#xflows-workflow-manager)
 - [XPrompts Prompt Library](#xprompts-prompt-library)
 - [XNodes Node Snips](#xnodes-node-snips)
@@ -45,6 +48,8 @@ This repository also packages:
 - `XPrompts`, a prompt library and preset snippet side panel.
 - `XNodes`, a saved node and node-group snippets side panel.
 - `AFJ - Visual Builder`, `AFJ - Template Randomizer`, and `AFJ - Prompt Template Importer`.
+- `Unified Autoprompter X`, a model-targeted prompt builder.
+- `Image Compare Edit X`, a compare and in-node image editing output node.
 
 These tools keep their existing node names, frontend extension IDs, and backend route prefixes for compatibility.
 
@@ -186,6 +191,40 @@ Advanced selector toggle states are saved with the workflow and applied when cha
 ![Group Scopes mode menu](docs/images/workflowx-group-scopes-menu.png)
 
 If no Group Scopes node is configured, WorkflowX keeps the original fallback: all groups appear in Group Configurator and none appear in the advanced selector sections. If more than one Group Scopes node exists, scope filtering is disabled and the fallback behavior is used until duplicates are removed.
+
+### Unload Models By Type
+
+`Unload Models By Type` is a VRAM utility node under `WorkflowX_Configurator/VRAM`. It unloads resident ComfyUI model families while passing through common graph values so it can be placed inline.
+
+Use it when a workflow stage no longer needs a heavy model and you want to free memory before the next stage begins. For example, it can unload text encoders after prompt encoding, or unload diffusion models before a text-encoding phase.
+
+The node exposes passthrough sockets for `trigger`, `MODEL`, `CLIP`, `VAE`, and `CONDITIONING`, plus a `status` string describing what was unloaded.
+
+### Image Compare Edit X
+
+`Image Compare Edit X` is an output node under `WorkflowX_Configurator/Image`. It accepts `image1` and `image2`, shows a professional compare UI, and creates an in-node Image 3 edit without adding Image 3 as a downstream graph output.
+
+The compact node view supports single-image viewing, split compare, overlay, difference, save, download, and copy actions. The expanded editor adds source layering, opacity, blend masks, adjustment layers, adjustment brush masks, curves, before/current preview, fast/quality preview, and Image 3 save/copy controls.
+
+Image 3 is browser-side editor state until you explicitly save, download, or copy it.
+
+For the full editing workflow, see the [Image Compare Edit X editor guide](docs/IMAGE_COMPARE_EDIT_X_EDITOR.md).
+
+### Unified Autoprompter X
+
+`Unified Autoprompter X` is a prompting node under `WorkflowX_Configurator/Prompting`. It is designed to build model-targeted prompt output from the WorkflowX autoprompting UI.
+
+The node returns:
+
+- `prompt`: final prompt text for the selected target format
+- `positive`: positive prompt text
+- `negative`: negative prompt text, or an empty string when negative prompting is disabled
+
+It can optionally receive an image for visual prompt context. Its long text fields and UI state are managed by the frontend extension.
+
+For backend setup, model profiles, connected images, video fields, and Ideogram helpers, see the [Unified Autoprompter X guide](docs/UNIFIED_AUTOPROMPTER_X.md).
+
+For all node inputs, outputs, and registered names, see the [full node reference](docs/NODE_REFERENCE.md).
 
 ## Lookup Rules
 

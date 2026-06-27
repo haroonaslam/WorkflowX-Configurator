@@ -20,6 +20,7 @@ from nodes import (
     ConfigSelector,
     ConfigSelectorAdvanced,
     GetRelay,
+    LoraX,
     SetFloat,
     SetRelay,
     UnloadModelsByType,
@@ -73,7 +74,7 @@ def resolved_digest(type_name, key, config, value):
 
 
 def test_all_nodes_registered():
-    assert len(NODE_CLASS_MAPPINGS) == 22
+    assert len(NODE_CLASS_MAPPINGS) == 23
     assert "KVGC_SetSampler" in NODE_CLASS_MAPPINGS
     assert "KVGC_GetSampler" in NODE_CLASS_MAPPINGS
     assert "KVGC_SetScheduler" in NODE_CLASS_MAPPINGS
@@ -85,6 +86,7 @@ def test_all_nodes_registered():
     assert "KVGC_ConfigSelectorAdvanced" in NODE_CLASS_MAPPINGS
     assert "KVGC_GroupScopes" in NODE_CLASS_MAPPINGS
     assert "KVGC_UnloadModelsByType" in NODE_CLASS_MAPPINGS
+    assert "KVGC_LoraX" in NODE_CLASS_MAPPINGS
 
 
 def test_relay_nodes_pass_through_materialized_values():
@@ -140,6 +142,111 @@ def test_unload_models_by_type_classifies_loaded_patchers():
     assert UnloadModelsByType._matches_target(clip_vision, "CLIP Vision")
     assert UnloadModelsByType._matches_target(other, "Other Loaded Models")
     assert UnloadModelsByType._matches_target(text, "All Loaded Models")
+
+
+def test_lorax_inputs_allow_dynamic_lora_rows():
+    inputs = LoraX.INPUT_TYPES()
+    assert inputs["required"]["model"] == ("MODEL",)
+    assert inputs["optional"]["clip"] == ("CLIP",)
+    assert "lora_999" in inputs["optional"]
+    assert inputs["optional"]["lora_999"][0] == "*"
+
+
+def test_lorax_row_parser_accepts_aliases_and_metadata_triggers():
+    entry = LoraX._entry_from_value(
+        {
+            "enabled": True,
+            "lora": "SDXL/concept/sample.safetensors",
+            "displayName": "Sample",
+            "modelStrength": "0.75",
+            "metadata": {"civitai": {"trainedWords": ["sample trigger"]}},
+        }
+    )
+
+    assert entry == {
+        "load_name": "SDXL/concept/sample.safetensors",
+        "display_name": "Sample",
+        "model_strength": 0.75,
+        "trigger_words": ["sample trigger"],
+    }
+
+
+def test_lorax_ignores_disabled_or_empty_rows():
+    assert LoraX._entry_from_value({"on": False, "lora": "skip.safetensors"}) is None
+    assert LoraX._entry_from_value({"on": True, "strength": 1}) is None
+    assert LoraX._entry_from_value({"lora": "None", "strength": 1}) is None
+
+
+def test_lorax_loads_rows_in_order_and_ignores_clip_when_absent():
+    original = LoraX.__dict__["_load_lora_for_models"]
+    calls = []
+
+    def fake_loader(cls, model, clip, load_name, model_strength, applied_clip_weight):
+        calls.append((load_name, model_strength, applied_clip_weight, clip))
+        return (f"{model}>{load_name}", clip)
+
+    LoraX._load_lora_for_models = classmethod(fake_loader)
+    try:
+        result = LoraX().load_loras(
+            "MODEL",
+            lora_2={
+                "on": True,
+                "load_name": "B.safetensors",
+                "strength": 0.5,
+                "trigger_words": ["trigger b"],
+            },
+            lora_1={
+                "on": True,
+                "load_name": "folder/A.safetensors",
+                "strength": 1.0,
+                "trigger_words": ["trigger a"],
+            },
+            lora_3={"on": True, "load_name": "skip.safetensors", "strength": 0},
+        )
+    finally:
+        LoraX._load_lora_for_models = original
+
+    assert calls == [
+        ("folder/A.safetensors", 1.0, 0.0, None),
+        ("B.safetensors", 0.5, 0.0, None),
+    ]
+    assert result == (
+        "MODEL>folder/A.safetensors>B.safetensors",
+        None,
+        "trigger a,, trigger b",
+        "<lora:folder/A:1> <lora:B:0.5>",
+    )
+
+
+def test_lorax_uses_model_strength_and_fixed_clip_strength_when_clip_is_connected():
+    original = LoraX.__dict__["_load_lora_for_models"]
+    calls = []
+
+    def fake_loader(cls, model, clip, load_name, model_strength, applied_clip_weight):
+        calls.append((load_name, model_strength, applied_clip_weight, clip))
+        return (f"{model}>{load_name}", f"{clip}>{load_name}")
+
+    LoraX._load_lora_for_models = classmethod(fake_loader)
+    try:
+        result = LoraX().load_loras(
+            "MODEL",
+            clip="CLIP",
+            lora_1={
+                "on": True,
+                "load_name": "Dual.safetensors",
+                "strength": 0.7,
+            },
+        )
+    finally:
+        LoraX._load_lora_for_models = original
+
+    assert calls == [("Dual.safetensors", 0.7, 1.0, "CLIP")]
+    assert result == (
+        "MODEL>Dual.safetensors",
+        "CLIP>Dual.safetensors",
+        "",
+        "<lora:Dual:0.7>",
+    )
 
 
 def test_set_float_widget_preserves_decimal_precision():

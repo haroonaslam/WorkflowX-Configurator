@@ -53,6 +53,8 @@ def _install_comfy_stubs():
     folder_paths.models_dir = str(ROOT / ".test_models")
     folder_paths.folder_names_and_paths = {}
     folder_paths.map_legacy = lambda folder_name: folder_name
+    folder_paths.get_filename_list = lambda folder_name: []
+    folder_paths.get_full_path = lambda folder_name, filename: str(ROOT / ".test_models" / folder_name / filename)
     sys.modules.setdefault("folder_paths", folder_paths)
 
     server = types.ModuleType("server")
@@ -80,16 +82,50 @@ def _load_package():
 
 def test_combined_package_exports_workflowx_and_afj_nodes():
     module = _load_package()
-    assert len(module.NODE_CLASS_MAPPINGS) == 26
+    assert len(module.NODE_CLASS_MAPPINGS) == 27
     assert "KVGC_GroupConfigurator" in module.NODE_CLASS_MAPPINGS
     assert "KVGC_ConfigSelectorAdvanced" in module.NODE_CLASS_MAPPINGS
     assert "KVGC_UnloadModelsByType" in module.NODE_CLASS_MAPPINGS
+    assert "KVGC_LoraX" in module.NODE_CLASS_MAPPINGS
     assert "FluxVisualJsonBuilder" in module.NODE_CLASS_MAPPINGS
     assert "FluxTemplateRandomizer" in module.NODE_CLASS_MAPPINGS
     assert "AFJPromptTemplateImporter" in module.NODE_CLASS_MAPPINGS
     assert "UnifiedAutoprompterX" in module.NODE_CLASS_MAPPINGS
     assert module.NODE_DISPLAY_NAME_MAPPINGS["UnifiedAutoprompterX"] == "Unified Autoprompter X"
     assert module.WEB_DIRECTORY == "./web/js"
+
+
+def test_lorax_route_helpers_build_canonical_entries_and_token_search():
+    module = _load_package()
+
+    class FolderPaths:
+        @staticmethod
+        def get_filename_list(folder_name):
+            assert folder_name == "loras"
+            return [
+                "SDXL 1.0/concept/Pussy_Lily_v5_XL.safetensors",
+                "Flux.2 Klein 9B/style/Example.safetensors",
+                "ZImageTurbo/concept/pussy_floss.safetensors",
+            ]
+
+        @staticmethod
+        def get_full_path(folder_name, filename):
+            return f"D:/ComfyUI/models/{folder_name}/{filename}"
+
+    entries = module._build_lorax_lora_entries(FolderPaths)
+    assert entries[1]["load_name"] == "SDXL 1.0/concept/Pussy_Lily_v5_XL.safetensors"
+    assert entries[1]["folder"] == "SDXL 1.0/concept"
+    assert entries[1]["file_stem"] == "Pussy_Lily_v5_XL"
+    assert entries[1]["full_path"].endswith("/SDXL 1.0/concept/Pussy_Lily_v5_XL.safetensors")
+
+    first_query = module._build_lorax_lora_entries(FolderPaths, "pussy sdxl")
+    second_query = module._build_lorax_lora_entries(FolderPaths, "sdxl pussy")
+    assert [entry["load_name"] for entry in first_query] == [
+        "SDXL 1.0/concept/Pussy_Lily_v5_XL.safetensors"
+    ]
+    assert first_query == second_query
+    assert module._build_lorax_lora_entries(FolderPaths, "pussy flux") == []
+    assert module._build_lorax_lora_entries(FolderPaths, "pussy sdxl zimage") == []
 
 
 def test_xflows_hidden_auto_tags_survive_metadata_merge():
