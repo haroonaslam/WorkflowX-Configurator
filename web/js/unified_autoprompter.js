@@ -3,6 +3,7 @@ import { app } from "../../scripts/app.js";
 const TARGET_NODE = "UnifiedAutoprompterX";
 const ROUTE = "/workflowx/unified_autoprompter";
 const GEMINI_KEY_STORAGE_KEY = "workflowx_unified_autoprompter_gemini_api_key";
+const MODEL_SELECTION_STORAGE_KEY = "workflowx_unified_autoprompter_model_selection";
 const IDEOGRAM_TEMPLATE_STORAGE_KEY = "workflowx_unified_autoprompter_ideogram_templates";
 const IDEOGRAM_TEMPLATE_DIR = "workflowx/unified-autoprompter/ideogram4/templates";
 const DEFAULT_OLLAMA_HOST = "http://localhost:11434";
@@ -737,6 +738,30 @@ function storeGeminiKey(key) {
   }
 }
 
+function loadStoredModelSelection() {
+  try {
+    const parsed = JSON.parse(window.localStorage?.getItem(MODEL_SELECTION_STORAGE_KEY) || "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function storeModelSelection(selection) {
+  try {
+    const next = loadStoredModelSelection();
+    const backend = String(selection?.backend || "").trim();
+    if (["gemini", "ollama", "local"].includes(backend)) next.backend = backend;
+    for (const key of ["gemini_model", "ollama_model", "local_model"]) {
+      const value = String(selection?.[key] || "").trim();
+      if (value) next[key] = value;
+    }
+    window.localStorage?.setItem(MODEL_SELECTION_STORAGE_KEY, JSON.stringify(next));
+  } catch {
+    // Browser storage can be unavailable in restricted contexts.
+  }
+}
+
 function loadIdeogramTemplates() {
   try {
     const parsed = JSON.parse(window.localStorage?.getItem(IDEOGRAM_TEMPLATE_STORAGE_KEY) || "{}");
@@ -1010,6 +1035,7 @@ function defaultState(node) {
   } catch {
     saved = {};
   }
+  const storedModels = loadStoredModelSelection();
   const generatedPositive = widgetValue(node, "generated_positive", "");
   const generatedNegative = widgetValue(node, "generated_negative", "");
   const finalPrompt = widgetValue(node, "final_prompt", "");
@@ -1018,7 +1044,7 @@ function defaultState(node) {
     : null;
 
   return {
-    backend: saved.backend || "gemini",
+    backend: saved.backend || storedModels.backend || "gemini",
     target_model: saved.target_model || widgetValue(node, "target_model", "ideogram4"),
     prompt_format: saved.prompt_format || widgetValue(node, "prompt_format", "json"),
     negative_enabled: saved.negative_enabled == null
@@ -1051,13 +1077,13 @@ function defaultState(node) {
     audio_dialogue: saved.audio_dialogue || "",
     reference_or_control_notes: saved.reference_or_control_notes || "",
     extra_instructions: saved.extra_instructions || "",
-    gemini_model: saved.gemini_model || "",
+    gemini_model: saved.gemini_model || storedModels.gemini_model || "",
     gemini_timeout: saved.gemini_timeout || 120,
     ollama_host: saved.ollama_host || DEFAULT_OLLAMA_HOST,
-    ollama_model: saved.ollama_model || "",
+    ollama_model: saved.ollama_model || storedModels.ollama_model || "",
     ollama_think: Boolean(saved.ollama_think || false),
     unload_after: saved.unload_after !== false,
-    local_model: saved.local_model || "",
+    local_model: saved.local_model || storedModels.local_model || "",
     local_mmproj: saved.local_mmproj || "none",
     local_system_prompt_preset: saved.local_system_prompt_preset || "none",
     max_tokens: saved.max_tokens || 768,
@@ -1931,6 +1957,15 @@ function setupUnifiedAutoprompter(node) {
     const prompt = syncOutputWidgets(node, state, activeProfile());
     preview.textContent = prompt || "(Generate or type prompt output to preview here.)";
     updateOutputDocks();
+  }
+
+  function persistModelSelection() {
+    storeModelSelection({
+      backend: state.backend,
+      gemini_model: state.gemini_model,
+      ollama_model: state.ollama_model,
+      local_model: state.local_model,
+    });
   }
 
   function cachedOutput() {
@@ -4084,6 +4119,7 @@ function setupUnifiedAutoprompter(node) {
       fillModelSelect(geminiModelSelect, data.models, state.gemini_model);
       if (!geminiModelSelect.value && geminiModelSelect.options.length) geminiModelSelect.selectedIndex = 0;
       state.gemini_model = geminiModelSelect.value;
+      persistModelSelection();
       syncPreview();
       setStatus(`${data.models.length} Gemini models loaded.`);
     } catch (error) {
@@ -4107,6 +4143,7 @@ function setupUnifiedAutoprompter(node) {
       fillModelSelect(ollamaModelSelect, data.models, state.ollama_model);
       if (!ollamaModelSelect.value && ollamaModelSelect.options.length) ollamaModelSelect.selectedIndex = 0;
       state.ollama_model = ollamaModelSelect.value;
+      persistModelSelection();
       syncPreview();
       setStatus(`${data.models.length} Ollama models loaded.`);
     } catch (error) {
@@ -4129,6 +4166,7 @@ function setupUnifiedAutoprompter(node) {
       state.local_model = localModelSelect.value || "";
       state.local_mmproj = mmprojSelect.value || "none";
       state.local_system_prompt_preset = systemPresetSelect.value || "none";
+      persistModelSelection();
       syncPreview();
       setStatus("Local model list refreshed.");
     } catch (error) {
@@ -4226,6 +4264,7 @@ function setupUnifiedAutoprompter(node) {
       };
     }
 
+    persistModelSelection();
     setBusy(true);
     setStatus("Generating...");
     try {
@@ -4317,16 +4356,19 @@ function setupUnifiedAutoprompter(node) {
   geminiBtn.addEventListener("click", () => {
     state.backend = "gemini";
     refreshBackends();
+    persistModelSelection();
     syncPreview();
   });
   ollamaBtn.addEventListener("click", () => {
     state.backend = "ollama";
     refreshBackends();
+    persistModelSelection();
     syncPreview();
   });
   localBtn.addEventListener("click", () => {
     state.backend = "local";
     refreshBackends();
+    persistModelSelection();
     syncPreview();
   });
   keyInput.addEventListener("input", () => {
@@ -4335,11 +4377,17 @@ function setupUnifiedAutoprompter(node) {
   });
   geminiModelSelect.addEventListener("change", () => {
     state.gemini_model = geminiModelSelect.value;
+    persistModelSelection();
     syncPreview();
   });
   ollamaModelSelect.addEventListener("change", () => {
     state.ollama_model = ollamaModelSelect.value;
+    persistModelSelection();
     syncPreview();
+  });
+  localModelSelect.addEventListener("change", () => {
+    state.local_model = localModelSelect.value || "";
+    persistModelSelection();
   });
   fetchGeminiBtn.addEventListener("click", fetchGeminiModels);
   fetchOllamaBtn.addEventListener("click", fetchOllamaModels);
