@@ -109,6 +109,7 @@ const CURVE_COLORS = {
   G: "#36c48f",
   B: "#5fa8ff",
 };
+const MASK_COLORS = ["#f6b44b", "#5fa8ff", "#d96dff", "#ffcf4a", "#ff6f61"];
 
 const DEFAULTS = {
   pair: "1-2",
@@ -124,6 +125,9 @@ const DEFAULTS = {
   tool: "brush",
   brushTarget: "blend",
   showMask: true,
+  maskPreviewEnabled: true,
+  maskPreviewMode: "selected",
+  blendMaskVisible: true,
   brush: {
     size: 100,
     hardness: 0,
@@ -174,6 +178,17 @@ function clamp01(v) {
 function safeNumber(v, fallback = 0) {
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
+}
+
+function colorIndexForId(value) {
+  const text = String(value || "");
+  let hash = 0;
+  for (let i = 0; i < text.length; i += 1) hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
+  return hash;
+}
+
+function maskColorForLayer(layer) {
+  return MASK_COLORS[colorIndexForId(layer?.id || layer?.name) % MASK_COLORS.length] || AMBER;
 }
 
 function validImageKey(value, fallback = "1") {
@@ -324,6 +339,7 @@ function createAdjustmentLayer(mode = "global", options = {}) {
     id: options.id || makeLayerId(),
     name: options.name || "Adjustment",
     visible: options.visible !== false,
+    maskVisible: options.maskVisible !== false,
     mode: options.mode === "brush" || mode === "brush" ? "brush" : "global",
     amount: clamp01(safeNumber(options.amount, 1)),
     preset: options.preset || "Original",
@@ -340,6 +356,7 @@ function serializeAdjustmentLayer(layer, includeCanvas = true) {
     id: layer.id || makeLayerId(),
     name: layer.name || "Adjustment",
     visible: layer.visible !== false,
+    maskVisible: layer.maskVisible !== false,
     mode: layer.mode === "brush" ? "brush" : "global",
     amount: clamp01(safeNumber(layer.amount, 1)),
     preset: layer.preset || "Original",
@@ -358,6 +375,7 @@ function normalizeAdjustmentLayers(saved = {}, fallbackState = null) {
         ...layer,
         id: layer.id || `adj_${index + 1}`,
         name: layer.name || `Adjustment ${index + 1}`,
+        maskVisible: layer.maskVisible,
         amount: layer.amount,
         preset: layer.preset,
         adjustments: layer.adjustments,
@@ -387,6 +405,7 @@ function normalizeAdjustmentLayers(saved = {}, fallbackState = null) {
       id: "adj_legacy_1",
       name: "Adjustment 1",
       visible: true,
+      maskVisible: true,
       amount: legacyAmount,
       preset: saved.adjustmentPreset || fallbackState?.adjustmentPreset || "Original",
       adjustments: legacyAdjustments,
@@ -757,7 +776,11 @@ function getState(node) {
     state.adjustmentLayers[0]?.id ||
     "";
   state.performanceMode = state.performanceMode === "quality" ? "quality" : "fast";
-  state.showMask = state.showMask !== false;
+  state.maskPreviewEnabled = saved.maskPreviewEnabled == null ? saved.showMask !== false : saved.maskPreviewEnabled !== false;
+  state.showMask = state.maskPreviewEnabled;
+  state.maskPreviewMode = state.maskPreviewMode === "all" ? "all" : "selected";
+  state.blendMaskVisible = state.blendMaskVisible !== false;
+  for (const layer of state.adjustmentLayers) layer.maskVisible = layer.maskVisible !== false;
   syncLegacyAdjustmentState(state);
   node.__wfxIce = state;
   return node.__wfxIce;
@@ -785,7 +808,10 @@ function persist(node, includeMask = false) {
     splitY: s.splitY,
     tool: s.tool,
     brushTarget: s.brushTarget,
-    showMask: s.showMask !== false,
+    showMask: s.maskPreviewEnabled !== false,
+    maskPreviewEnabled: s.maskPreviewEnabled !== false,
+    maskPreviewMode: s.maskPreviewMode === "all" ? "all" : "selected",
+    blendMaskVisible: s.blendMaskVisible !== false,
     brush: { ...s.brush },
     adjustments: mergeAdjustments(s.adjustments),
     adjustmentPreset: s.adjustmentPreset,
@@ -1713,6 +1739,9 @@ function editorSnapshot(s) {
   return {
     layerOrder: s.layerOrder,
     topOpacity: s.topOpacity,
+    maskPreviewEnabled: s.maskPreviewEnabled !== false,
+    maskPreviewMode: s.maskPreviewMode === "all" ? "all" : "selected",
+    blendMaskVisible: s.blendMaskVisible !== false,
     maskData: s.maskCanvas ? s.maskCanvas.toDataURL("image/png") : s.maskData || "",
     adjustmentLayers: s.adjustmentLayers.map((layer) => serializeAdjustmentLayer(layer)),
     selectedAdjustmentLayerId: layer?.id || "",
@@ -1729,6 +1758,10 @@ function restoreEditorSnapshot(node, snapshot, after) {
   const s = getState(node);
   s.layerOrder = snapshot?.layerOrder || s.layerOrder;
   s.topOpacity = clamp01(safeNumber(snapshot?.topOpacity, s.topOpacity));
+  s.maskPreviewEnabled = snapshot?.maskPreviewEnabled !== false;
+  s.showMask = s.maskPreviewEnabled;
+  s.maskPreviewMode = snapshot?.maskPreviewMode === "all" ? "all" : "selected";
+  s.blendMaskVisible = snapshot?.blendMaskVisible !== false;
   s.maskData = snapshot?.maskData || "";
   s.maskCanvas = null;
   s.maskKey = "";
@@ -1946,12 +1979,16 @@ function injectEditorStyles() {
     .wfx-ice-layer strong{font-size:11px;color:#edf1f5}
     .wfx-ice-layer span{font-size:10px;color:${MUTED};white-space:nowrap}
     .wfx-ice-layer.adjustments{border-color:#5f4420;background:#1e1a13}
+    .wfx-ice-layer.blend-mask{border-color:#21513f;background:#111d19}
     .wfx-ice-layer.top{border-color:#694032;background:#211815}
     .wfx-ice-layer-pick{display:grid;gap:1px;min-width:0;text-align:left;cursor:pointer}
     .wfx-ice-layer-actions{display:flex;align-items:center;gap:3px}
     .wfx-ice-icon-btn{width:22px;height:20px;border:1px solid #343b42;background:#202429;color:#dce2e8;border-radius:3px;padding:0;font:700 10px "Segoe UI",Arial,sans-serif;cursor:pointer}
     .wfx-ice-icon-btn:hover{background:#293039;border-color:#4a545f}
     .wfx-ice-icon-btn.active{background:${BRAND};border-color:${BRAND};color:#fff}
+    .wfx-ice-icon-btn.mask{border-color:var(--mask-color,#343b42)}
+    .wfx-ice-icon-btn.mask.active{background:var(--mask-color,${GREEN});border-color:var(--mask-color,${GREEN});color:#07130f}
+    .wfx-ice-icon-btn:disabled{opacity:.38;cursor:not-allowed}
     .wfx-ice-meta{font-size:11px;color:${MUTED};line-height:1.55}
     .wfx-ice-curve-wrap{display:grid;gap:7px}
     .wfx-ice-curve-tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:5px}
@@ -2786,6 +2823,28 @@ function openEditor(node) {
   underLayer.children[1].append(underLayerName, underLayerMeta);
   layerList.append(topLayer, underLayer);
   layerPanel.body.appendChild(layerList);
+  const maskPreviewRow = el("div", "wfx-ice-row");
+  maskPreviewRow.append(el("div", "wfx-ice-label", "Masks"));
+  const maskPreviewCell = el("div", "wfx-ice-grow");
+  const showMaskButton = makeButton("Masks On", () => setAndRefresh(() => {
+    s.maskPreviewEnabled = s.maskPreviewEnabled === false;
+    s.showMask = s.maskPreviewEnabled;
+  }), {
+    title: "Show or hide editor-only mask tint overlays. This never changes Image 3 output.",
+  });
+  showMaskButton.style.width = "100%";
+  showMaskButton.dataset.maskToggle = "1";
+  maskPreviewCell.appendChild(showMaskButton);
+  maskPreviewRow.appendChild(maskPreviewCell);
+  layerPanel.body.appendChild(maskPreviewRow);
+  const previewModeRow = el("div", "wfx-ice-row");
+  previewModeRow.append(el("div", "wfx-ice-label", "Mask View"));
+  const previewModeCell = el("div", "wfx-ice-grow");
+  previewModeRow.appendChild(previewModeCell);
+  layerPanel.body.appendChild(previewModeRow);
+  segmented(previewModeCell, [["selected", "Selected"], ["all", "All"]], () => s.maskPreviewMode || "selected", (v) => {
+    s.maskPreviewMode = v === "all" ? "all" : "selected";
+  });
   const layerActions = el("div", "wfx-ice-actions");
   layerActions.append(
     makeButton("Add Global", () => addAdjustmentLayer("global")),
@@ -2847,12 +2906,7 @@ function openEditor(node) {
     s.brush.flow = clamp(v / 100, 0.01, 1);
   }, { defaultValue: 100 });
   const maskActions = el("div", "wfx-ice-actions");
-  const showMaskButton = makeButton("Show Mask", () => setAndRefresh(() => {
-    s.showMask = !s.showMask;
-  }));
-  showMaskButton.dataset.maskToggle = "1";
   maskActions.append(
-    showMaskButton,
     makeButton("Reset Area", () => resetPaintArea()),
     makeButton("Invert Area", () => invertPaintArea()),
   );
@@ -2945,6 +2999,18 @@ function openEditor(node) {
 
   function renderLayerStack() {
     layerList.replaceChildren();
+    const maskEyeButton = (active, title, onClick, disabled = false, color = GREEN) => {
+      const btn = el("button", `wfx-ice-icon-btn mask${active ? " active" : ""}`, disabled ? "-" : "M");
+      btn.type = "button";
+      btn.title = title;
+      btn.disabled = disabled;
+      btn.style.setProperty("--mask-color", color);
+      btn.onclick = (event) => {
+        event.stopPropagation();
+        if (!disabled) onClick();
+      };
+      return btn;
+    };
     if (!s.adjustmentLayers.length) {
       const empty = el("div", "wfx-ice-layer");
       empty.append(el("span", "", ""), el("div", "wfx-ice-layer-pick"));
@@ -2953,6 +3019,7 @@ function openEditor(node) {
     }
     for (const layer of s.adjustmentLayers) {
       const row = el("div", `wfx-ice-layer adjustments${layer.id === s.selectedAdjustmentLayerId ? " selected" : ""}`);
+      const actions = el("div", "wfx-ice-layer-actions");
       const visible = el("button", `wfx-ice-icon-btn${layer.visible !== false ? " active" : ""}`, layer.visible !== false ? "V" : "-");
       visible.type = "button";
       visible.title = layer.visible !== false ? "Hide adjustment layer" : "Show adjustment layer";
@@ -2963,6 +3030,18 @@ function openEditor(node) {
           syncLegacyAdjustmentState(s);
         }, true, { history: true });
       };
+      actions.appendChild(visible);
+      actions.appendChild(
+        maskEyeButton(
+          layer.maskVisible !== false,
+          layer.mode === "brush" ? "Show/hide this adjustment layer mask tint" : "Global adjustment layers do not have painted masks",
+          () => setAndRefresh(() => {
+            layer.maskVisible = layer.maskVisible === false;
+          }, false, { draft: false }),
+          layer.mode !== "brush",
+          layer.id === s.selectedAdjustmentLayerId ? AMBER : maskColorForLayer(layer),
+        ),
+      );
       const pick = el("div", "wfx-ice-layer-pick");
       const hasCurves = !isCurveStateNeutral(layer.curve);
       pick.append(
@@ -2974,9 +3053,27 @@ function openEditor(node) {
         syncLegacyAdjustmentState(s);
       }, false, { draft: false });
       const marker = el("span", "", layer.id === s.selectedAdjustmentLayerId ? "Selected" : "");
-      row.append(visible, pick, marker);
+      row.append(actions, pick, marker);
       layerList.appendChild(row);
     }
+    const blendRow = el("div", `wfx-ice-layer blend-mask${s.brushTarget === "blend" ? " selected" : ""}`);
+    const blendActions = el("div", "wfx-ice-layer-actions");
+    blendActions.appendChild(maskEyeButton(
+      s.blendMaskVisible !== false,
+      "Show/hide the blend mask tint between the top and under images",
+      () => setAndRefresh(() => {
+        s.blendMaskVisible = s.blendMaskVisible === false;
+      }, false, { draft: false }),
+      false,
+      GREEN,
+    ));
+    const blendPick = el("div", "wfx-ice-layer-pick");
+    blendPick.append(el("strong", "", "Blend Mask"), el("span", "", "Reveals the under image"));
+    blendPick.onclick = () => setAndRefresh(() => {
+      s.brushTarget = "blend";
+    }, false, { draft: false });
+    blendRow.append(blendActions, blendPick, el("span", "", s.brushTarget === "blend" ? "Active" : ""));
+    layerList.appendChild(blendRow);
     layerList.append(topLayer, underLayer);
   }
 
@@ -2988,7 +3085,8 @@ function openEditor(node) {
       btn.classList.toggle("active", btn.dataset.value === btn.__getValue?.());
     });
     root.querySelectorAll("[data-mask-toggle]").forEach((btn) => {
-      btn.classList.toggle("active", s.showMask !== false);
+      btn.classList.toggle("active", s.maskPreviewEnabled !== false);
+      btn.textContent = s.maskPreviewEnabled !== false ? "Masks On" : "Masks Off";
     });
     root.querySelectorAll("[data-before-value]").forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.beforeValue === (s.beforePreview ? "before" : "current"));
@@ -3055,6 +3153,37 @@ function openEditor(node) {
     tctx.globalAlpha = 1;
     tctx.globalCompositeOperation = "source-over";
     ctx.drawImage(tint, transform.x, transform.y, dw, dh);
+  }
+
+  function drawMaskPreviews(ctx, dw, dh) {
+    if (s.beforePreview || s.maskPreviewEnabled === false) return;
+    const drawBlendMask = () => {
+      if (s.blendMaskVisible === false) return;
+      const mask = ensureMask(s);
+      if (mask) drawPaintTint(ctx, mask, GREEN, 1, dw, dh);
+    };
+    const drawAdjustmentMask = (layer, color, alphaScale = 0.72) => {
+      if (!layer || layer.mode !== "brush" || layer.maskVisible === false) return;
+      drawPaintTint(ctx, ensureAdjustmentBrush(s, layer), color, alphaScale, dw, dh);
+    };
+    const activeLayer = activeAdjustment();
+
+    if (s.maskPreviewMode === "all") {
+      drawBlendMask();
+      for (let i = s.adjustmentLayers.length - 1; i >= 0; i -= 1) {
+        const layer = s.adjustmentLayers[i];
+        if (layer.id === activeLayer?.id) continue;
+        drawAdjustmentMask(layer, maskColorForLayer(layer), 0.52);
+      }
+      drawAdjustmentMask(activeLayer, AMBER, 0.82);
+      return;
+    }
+
+    if (s.brushTarget === "adjustment") {
+      drawAdjustmentMask(activeLayer, AMBER, 0.72);
+    } else {
+      drawBlendMask();
+    }
   }
 
   function drawBrushCursor(ctx) {
@@ -3144,12 +3273,7 @@ function openEditor(node) {
     ctx.imageSmoothingQuality = "high";
     ctx.drawImage(img, transform.x, transform.y, dw, dh);
 
-    const mask = ensureMask(s);
-    if (!s.beforePreview && mask && s.showMask !== false) drawPaintTint(ctx, mask, GREEN, 1, dw, dh);
-    const activeLayer = activeAdjustment();
-    if (!s.beforePreview && s.brushTarget === "adjustment" && activeLayer?.mode === "brush") {
-      drawPaintTint(ctx, ensureAdjustmentBrush(s, activeLayer), AMBER, 0.72, dw, dh);
-    }
+    drawMaskPreviews(ctx, dw, dh);
 
     ctx.strokeStyle = BRAND;
     ctx.lineWidth = 1;
