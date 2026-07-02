@@ -205,6 +205,8 @@ Profile settings include:
 
 Built-in profiles can be reset to WorkflowX defaults. Custom profiles can be added, duplicated, edited, and deleted.
 
+Use `Export JSON` to write the current model settings, default profiles, custom profiles, and profile metadata to one JSON file. Use `Import JSON` to load a previously exported file back into the settings draft, then review it and click `Save` to apply it.
+
 User profile settings are saved to:
 
 ```text

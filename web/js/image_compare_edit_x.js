@@ -15,9 +15,9 @@ const MUTED = "#9aa3ad";
 const PAD = 8;
 const GAP = 4;
 const ROW_H = 20;
-const CONTROL_X = 118;
-const MIN_W = 620;
-const MIN_H = 520;
+const CONTROL_X = 104;
+const MIN_W = 540;
+const MIN_H = 300;
 const PREVIEW_MAX = 1400;
 
 const IMAGE_OPTIONS = [
@@ -1173,6 +1173,9 @@ function button(ctx, rect, label, active = false, disabled = false) {
   ctx.font = "11px Segoe UI, Arial, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
+  ctx.beginPath();
+  ctx.rect(rect.x + 4, rect.y, Math.max(1, rect.w - 8), rect.h);
+  ctx.clip();
   ctx.fillText(label, rect.x + rect.w / 2, rect.y + rect.h / 2);
   ctx.restore();
 }
@@ -1181,12 +1184,22 @@ function addRect(s, action, rect, value = null, tooltip = "") {
   s.rects.push({ action, rect, value, tooltip });
 }
 
+function buttonRowWidth(items) {
+  return items.reduce((total, item) => total + (item.width || 72), 0) + GAP * Math.max(0, items.length - 1);
+}
+
 function rowButtons(ctx, node, y, items, activeTest, x = PAD, width = node.size[0] - PAD * 2) {
   const s = getState(node);
   const available = Math.max(1, width - GAP * (items.length - 1));
-  const bw = Math.floor(available / items.length);
+  const hasWidths = items.some((item) => item.width);
+  const naturalTotal = hasWidths ? items.reduce((total, item) => total + (item.width || 72), 0) : available;
+  const scale = hasWidths ? Math.min(1, available / Math.max(1, naturalTotal)) : 1;
+  const defaultW = Math.floor(available / items.length);
   let bx = x;
   for (const item of items) {
+    const bw = hasWidths
+      ? Math.max(1, Math.floor((item.width || 72) * scale))
+      : defaultW;
     const rect = { x: bx, y, w: bw, h: ROW_H };
     button(ctx, rect, item.label, activeTest?.(item), item.disabled);
     if (!item.disabled) addRect(s, item.action, rect, item.value, item.tooltip || "");
@@ -1206,9 +1219,17 @@ function drawSelectButton(ctx, rect, label, active = false) {
   ctx.font = "11px Segoe UI, Arial, sans-serif";
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
+  ctx.beginPath();
+  ctx.rect(rect.x + 7, rect.y, Math.max(1, rect.w - 27), rect.h);
+  ctx.clip();
   ctx.fillText(label, rect.x + 9, rect.y + rect.h / 2);
+  ctx.restore();
+
+  ctx.save();
+  ctx.font = "11px Segoe UI, Arial, sans-serif";
   ctx.fillStyle = "#9aa3ad";
   ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
   ctx.fillText("v", rect.x + rect.w - 9, rect.y + rect.h / 2 - 1);
   ctx.restore();
 }
@@ -1232,9 +1253,9 @@ function drawDropdown(ctx, node, y, field, label, x, w) {
 function drawSourceRow(ctx, node, y) {
   const s = getState(node);
   const controlW = Math.max(1, node.size[0] - CONTROL_X - PAD);
-  const editorW = 92;
+  const editorW = 64;
   const swapW = 28;
-  const selectW = Math.max(110, Math.floor((controlW - editorW - swapW - GAP * 3) / 2));
+  const selectW = Math.max(1, Math.min(148, Math.floor((controlW - editorW - swapW - GAP * 3) / 2)));
   let x = CONTROL_X;
   drawDropdown(ctx, node, y, "sourceA", "A", x, selectW);
   x += selectW + GAP;
@@ -1244,8 +1265,9 @@ function drawSourceRow(ctx, node, y) {
   x += swapW + GAP;
   drawDropdown(ctx, node, y, "sourceB", "B", x, selectW);
   x += selectW + GAP;
-  button(ctx, { x, y, w: Math.max(82, node.size[0] - PAD - x), h: ROW_H }, "Open Editor", true, false);
-  addRect(s, "openEditor", { x, y, w: Math.max(82, node.size[0] - PAD - x), h: ROW_H }, null, "Open the larger edit workspace with mask brush, layer, and adjustment controls.");
+  const editorRect = { x, y, w: editorW, h: ROW_H };
+  button(ctx, editorRect, "Editor", true, false);
+  addRect(s, "openEditor", editorRect, null, "Open the larger edit workspace with mask brush, layer, and adjustment controls.");
 }
 
 function drawModeRow(ctx, node, y) {
@@ -1262,22 +1284,41 @@ function drawModeRow(ctx, node, y) {
     rightLeft: "Split view. Hover and drag the image to wipe right to left.",
     upDown: "Split view. Hover and drag the image to wipe top to bottom.",
   };
-  const modeItems = VIEW_MODES.map(([value, label]) => ({ label, action: "viewMode", value, tooltip: modeTips[value] }));
+  const modeItems = VIEW_MODES.map(([value, label]) => ({
+    label,
+    action: "viewMode",
+    value,
+    width: value === "difference" ? 96 : value === "overlay" ? 82 : 72,
+    tooltip: modeTips[value],
+  }));
   if (s.viewMode !== "split") {
-    rowButtons(ctx, node, y, modeItems, (item) => s.viewMode === item.value, CONTROL_X, controlW);
+    rowButtons(ctx, node, y, modeItems, (item) => s.viewMode === item.value, CONTROL_X, Math.min(controlW, buttonRowWidth(modeItems)));
     return;
   }
 
-  const modeW = Math.floor(controlW * 0.55);
-  rowButtons(ctx, node, y, modeItems, (item) => s.viewMode === item.value, CONTROL_X, modeW);
+  const compactModeItems = modeItems.map((item) => ({
+    ...item,
+    label: item.value === "difference" ? "Diff" : item.label,
+    width: item.value === "difference" ? 52 : item.value === "overlay" ? 66 : item.value === "single" ? 62 : 56,
+  }));
+  const splitItems = SPLIT_MODES.map(([value], index) => ({
+    label: ["L/R", "R/L", "T/B"][index],
+    action: "splitMode",
+    value,
+    width: 42,
+    tooltip: splitTips[value],
+  }));
+  const splitW = buttonRowWidth(splitItems);
+  const modeW = Math.min(buttonRowWidth(compactModeItems), Math.max(1, controlW - splitW - GAP));
+  rowButtons(ctx, node, y, compactModeItems, (item) => s.viewMode === item.value, CONTROL_X, modeW);
   rowButtons(
     ctx,
     node,
     y,
-    SPLIT_MODES.map(([value, label]) => ({ label, action: "splitMode", value, tooltip: splitTips[value] })),
+    splitItems,
     (item) => s.splitMode === item.value,
     CONTROL_X + modeW + GAP,
-    controlW - modeW - GAP,
+    Math.min(splitW, Math.max(1, controlW - modeW - GAP)),
   );
 }
 
@@ -1323,7 +1364,7 @@ function toolbarHeight(s) {
 function imageBox(node) {
   const s = getState(node);
   const y = toolbarHeight(s);
-  return { x: PAD, y, w: node.size[0] - PAD * 2, h: node.size[1] - y - PAD };
+  return { x: PAD, y, w: node.size[0] - PAD * 2, h: Math.max(1, node.size[1] - y - PAD) };
 }
 
 function drawStageBackground(ctx, box) {

@@ -703,12 +703,14 @@ function injectStyle() {
   align-items: center;
   border-top: 1px solid #303842;
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 10px 12px;
 }
 .workflowx-uap-modal-message {
   color: #aeb8c1;
   flex: 1 1 auto;
+  min-width: 240px;
 }
 .workflowx-uap-modal-message.error {
   color: #ff8585;
@@ -2477,14 +2479,23 @@ function setupUnifiedAutoprompter(node) {
 
     const foot = buildDom("div", "workflowx-uap-modal-foot");
     const message = buildDom("div", "workflowx-uap-modal-message", `Config file: ${config.path || ""}`);
+    const exportBtn = buildDom("button", "workflowx-uap-btn", "Export JSON");
+    const importBtn = buildDom("button", "workflowx-uap-btn", "Import JSON");
     const revertBtn = buildDom("button", "workflowx-uap-btn", "Revert");
     const resetAllBtn = buildDom("button", "workflowx-uap-btn", "Reset all defaults");
     const saveBtn = buildDom("button", "workflowx-uap-btn primary", "Save");
-    for (const button of [revertBtn, resetAllBtn, saveBtn]) button.type = "button";
+    const importInput = document.createElement("input");
+    importInput.type = "file";
+    importInput.accept = "application/json,.json";
+    importInput.className = "workflowx-uap-hidden";
+    for (const button of [exportBtn, importBtn, revertBtn, resetAllBtn, saveBtn]) button.type = "button";
     foot.appendChild(message);
+    foot.appendChild(exportBtn);
+    foot.appendChild(importBtn);
     foot.appendChild(revertBtn);
     foot.appendChild(resetAllBtn);
     foot.appendChild(saveBtn);
+    foot.appendChild(importInput);
     modal.appendChild(foot);
     backdrop.appendChild(modal);
     document.body.appendChild(backdrop);
@@ -2509,6 +2520,74 @@ function setupUnifiedAutoprompter(node) {
       return profile.formats[format];
     };
     const enabledFormatsFor = (profile) => enabledProfileFormats(profile);
+    const cleanProfile = (profile) => {
+      const shaped = ensureProfileShape(profile);
+      return {
+        key: shaped.key || "",
+        label: shaped.label || shaped.key || "",
+        media_type: shaped.media_type || "image",
+        default_format: shaped.default_format || "natural",
+        negative_supported: Boolean(shaped.negative_supported),
+        json_supported: Boolean(shaped.json_supported),
+        notes: shaped.notes || "",
+        formats: Object.fromEntries(formats.map((format) => [format, ensureRule(shaped.formats?.[format])])),
+      };
+    };
+    const cleanProfiles = (profileList) => (profileList || []).map(cleanProfile);
+    const exportedFilename = () => {
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+      return `workflowx-unified-autoprompter-model-settings-${stamp}.json`;
+    };
+    const exportPayload = () => ({
+      export_format: "workflowx_unified_autoprompter_model_settings",
+      export_version: 1,
+      exported_at: new Date().toISOString(),
+      version: config.version || 3,
+      source: {
+        config_path: config.path || "",
+        default_path: config.default_path || "",
+      },
+      profiles: cleanProfiles(draft),
+      default_profiles: cleanProfiles(config.default_profiles || []),
+      builtin_keys: [...builtinKeys].sort(),
+      formats: [...formats],
+      media_types: [...mediaTypes],
+    });
+    const saveJsonFile = async (payload) => {
+      const text = `${JSON.stringify(payload, null, 2)}\n`;
+      const filename = exportedFilename();
+      if (window.showSaveFilePicker) {
+        const handle = await window.showSaveFilePicker({
+          suggestedName: filename,
+          types: [
+            {
+              description: "JSON file",
+              accept: { "application/json": [".json"] },
+            },
+          ],
+        });
+        const writable = await handle.createWritable();
+        await writable.write(text);
+        await writable.close();
+        return "Model settings exported.";
+      }
+
+      const blob = new Blob([text], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      return "Model settings export downloaded.";
+    };
+    const importedProfilesFromPayload = (payload) => {
+      const profilesList = Array.isArray(payload?.profiles) ? payload.profiles : null;
+      if (!profilesList) throw new Error("Import JSON must contain a profiles array.");
+      return profilesList.map((profile) => cleanProfile(profile));
+    };
     const normalizeActiveFormat = (profile) => {
       const enabled = enabledFormatsFor(profile);
       if (!enabled.includes(profile.default_format)) profile.default_format = enabled[0] || "natural";
@@ -2547,9 +2626,9 @@ function setupUnifiedAutoprompter(node) {
       normalizeActiveFormat(profile);
     }
 
-    function validateDraft() {
+    function validateDraft(profilesToValidate = draft) {
       const seen = new Set();
-      for (const raw of draft) {
+      for (const raw of profilesToValidate) {
         const profile = ensureProfileShape(raw);
         if (!/^[a-z0-9][a-z0-9_]*$/.test(profile.key || "")) throw new Error("Every model key must use lowercase letters, numbers, and underscores.");
         if (seen.has(profile.key)) throw new Error(`Duplicate model key: ${profile.key}`);
@@ -2788,6 +2867,44 @@ function setupUnifiedAutoprompter(node) {
       backdrop.remove();
       openModelSettingsModalV3();
     });
+    exportBtn.addEventListener("click", async () => {
+      try {
+        readCurrentView();
+        draft = cleanProfiles(draft);
+        validateDraft(draft);
+        const messageText = await saveJsonFile(exportPayload());
+        showMessage(messageText);
+      } catch (error) {
+        if (error?.name === "AbortError") {
+          showMessage("Export cancelled.");
+        } else {
+          showMessage(error.message, true);
+        }
+      }
+    });
+    importBtn.addEventListener("click", () => {
+      importInput.value = "";
+      importInput.click();
+    });
+    importInput.addEventListener("change", async () => {
+      const file = importInput.files?.[0];
+      if (!file) return;
+      try {
+        const payload = JSON.parse(await file.text());
+        const importedProfiles = importedProfilesFromPayload(payload);
+        validateDraft(importedProfiles);
+        readCurrentView();
+        draft = importedProfiles;
+        selectedKey = draft.some((profile) => profile.key === selectedKey) ? selectedKey : draft[0]?.key || "";
+        const selected = selectedProfile();
+        activeFormat = selected?.default_format || activeFormat;
+        searchInput.value = "";
+        showMessage(`Imported ${draft.length} profiles from ${file.name}. Review and Save to apply.`);
+        renderAll();
+      } catch (error) {
+        showMessage(`Import failed: ${error.message}`, true);
+      }
+    });
     resetAllBtn.addEventListener("click", async () => {
       if (!window.confirm("Reset all model profiles to WorkflowX defaults?")) return;
       try {
@@ -2808,7 +2925,7 @@ function setupUnifiedAutoprompter(node) {
     saveBtn.addEventListener("click", async () => {
       try {
         readCurrentView();
-        draft = draft.map(ensureProfileShape);
+        draft = cleanProfiles(draft);
         validateDraft();
         const data = await fetchJsonChecked(`${ROUTE}/profile_config`, {
           method: "POST",
