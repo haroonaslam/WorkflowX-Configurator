@@ -33,3 +33,8 @@ node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Graphify local graph artifacts
+.graphify/
+graphify-out/
+.graphify_*

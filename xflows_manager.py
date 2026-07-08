@@ -841,6 +841,51 @@ def _unique_path(path: Path) -> Path:
         index += 1
 
 
+def _move_workflow_file(
+    rel: str,
+    folder: str,
+    *,
+    metadata: dict | None = None,
+    model_index: dict | None = None,
+    save_metadata: bool = True,
+) -> dict:
+    rel = _safe_rel_path(rel, require_json=True)
+    folder = _safe_folder(folder)
+    source = _resolve_workflow_file(rel)
+    if not source.exists():
+        return {"ok": False, "path": rel, "error": "workflow not found"}
+
+    root = _workflow_root().resolve()
+    target_dir = (_workflow_root() / folder).resolve()
+    if os.path.commonpath([str(root), str(target_dir)]) != str(root):
+        raise ValueError("unsafe folder")
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = _unique_path(target_dir / source.name)
+    shutil.move(str(source), str(target))
+
+    new_rel = _normalize_slashes(str(target.relative_to(_workflow_root())))
+    if metadata is None:
+        metadata = _load_metadata()
+    workflows = metadata.setdefault("workflows", {})
+    record = workflows.pop(rel, {})
+
+    workflow = None
+    try:
+        entry = _entry_from_file(target, model_index or _build_model_index())
+        workflow = _merge_entry_with_record(entry, record)
+        workflows[new_rel] = workflow
+    except Exception:
+        workflows[new_rel] = record
+
+    if save_metadata:
+        _save_metadata(metadata)
+
+    result = {"ok": True, "old_path": rel, "path": new_rel}
+    if workflow is not None:
+        result["workflow"] = workflow
+    return result
+
+
 def _sha256_bytes(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
 
@@ -887,6 +932,15 @@ def _workflow_nodes(data) -> list[dict]:
     workflow = data.get("workflow") if isinstance(data, dict) else None
     if isinstance(workflow, dict) and isinstance(workflow.get("nodes"), list):
         return [node for node in workflow["nodes"] if isinstance(node, dict)]
+    return []
+
+
+def _workflow_links(data) -> list:
+    if isinstance(data, dict) and isinstance(data.get("links"), list):
+        return data["links"]
+    workflow = data.get("workflow") if isinstance(data, dict) else None
+    if isinstance(workflow, dict) and isinstance(workflow.get("links"), list):
+        return workflow["links"]
     return []
 
 
@@ -1060,7 +1114,7 @@ def _canonicalize_workflow(data) -> dict:
         canonical = {key: value for key, value in node.items() if key not in VIEW_ONLY_KEYS and key != "id"}
         canonical_nodes.append(_strip_view_fields(canonical))
 
-    links = data.get("links") if isinstance(data, dict) else []
+    links = _workflow_links(data)
     canonical_links = []
     if isinstance(links, list):
         for link in links:
@@ -1073,6 +1127,128 @@ def _canonicalize_workflow(data) -> dict:
                     link[5],
                 ])
     return {"nodes": canonical_nodes, "links": sorted(canonical_links, key=lambda item: json.dumps(item, sort_keys=True))}
+
+
+def _node_type(node: dict) -> str:
+    return str(node.get("type") or node.get("class_type") or node.get("title") or "")
+
+
+def _node_sort_key(node: dict):
+    return (_node_type(node), str(node.get("id", "")), json.dumps(_strip_view_fields(node), sort_keys=True, default=str))
+
+
+def _link_signature(link, node_id_map: dict) -> list | None:
+    if isinstance(link, list) and len(link) >= 6:
+        return [
+            node_id_map.get(link[1], link[1]),
+            link[2],
+            node_id_map.get(link[3], link[3]),
+            link[4],
+            link[5],
+        ]
+    if isinstance(link, dict):
+        origin = link.get("origin_id", link.get("origin", link.get("from_node_id", link.get("from"))))
+        target = link.get("target_id", link.get("target", link.get("to_node_id", link.get("to"))))
+        return [
+            node_id_map.get(origin, origin),
+            link.get("origin_slot", link.get("from_slot", link.get("slot"))),
+            node_id_map.get(target, target),
+            link.get("target_slot", link.get("to_slot", link.get("input"))),
+            link.get("type"),
+        ]
+    return None
+
+
+def _normalize_io_for_structure(values) -> list:
+    normalized = []
+    if not isinstance(values, list):
+        return normalized
+    for index, value in enumerate(values):
+        if not isinstance(value, dict):
+            normalized.append({"index": index, "kind": type(value).__name__})
+            continue
+        normalized.append({
+            "index": index,
+            "name": value.get("name"),
+            "type": value.get("type"),
+            "linked": bool(value.get("link") or value.get("links")),
+        })
+    return normalized
+
+
+def _normalize_io_for_values(values) -> list:
+    normalized = []
+    if not isinstance(values, list):
+        return normalized
+    for index, value in enumerate(values):
+        if not isinstance(value, dict):
+            normalized.append(_strip_view_fields(value))
+            continue
+        cleaned = {
+            key: val
+            for key, val in value.items()
+            if key not in {"link", "links"} and key not in VIEW_ONLY_KEYS
+        }
+        normalized.append({"index": index, **_strip_view_fields(cleaned)})
+    return normalized
+
+
+def _node_structure_payload(data) -> dict:
+    nodes = sorted(_workflow_nodes(data), key=_node_sort_key)
+    node_id_map = {node["id"]: index for index, node in enumerate(nodes) if "id" in node}
+    structure_nodes = []
+    for index, node in enumerate(nodes):
+        structure_nodes.append({
+            "index": index,
+            "type": _node_type(node),
+            "inputs": _normalize_io_for_structure(node.get("inputs")),
+            "outputs": _normalize_io_for_structure(node.get("outputs")),
+        })
+
+    links = []
+    for link in _workflow_links(data):
+        signature = _link_signature(link, node_id_map)
+        if signature is not None:
+            links.append(signature)
+
+    return {
+        "nodes": structure_nodes,
+        "links": sorted(links, key=lambda item: json.dumps(item, sort_keys=True, default=str)),
+    }
+
+
+def _node_value_payload(data) -> dict:
+    nodes = sorted(_workflow_nodes(data), key=_node_sort_key)
+    value_nodes = []
+    for index, node in enumerate(nodes):
+        cleaned = {
+            key: value
+            for key, value in node.items()
+            if key not in VIEW_ONLY_KEYS
+            and key not in {"id", "inputs", "outputs"}
+        }
+        payload = _strip_view_fields(cleaned)
+        payload["index"] = index
+        payload["type"] = _node_type(node)
+        payload["inputs"] = _normalize_io_for_values(node.get("inputs"))
+        value_nodes.append(payload)
+    return {"nodes": value_nodes}
+
+
+def _duplicate_name_signature(name: str) -> str:
+    normalized = re.sub(r"\s+", " ", str(name or "").strip().lower())
+    return normalized
+
+
+def _duplicate_signatures(data, name: str) -> dict:
+    node_payload = _node_structure_payload(data)
+    value_payload = _node_value_payload(data)
+    return {
+        "name_signature": _duplicate_name_signature(name),
+        "node_signature": _hash_json(node_payload),
+        "value_signature": _hash_json(value_payload),
+        "duplicate_node_count": len(node_payload["nodes"]),
+    }
 
 
 def _strip_view_fields(value):
@@ -1119,6 +1295,12 @@ def _entry_from_file(path: Path, model_index: dict) -> dict:
         "node_count": 0,
     }
     canonical_hash = _hash_json(_canonicalize_workflow(data)) if parse_error is None else content_hash
+    duplicate_signatures = _duplicate_signatures(data, path.stem) if parse_error is None else {
+        "name_signature": _duplicate_name_signature(path.stem),
+        "node_signature": None,
+        "value_signature": None,
+        "duplicate_node_count": 0,
+    }
     stat = path.stat()
     return {
         "path": rel,
@@ -1130,6 +1312,7 @@ def _entry_from_file(path: Path, model_index: dict) -> dict:
         "content_hash": content_hash,
         "canonical_hash": canonical_hash,
         "near_signature": _near_signature(analysis),
+        **duplicate_signatures,
         "parse_error": parse_error,
         **analysis,
     }
@@ -1403,25 +1586,17 @@ async def move_workflow(request):
     try:
         rel = _safe_rel_path(body.get("path", ""), require_json=True)
         folder = _safe_folder(body.get("folder", ""))
-        source = _resolve_workflow_file(rel)
     except ValueError as exc:
         return _json_response({"error": str(exc)}, status=400)
-    if not source.exists():
-        return _json_response({"error": "workflow not found"}, status=404)
-    target_dir = (_workflow_root() / folder).resolve()
-    if os.path.commonpath([str(_workflow_root().resolve()), str(target_dir)]) != str(_workflow_root().resolve()):
-        return _json_response({"error": "unsafe folder"}, status=400)
-    target_dir.mkdir(parents=True, exist_ok=True)
-    target = _unique_path(target_dir / source.name)
-    shutil.move(str(source), str(target))
-
-    new_rel = _normalize_slashes(str(target.relative_to(_workflow_root())))
-    metadata = _load_metadata()
-    workflows = metadata.setdefault("workflows", {})
-    record = workflows.pop(rel, {})
-    workflows[new_rel] = record
-    _save_metadata(metadata)
-    return _json_response({"ok": True, "old_path": rel, "path": new_rel})
+    try:
+        result = _move_workflow_file(rel, folder)
+    except ValueError as exc:
+        return _json_response({"error": str(exc)}, status=400)
+    if not result.get("ok"):
+        status = 404 if result.get("error") == "workflow not found" else 400
+        return _json_response(result, status=status)
+    result["folders"] = _folders()
+    return _json_response(result)
 
 
 @PromptServer.instance.routes.post(f"{ROUTE_PREFIX}/folder")
@@ -1490,6 +1665,46 @@ async def delete_workflows_batch(request):
     })
 
 
+@PromptServer.instance.routes.post(f"{ROUTE_PREFIX}/move-batch")
+async def move_workflows_batch(request):
+    body = await _read_json_request(request)
+    paths = body.get("paths")
+    if not isinstance(paths, list) or not paths:
+        return _json_response({"error": "paths must be a non-empty list"}, status=400)
+    try:
+        folder = _safe_folder(body.get("folder", ""))
+    except ValueError as exc:
+        return _json_response({"error": str(exc)}, status=400)
+
+    metadata = _load_metadata()
+    model_index = _build_model_index()
+    results = []
+    for raw_path in paths:
+        try:
+            rel = _safe_rel_path(raw_path, require_json=True)
+            result = _move_workflow_file(
+                rel,
+                folder,
+                metadata=metadata,
+                model_index=model_index,
+                save_metadata=False,
+            )
+        except ValueError as exc:
+            result = {"ok": False, "path": str(raw_path or ""), "error": str(exc)}
+        results.append(result)
+
+    _save_metadata(metadata)
+    moved = [result for result in results if result.get("ok")]
+    failed = [result for result in results if not result.get("ok")]
+    return _json_response({
+        "ok": not failed,
+        "moved_count": len(moved),
+        "failed_count": len(failed),
+        "results": results,
+        "folders": _folders(),
+    })
+
+
 def _soft_delete_workflow(rel: str, *, save_metadata: bool = True) -> dict:
     source = _resolve_workflow_file(rel)
     if not source.exists():
@@ -1509,10 +1724,12 @@ def _soft_delete_workflow(rel: str, *, save_metadata: bool = True) -> dict:
 async def duplicates(_request):
     data = _scan(prune=False)
     workflows = data["workflows"]
-    exact = _duplicate_groups(workflows, "content_hash")
-    canonical = _duplicate_groups(workflows, "canonical_hash")
-    near = _duplicate_groups(workflows, "near_signature")
-    return _json_response({"exact": exact, "canonical": canonical, "near": near, "generated_at": _now_ms()})
+    return _json_response({
+        "same_name_nodes": _same_name_node_groups(workflows),
+        "same_nodes_values": _same_node_value_groups(workflows),
+        "same_nodes_changed_values": _same_node_changed_value_groups(workflows),
+        "generated_at": _now_ms(),
+    })
 
 
 @PromptServer.instance.routes.get(f"{ROUTE_PREFIX}/export-import/manifest")
@@ -1696,6 +1913,50 @@ async def use_library_node_snip(request):
     return _json_response({"ok": True, "snip": entry})
 
 
+def _duplicate_workflow_summary(item: dict) -> dict:
+    return {
+        "path": item["path"],
+        "name": item.get("name"),
+        "folder": item.get("folder"),
+        "auto_tags": item.get("auto_tags", []),
+        "all_tags": item.get("all_tags", item.get("auto_tags", [])),
+        "detected_models": item.get("detected_models", []),
+        "node_types": item.get("node_types", []),
+        "node_count": item.get("node_count", 0),
+        "run_count": item.get("run_count", 0),
+        "last_run_at": item.get("last_run_at"),
+        "favorite": bool(item.get("favorite", False)),
+        "size": item.get("size", 0),
+        "mtime": item.get("mtime", 0),
+        "content_hash": item.get("content_hash"),
+        "canonical_hash": item.get("canonical_hash"),
+        "near_signature": item.get("near_signature"),
+        "name_signature": item.get("name_signature"),
+        "node_signature": item.get("node_signature"),
+        "value_signature": item.get("value_signature"),
+        "parse_error": item.get("parse_error"),
+    }
+
+
+def _duplicate_group(signature: str, items: list[dict], **metadata) -> dict:
+    workflows = [_duplicate_workflow_summary(item) for item in sorted(items, key=lambda workflow: workflow["path"].lower())]
+    node_counts = [workflow.get("node_count", 0) for workflow in workflows]
+    value_signatures = {workflow.get("value_signature") for workflow in workflows if workflow.get("value_signature")}
+    group = {
+        "signature": signature,
+        "count": len(items),
+        "node_count": node_counts[0] if node_counts and len(set(node_counts)) == 1 else None,
+        "value_variant_count": len(value_signatures),
+        "workflows": workflows,
+    }
+    group.update(metadata)
+    return group
+
+
+def _sort_duplicate_groups(groups: list[dict]) -> list[dict]:
+    return sorted(groups, key=lambda group: (-group["count"], group["workflows"][0]["path"].lower()))
+
+
 def _duplicate_groups(workflows: list[dict], key: str) -> list[dict]:
     grouped = defaultdict(list)
     for workflow in workflows:
@@ -1706,30 +1967,69 @@ def _duplicate_groups(workflows: list[dict], key: str) -> list[dict]:
     for value, items in grouped.items():
         if len(items) < 2:
             continue
-        groups.append({
-            "signature": value,
-            "count": len(items),
-            "workflows": [
-                {
-                    "path": item["path"],
-                    "name": item.get("name"),
-                    "folder": item.get("folder"),
-                    "auto_tags": item.get("auto_tags", []),
-                    "all_tags": item.get("all_tags", item.get("auto_tags", [])),
-                    "detected_models": item.get("detected_models", []),
-                    "node_types": item.get("node_types", []),
-                    "node_count": item.get("node_count", 0),
-                    "run_count": item.get("run_count", 0),
-                    "last_run_at": item.get("last_run_at"),
-                    "favorite": bool(item.get("favorite", False)),
-                    "size": item.get("size", 0),
-                    "mtime": item.get("mtime", 0),
-                    "content_hash": item.get("content_hash"),
-                    "canonical_hash": item.get("canonical_hash"),
-                    "near_signature": item.get("near_signature"),
-                    "parse_error": item.get("parse_error"),
-                }
-                for item in sorted(items, key=lambda workflow: workflow["path"].lower())
-            ],
-        })
-    return sorted(groups, key=lambda group: (-group["count"], group["workflows"][0]["path"].lower()))
+        groups.append(_duplicate_group(value, items))
+    return _sort_duplicate_groups(groups)
+
+
+def _same_name_node_groups(workflows: list[dict]) -> list[dict]:
+    grouped = defaultdict(list)
+    for workflow in workflows:
+        name_signature = workflow.get("name_signature")
+        node_signature = workflow.get("node_signature")
+        if name_signature and node_signature:
+            grouped[(name_signature, node_signature)].append(workflow)
+    groups = []
+    for (name_signature, node_signature), items in grouped.items():
+        if len(items) < 2:
+            continue
+        groups.append(_duplicate_group(
+            f"{name_signature}:{node_signature}",
+            items,
+            name_key=name_signature,
+            node_signature=node_signature,
+            reason="Same workflow name and same node structure.",
+        ))
+    return _sort_duplicate_groups(groups)
+
+
+def _same_node_value_groups(workflows: list[dict]) -> list[dict]:
+    grouped = defaultdict(list)
+    for workflow in workflows:
+        node_signature = workflow.get("node_signature")
+        value_signature = workflow.get("value_signature")
+        if node_signature and value_signature:
+            grouped[(node_signature, value_signature)].append(workflow)
+    groups = []
+    for (node_signature, value_signature), items in grouped.items():
+        if len(items) < 2:
+            continue
+        groups.append(_duplicate_group(
+            f"{node_signature}:{value_signature}",
+            items,
+            node_signature=node_signature,
+            value_signature=value_signature,
+            reason="Same node structure and same node values.",
+        ))
+    return _sort_duplicate_groups(groups)
+
+
+def _same_node_changed_value_groups(workflows: list[dict]) -> list[dict]:
+    grouped = defaultdict(list)
+    for workflow in workflows:
+        node_signature = workflow.get("node_signature")
+        value_signature = workflow.get("value_signature")
+        if node_signature and value_signature:
+            grouped[node_signature].append(workflow)
+    groups = []
+    for node_signature, items in grouped.items():
+        value_signatures = {item.get("value_signature") for item in items if item.get("value_signature")}
+        if len(items) < 2 or len(value_signatures) < 2:
+            continue
+        groups.append(_duplicate_group(
+            node_signature,
+            items,
+            node_signature=node_signature,
+            value_variant_count=len(value_signatures),
+            reason="Same node structure with different node values.",
+        ))
+    return _sort_duplicate_groups(groups)

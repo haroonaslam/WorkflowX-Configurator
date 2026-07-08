@@ -939,6 +939,26 @@ function rowWidgets(node) {
   return (node.widgets || []).filter((widget) => widget.__loraxRow);
 }
 
+function nodeWidth(node) {
+  const width = Number(node?.size?.[0]);
+  return Number.isFinite(width) && width > 0 ? width : MIN_W;
+}
+
+function restoreNodeWidth(node, width) {
+  const targetWidth = Number(width);
+  if (!node?.size || !Number.isFinite(targetWidth) || targetWidth <= 0) return;
+  if (node.size[0] === targetWidth) return;
+  node.size[0] = targetWidth;
+  markDirty(node);
+}
+
+function restoreNodeWidthSoon(node, width) {
+  restoreNodeWidth(node, width);
+  if (typeof queueMicrotask === "function") queueMicrotask(() => restoreNodeWidth(node, width));
+  if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => restoreNodeWidth(node, width));
+  window.setTimeout(() => restoreNodeWidth(node, width), 0);
+}
+
 function allRowsOn(node) {
   const rows = rowWidgets(node);
   if (!rows.length) return false;
@@ -953,9 +973,6 @@ function toggleAllRows(node) {
 }
 
 function addCustomWidget(node, widget) {
-  if (typeof node.addCustomWidget === "function") {
-    return node.addCustomWidget(widget);
-  }
   node.widgets = node.widgets || [];
   node.widgets.push(widget);
   return widget;
@@ -975,10 +992,10 @@ function nextRowName(node) {
   return `lora_${node.__loraxCounter}`;
 }
 
-function addRow(node, value = defaultRowValue()) {
+function addRow(node, value = defaultRowValue(), preservedWidth = nodeWidth(node)) {
   const widget = addCustomWidget(node, createRowWidget(nextRowName(node), value));
   moveWidgetBeforeButton(node, widget);
-  resizeNode(node);
+  resizeNode(node, preservedWidth);
   return widget;
 }
 
@@ -986,28 +1003,37 @@ function removeLoraXWidgets(node) {
   node.widgets = (node.widgets || []).filter((widget) => !widget.__lorax);
 }
 
-function resizeNode(node) {
-  node.size = node.size || [MIN_W, 120];
-  node.size[0] = Math.max(node.size[0], MIN_W);
-  const computed = node.computeSize?.() || [node.size[0], node.size[1]];
-  node.size[1] = Math.max(120, computed[1]);
+function resizeNode(node, preservedWidth = null) {
+  const currentWidth = nodeWidth(node);
+  const requestedWidth = Number(preservedWidth);
+  const hasPreservedWidth = Number.isFinite(requestedWidth) && requestedWidth > 0;
+  const targetWidth = hasPreservedWidth ? requestedWidth : Math.max(MIN_W, currentWidth);
+  node.size = node.size || [targetWidth, 120];
+  node.size[0] = targetWidth;
+  const computed = node.computeSize?.() || [targetWidth, node.size[1]];
+  const computedWidth = Number(computed?.[0]);
+  node.size[0] = hasPreservedWidth ? targetWidth : Math.max(targetWidth, Number.isFinite(computedWidth) ? computedWidth : 0, MIN_W);
+  node.size[1] = Math.max(120, Number(computed?.[1]) || node.size[1] || 120);
+  if (hasPreservedWidth) restoreNodeWidthSoon(node, targetWidth);
   markDirty(node);
 }
 
 function setupNode(node, rowValues = null) {
+  const preservedWidth = nodeWidth(node);
   removeLoraXWidgets(node);
   node.serialize_widgets = true;
   node.__loraxCounter = 0;
 
   addCustomWidget(node, createHeaderWidget());
-  for (const value of rowValues || []) addRow(node, value);
+  resizeNode(node, preservedWidth);
+  for (const value of rowValues || []) addRow(node, value, preservedWidth);
 
   const addButton = node.addWidget("button", "+ Add Lora", "", () => {
     openPicker((item) => addRow(node, defaultRowValue(item)));
   });
   addButton.__lorax = true;
   addButton.__loraxAddButton = true;
-  resizeNode(node);
+  resizeNode(node, preservedWidth);
 }
 
 function setRowFromItem(node, row, item) {
@@ -1056,8 +1082,9 @@ function moveRow(node, row, direction) {
 }
 
 function removeRow(node, row) {
+  const preservedWidth = nodeWidth(node);
   node.widgets = (node.widgets || []).filter((widget) => widget !== row);
-  resizeNode(node);
+  resizeNode(node, preservedWidth);
 }
 
 function rowMenu(node, row, event) {

@@ -1,5 +1,7 @@
 import importlib.util
+import asyncio
 import base64
+import json
 import pathlib
 import shutil
 import sys
@@ -40,7 +42,7 @@ def _install_comfy_stubs():
     aiohttp = types.ModuleType("aiohttp")
     web = types.ModuleType("aiohttp.web")
 
-    def json_response(data, status=200):
+    def json_response(data, status=200, **_kwargs):
         return {"data": data, "status": status}
 
     web.json_response = json_response
@@ -148,6 +150,233 @@ def test_xflows_hidden_auto_tags_survive_metadata_merge():
     assert "Flux" in merged["all_tags"]
     assert merged["favorite"] is True
     assert merged["run_count"] == 4
+
+
+def test_xflows_move_preserves_metadata_and_returns_workflow():
+    module = _load_package()
+    xflows = sys.modules[f"{module.__name__}.xflows_manager"]
+    shutil.rmtree(ROOT / ".test_user", ignore_errors=True)
+    try:
+        workflow_root = xflows._workflow_root()
+        (workflow_root / "folder").mkdir(parents=True, exist_ok=True)
+        (workflow_root / "target").mkdir(parents=True, exist_ok=True)
+        (workflow_root / "folder" / "sample.json").write_text(
+            '{"nodes":[{"id":1,"type":"KSampler"}],"links":[]}',
+            encoding="utf-8",
+        )
+        xflows._save_metadata({
+            "workflows": {
+                "folder/sample.json": {
+                    "favorite": True,
+                    "manual_tags": ["keep"],
+                    "run_count": 7,
+                    "last_run_at": 123,
+                }
+            }
+        })
+
+        result = xflows._move_workflow_file("folder/sample.json", "target")
+        metadata = xflows._load_metadata()["workflows"]
+
+        assert result["ok"] is True
+        assert result["old_path"] == "folder/sample.json"
+        assert result["path"] == "target/sample.json"
+        assert result["workflow"]["path"] == "target/sample.json"
+        assert not (workflow_root / "folder" / "sample.json").exists()
+        assert (workflow_root / "target" / "sample.json").exists()
+        assert "folder/sample.json" not in metadata
+        assert metadata["target/sample.json"]["favorite"] is True
+        assert metadata["target/sample.json"]["manual_tags"] == ["keep"]
+        assert metadata["target/sample.json"]["run_count"] == 7
+    finally:
+        shutil.rmtree(ROOT / ".test_user", ignore_errors=True)
+
+
+def test_xflows_move_routes_return_paths_folders_and_batch_results():
+    module = _load_package()
+    xflows = sys.modules[f"{module.__name__}.xflows_manager"]
+
+    class Request:
+        def __init__(self, body):
+            self._body = body
+
+        async def json(self):
+            return self._body
+
+    shutil.rmtree(ROOT / ".test_user", ignore_errors=True)
+    try:
+        workflow_root = xflows._workflow_root()
+        (workflow_root / "source").mkdir(parents=True, exist_ok=True)
+        (workflow_root / "target").mkdir(parents=True, exist_ok=True)
+        (workflow_root / "source" / "single.json").write_text(
+            '{"nodes":[{"id":1,"type":"KSampler"}],"links":[]}',
+            encoding="utf-8",
+        )
+        (workflow_root / "a.json").write_text('{"nodes":[],"links":[]}', encoding="utf-8")
+        (workflow_root / "source" / "b.json").write_text('{"nodes":[],"links":[]}', encoding="utf-8")
+
+        single = asyncio.run(xflows.move_workflow(Request({"path": "source/single.json", "folder": "target"})))
+        assert single["status"] == 200
+        assert single["data"]["old_path"] == "source/single.json"
+        assert single["data"]["path"] == "target/single.json"
+        assert "target" in single["data"]["folders"]
+        assert single["data"]["workflow"]["path"] == "target/single.json"
+
+        batch = asyncio.run(xflows.move_workflows_batch(Request({
+            "paths": ["a.json", "source/b.json", "missing.json"],
+            "folder": "target",
+        })))
+        assert batch["status"] == 200
+        assert batch["data"]["ok"] is False
+        assert batch["data"]["moved_count"] == 2
+        assert batch["data"]["failed_count"] == 1
+        assert [result["ok"] for result in batch["data"]["results"]] == [True, True, False]
+        assert "target" in batch["data"]["folders"]
+    finally:
+        shutil.rmtree(ROOT / ".test_user", ignore_errors=True)
+
+
+def test_xflows_batch_move_preserves_metadata_collisions_and_failures():
+    module = _load_package()
+    xflows = sys.modules[f"{module.__name__}.xflows_manager"]
+    shutil.rmtree(ROOT / ".test_user", ignore_errors=True)
+    try:
+        workflow_root = xflows._workflow_root()
+        workflow_root.mkdir(parents=True, exist_ok=True)
+        (workflow_root / "folder").mkdir(parents=True, exist_ok=True)
+        (workflow_root / "target").mkdir(parents=True, exist_ok=True)
+        workflow_bytes = b'{"nodes":[{"id":1,"type":"KSampler"}],"links":[]}'
+        (workflow_root / "a.json").write_bytes(workflow_bytes)
+        (workflow_root / "folder" / "b.json").write_bytes(workflow_bytes)
+        (workflow_root / "target" / "a.json").write_bytes(workflow_bytes)
+        xflows._save_metadata({
+            "workflows": {
+                "a.json": {"run_count": 2, "manual_tags": ["root"]},
+                "folder/b.json": {"run_count": 5, "favorite": True},
+            }
+        })
+
+        metadata = xflows._load_metadata()
+        model_index = xflows._build_model_index()
+        results = []
+        for raw_path in ["a.json", "folder/b.json", "missing.json"]:
+            try:
+                result = xflows._move_workflow_file(
+                    raw_path,
+                    "target",
+                    metadata=metadata,
+                    model_index=model_index,
+                    save_metadata=False,
+                )
+            except ValueError as exc:
+                result = {"ok": False, "path": raw_path, "error": str(exc)}
+            results.append(result)
+        xflows._save_metadata(metadata)
+
+        assert [result["ok"] for result in results] == [True, True, False]
+        assert results[0]["path"] == "target/a (2).json"
+        assert results[1]["path"] == "target/b.json"
+        assert results[2]["error"] == "workflow not found"
+        saved = xflows._load_metadata()["workflows"]
+        assert "a.json" not in saved
+        assert "folder/b.json" not in saved
+        assert saved["target/a (2).json"]["run_count"] == 2
+        assert saved["target/a (2).json"]["manual_tags"] == ["root"]
+        assert saved["target/b.json"]["run_count"] == 5
+        assert saved["target/b.json"]["favorite"] is True
+        assert (workflow_root / "target" / "a.json").exists()
+        assert (workflow_root / "target" / "a (2).json").exists()
+        assert (workflow_root / "target" / "b.json").exists()
+    finally:
+        shutil.rmtree(ROOT / ".test_user", ignore_errors=True)
+
+
+def test_xflows_deeper_duplicate_groups_compare_names_nodes_and_values():
+    module = _load_package()
+    xflows = sys.modules[f"{module.__name__}.xflows_manager"]
+    shutil.rmtree(ROOT / ".test_user", ignore_errors=True)
+
+    def workflow(seed, prompt, node_ids, layout):
+        link_id = node_ids[0] + node_ids[1]
+        return {
+            "nodes": [
+                {
+                    "id": node_ids[0],
+                    "type": "KSampler",
+                    "pos": [layout, layout + 1],
+                    "size": [300 + layout, 200 + layout],
+                    "flags": {"collapsed": bool(layout % 2)},
+                    "widgets_values": [seed, prompt],
+                    "inputs": [
+                        {"name": "model", "type": "MODEL", "link": link_id},
+                        {"name": "positive", "type": "STRING", "value": prompt},
+                    ],
+                    "outputs": [{"name": "LATENT", "type": "LATENT", "links": [link_id]}],
+                },
+                {
+                    "id": node_ids[1],
+                    "type": "SaveImage",
+                    "pos": [layout + 2, layout + 3],
+                    "widgets_values": ["out"],
+                    "inputs": [{"name": "images", "type": "IMAGE", "link": link_id}],
+                },
+            ],
+            "links": [[link_id, node_ids[0], 0, node_ids[1], 0, "LATENT"]],
+        }
+
+    try:
+        workflow_root = xflows._workflow_root()
+        (workflow_root / "one").mkdir(parents=True, exist_ok=True)
+        (workflow_root / "two").mkdir(parents=True, exist_ok=True)
+        files = {
+            "one/Flow.json": workflow(1, "cat", (10, 20), 1),
+            "two/flow.json": workflow(2, "dog", (101, 201), 8),
+            "one/alpha.json": workflow(7, "same", (30, 40), 3),
+            "two/beta.json": workflow(7, "same", (301, 401), 9),
+        }
+        for rel, data in files.items():
+            path = workflow_root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(data), encoding="utf-8")
+
+        model_index = xflows._build_model_index()
+        entries = [
+            xflows._entry_from_file(workflow_root / rel, model_index)
+            for rel in sorted(files)
+        ]
+        by_path = {entry["path"]: entry for entry in entries}
+
+        assert len({entry["node_signature"] for entry in entries}) == 1
+        assert by_path["one/alpha.json"]["value_signature"] == by_path["two/beta.json"]["value_signature"]
+        assert by_path["one/Flow.json"]["value_signature"] != by_path["two/flow.json"]["value_signature"]
+
+        name_groups = xflows._same_name_node_groups(entries)
+        assert len(name_groups) == 1
+        assert name_groups[0]["name_key"] == "flow"
+        assert {workflow["path"] for workflow in name_groups[0]["workflows"]} == {"one/Flow.json", "two/flow.json"}
+
+        same_value_groups = xflows._same_node_value_groups(entries)
+        assert any(
+            {workflow["path"] for workflow in group["workflows"]} == {"one/alpha.json", "two/beta.json"}
+            for group in same_value_groups
+        )
+
+        changed_value_groups = xflows._same_node_changed_value_groups(entries)
+        assert len(changed_value_groups) == 1
+        assert changed_value_groups[0]["count"] == 4
+        assert changed_value_groups[0]["value_variant_count"] == 3
+
+        response = asyncio.run(xflows.duplicates(None))
+        assert response["status"] == 200
+        assert set(response["data"]) >= {
+            "same_name_nodes",
+            "same_nodes_values",
+            "same_nodes_changed_values",
+            "generated_at",
+        }
+        assert response["data"]["same_name_nodes"][0]["name_key"] == "flow"
+    finally:
+        shutil.rmtree(ROOT / ".test_user", ignore_errors=True)
 
 
 def test_xflows_library_storage_helpers_roundtrip():
