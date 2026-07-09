@@ -5,12 +5,18 @@ import re
 
 from .profiles import FORMAT_JSON, get_profile, normalize_format
 
+BBOX_LAYOUT_TARGETS = {"ideogram4", "krea2"}
+
 
 def _clean(value: object) -> str:
     return str(value or "").strip()
 
 
 def _context_block(data: dict, target_model: str = "") -> str:
+    raw_prompt_text = _clean(data.get("raw_prompt_text"))
+    if raw_prompt_text:
+        return f"Raw input prompt:\n{raw_prompt_text}"
+
     fields = [
         ("Idea", data.get("idea")),
         ("Subject", data.get("subject")),
@@ -21,10 +27,10 @@ def _context_block(data: dict, target_model: str = "") -> str:
         ("Detail level", data.get("detail")),
         ("Reference image note", data.get("image_note")),
     ]
-    if target_model == "ideogram4":
+    if target_model in BBOX_LAYOUT_TARGETS:
         fields.extend([
-            ("Ideogram layout JSON / bbox hints", data.get("ideogram_layout")),
-            ("Ideogram palette hints", data.get("ideogram_palette")),
+            ("BBox layout JSON / bbox hints", data.get("bbox_layout") or data.get("ideogram_layout")),
+            ("BBox palette hints", data.get("ideogram_palette")),
         ])
     if get_profile(target_model).media_type == "video":
         fields.extend([

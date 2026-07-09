@@ -230,10 +230,14 @@ Inputs:
 | `target_model` | dropdown | Prompt profile target, such as an image or prompt model profile. |
 | `prompt_format` | dropdown | Output format. The node normalizes invalid choices for the selected target. |
 | `negative_enabled` | `BOOLEAN` | Controls whether negative prompt text is emitted. |
+| `enable_bbox_json_input` | `BOOLEAN` | UI-managed toggle for syncing connected bbox JSON into BBox Layout. |
+| `enable_text_input` | `BOOLEAN` | UI-managed toggle for using connected raw prompt text during generation. |
 | `generated_positive` | multiline `STRING` | Managed by the frontend UI. |
 | `generated_negative` | multiline `STRING` | Managed by the frontend UI. |
 | `final_prompt` | multiline `STRING` | Managed by the frontend UI. |
 | `image` | optional `IMAGE` | Optional image context for frontend-assisted prompting. |
+| `bbox_json` | optional `STRING` | Optional connected raw bbox JSON for BBox Layout sync. |
+| `raw_prompt_text` | optional `STRING` | Optional connected raw prompt text or JSON for backend refinement. |
 | `ui_state` | optional `STRING` | Internal UI state JSON. |
 
 Outputs:
@@ -244,7 +248,7 @@ Outputs:
 | `positive` | `STRING` | Positive prompt output. |
 | `negative` | `STRING` | Negative prompt output, or empty when disabled. |
 
-Use this node when you want one prompt-building surface that can target multiple prompt formats while preserving positive/negative text outputs for downstream nodes. For backend setup, model profiles, connected images, video fields, and Ideogram helpers, see [Unified Autoprompter X Guide](UNIFIED_AUTOPROMPTER_X.md).
+Use this node when you want one prompt-building surface that can target multiple prompt formats while preserving positive/negative text outputs for downstream nodes. For backend setup, model profiles, connected images/text, video fields, and BBox Layout helpers, see [Unified Autoprompter X Guide](UNIFIED_AUTOPROMPTER_X.md).
 
 ## AFJ - Visual Builder
 

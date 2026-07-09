@@ -1,6 +1,6 @@
 # Unified Autoprompter X Guide
 
-`Unified Autoprompter X` is a WorkflowX prompting node for building model-targeted prompts from one UI. It can generate prompt text through Gemini, Ollama, or local GGUF backends, then writes the result into normal ComfyUI node outputs.
+`Unified Autoprompter X` is a WorkflowX prompting node for building model-targeted prompts from one UI. It can generate prompt text through Gemini, OpenAI-compatible, Ollama, or local GGUF backends, then writes the result into normal ComfyUI node outputs.
 
 The node lives under:
 
@@ -22,7 +22,7 @@ It supports:
 - Ollama model generation
 - local GGUF generation
 - editable model/profile instructions
-- Ideogram 4 layout editing helpers
+- BBox Layout editing helpers for bbox-capable targets
 
 ## Node Inputs And Outputs
 
@@ -33,10 +33,14 @@ Inputs:
 | `target_model` | dropdown | Prompt profile target, such as `ideogram4` or `sdxl`. |
 | `prompt_format` | dropdown | `natural`, `tags`, or `json`; unsupported choices are normalized for the selected profile. |
 | `negative_enabled` | `BOOLEAN` | Enables separate negative prompt generation/output. |
+| `enable_bbox_json_input` | `BOOLEAN` | UI-managed toggle for reading connected `bbox_json` during BBox Layout sync. |
+| `enable_text_input` | `BOOLEAN` | UI-managed toggle for using connected `raw_prompt_text` during generation. |
 | `generated_positive` | multiline `STRING` | UI-managed positive output. |
 | `generated_negative` | multiline `STRING` | UI-managed negative output. |
 | `final_prompt` | multiline `STRING` | UI-managed final prompt. |
 | `image` | optional `IMAGE` | Optional visual reference. |
+| `bbox_json` | optional connected `STRING` | Raw bbox layout JSON used only when `enable_bbox_json_input` is on and the user clicks BBox Layout `Sync`. |
+| `raw_prompt_text` | optional connected `STRING` | Raw upstream prompt text or JSON used as the generation source when `enable_text_input` is on. |
 | `ui_state` | optional multiline `STRING` | UI-managed editor/backend state. |
 
 Outputs:
@@ -67,6 +71,7 @@ Current built-in targets:
 | FLUX.1 dev | `flux1_dev` | image | `natural` |
 | FLUX.2 dev | `flux2_dev` | image | `natural` |
 | Flux Klein | `flux_klein` | image | `natural` |
+| Krea2 | `krea2` | image | `natural` |
 | Z-Image | `z_image` | image | `natural` |
 | WAN 2.2 | `wan2_2` | video | `natural` |
 | LTX 2.3 | `ltx_2_3` | video | `natural` |
@@ -93,7 +98,7 @@ The selected profile decides which formats are available. If a workflow stores a
 
 ## Generation Backends
 
-Unified Autoprompter X can generate through three backend modes.
+Unified Autoprompter X can generate through four backend modes.
 
 ### Gemini
 
@@ -107,6 +112,30 @@ UI fields:
 - fetch models
 
 The API key is stored in the browser via the frontend helper, not in the node's visible prompt outputs.
+
+### OpenAI Compatible
+
+Use OpenAI Compatible when you want generation through LM Studio, Open WebUI, LiteLLM, or another server that exposes an OpenAI-compatible API.
+
+UI fields:
+
+- base URL, default `http://localhost:1234/v1`
+- optional API key
+- model ID, typed manually or selected after fetching
+- optional unload after
+- timeout
+- fetch models
+
+The backend lists models from `{base_url}/models` and generates through `{base_url}/chat/completions`. Connected image previews are sent as Chat Completions `image_url` data URLs when available.
+
+The API key is stored in the browser via the frontend helper, not in the node's visible prompt outputs. Leave it empty for local servers that do not require authentication.
+
+When `unload after` is enabled, the compatible backend sends `ttl: 0` in the chat completions payload. LM Studio supports per-request TTL for OpenAI-compatible requests. Other compatible servers may ignore or reject the extra field; disable the toggle if the server does not support it.
+
+Common base URL examples:
+
+- LM Studio: `http://localhost:1234/v1`
+- Open WebUI: use the OpenAI-compatible base URL exposed by the instance, commonly ending in `/v1` or `/api` depending on setup.
 
 ### Ollama
 
@@ -153,6 +182,16 @@ Use it for:
 
 If the connected image has no preview yet, run or refresh the upstream image node first so the frontend can capture it.
 
+## Connected JSON And Text Inputs
+
+The optional `bbox_json` and `raw_prompt_text` inputs are raw `STRING` connections.
+
+`bbox_json` is sync-only. When `Use connected bbox JSON` is enabled, the BBox Layout editor's `Sync` button first reads the connected JSON and renders its regions. Generation does not automatically use connected bbox JSON until you sync or apply the layout.
+
+`raw_prompt_text` is generation-source only. When `Use connected text` is enabled and the connected text is readable, Unified Autoprompter X sends that raw text to the selected backend instead of the Idea, Subject, Style, Camera, and Text fields. The backend still refines it normally for the selected target model and format. The connected text can be plain text or arbitrary JSON.
+
+If either enabled input is missing or unreadable, the UI shows a status warning and falls back to the current cached output or form fields.
+
 ## Video Prompt Fields
 
 For video profiles, the UI exposes extra intent fields:
@@ -166,9 +205,16 @@ For video profiles, the UI exposes extra intent fields:
 
 These fields are included only when the active profile is a video profile, such as `wan2_2` or `ltx_2_3`.
 
-## Ideogram 4 Tools
+## BBox Layout Tools
 
-When `target_model` is `ideogram4`, the UI exposes Ideogram-specific helpers.
+When `target_model` is bbox-capable, the UI exposes BBox Layout helpers.
+
+Initial bbox-capable targets:
+
+| Target | Key | BBox order |
+| --- | --- | --- |
+| Ideogram 4 | `ideogram4` | `[y_min,x_min,y_max,x_max]` |
+| Krea2 | `krea2` | `[x_min,y_min,x_max,y_max]` |
 
 Capabilities include:
 
@@ -180,8 +226,9 @@ Capabilities include:
 - saved layout templates
 - apply layout to output
 - copy/sync layout JSON
+- keyboard delete/backspace for the selected unlocked region
 
-The Ideogram tools are meant for spatial composition, text placement, object boxes, and color/layout control. They write back to the same node fields used by the normal prompt outputs.
+The BBox Layout editor stores boxes internally as normalized canvas rectangles, then imports and exports the correct bbox order for the active target model. `Apply layout to output` writes the current layout JSON to the node output and selects JSON format for the active bbox-capable target.
 
 ## Model Settings
 
@@ -243,7 +290,7 @@ Important details:
 3. Choose `prompt_format`.
 4. Enable negative output only if the downstream workflow needs it.
 5. Optionally connect an image input.
-6. Choose Gemini, Ollama, or Local GGUF.
+6. Choose Gemini, OpenAI Compatible, Ollama, or Local GGUF.
 7. Enter the idea, subject, image note, or video notes.
 8. Click `Generate`.
 9. Review positive, negative, and final prompt output.
@@ -254,6 +301,10 @@ Important details:
 ### Gemini models do not load
 
 Check that the API key is present, the timeout is high enough, and the network can reach Gemini.
+
+### OpenAI Compatible models do not load
+
+Check that the base URL is correct, the timeout is high enough, and the API key is present if the server requires one. Some compatible servers do not expose model discovery; type the model ID manually and generate through chat completions.
 
 ### Ollama models do not load
 

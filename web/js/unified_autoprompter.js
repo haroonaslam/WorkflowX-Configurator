@@ -3,16 +3,23 @@ import { app } from "../../scripts/app.js";
 const TARGET_NODE = "UnifiedAutoprompterX";
 const ROUTE = "/workflowx/unified_autoprompter";
 const GEMINI_KEY_STORAGE_KEY = "workflowx_unified_autoprompter_gemini_api_key";
+const OPENAI_KEY_STORAGE_KEY = "workflowx_unified_autoprompter_openai_api_key";
+const OPENAI_BASE_URL_STORAGE_KEY = "workflowx_unified_autoprompter_openai_base_url";
 const MODEL_SELECTION_STORAGE_KEY = "workflowx_unified_autoprompter_model_selection";
 const IDEOGRAM_TEMPLATE_STORAGE_KEY = "workflowx_unified_autoprompter_ideogram_templates";
 const IDEOGRAM_TEMPLATE_DIR = "workflowx/unified-autoprompter/ideogram4/templates";
 const DEFAULT_OLLAMA_HOST = "http://localhost:11434";
+const DEFAULT_OPENAI_BASE_URL = "http://localhost:1234/v1";
 const IDEOGRAM_MAX_ELEM_COLORS = 5;
 const IDEOGRAM_MAX_STYLE_COLORS = 16;
 const IDEOGRAM_PANEL_DEFAULT_HEIGHT = 176;
 const IDEOGRAM_PANEL_MIN_HEIGHT = 132;
 const IDEOGRAM_PANEL_MAX_HEIGHT = 340;
 const ALL_PROMPT_FORMATS = ["natural", "tags", "json"];
+const BBOX_LAYOUT_TARGETS = {
+  ideogram4: { label: "Ideogram 4", order: "yx", orderLabel: "ymin, xmin, ymax, xmax" },
+  krea2: { label: "Krea2", order: "xy", orderLabel: "xmin, ymin, xmax, ymax" },
+};
 
 function fallbackRule(enabled, text = "") {
   return {
@@ -32,6 +39,7 @@ const FALLBACK_PROFILES = [
   { key: "flux1_dev", label: "FLUX.1 dev", formats: { natural: fallbackRule(true, "Write a FLUX.1 natural prompt."), tags: fallbackRule(false), json: fallbackRule(false) }, default_format: "natural", negative_supported: true, json_supported: false, media_type: "image", notes: "" },
   { key: "flux2_dev", label: "FLUX.2 dev", formats: { natural: fallbackRule(true, "Write a FLUX.2 natural prompt."), tags: fallbackRule(false), json: fallbackRule(true, "Write FLUX.2 structured JSON.") }, default_format: "natural", negative_supported: true, json_supported: true, media_type: "image", notes: "" },
   { key: "flux_klein", label: "Flux Klein", formats: { natural: fallbackRule(true, "Write a compact Flux Klein prompt."), tags: fallbackRule(false), json: fallbackRule(true, "Write compact Flux Klein JSON.") }, default_format: "natural", negative_supported: true, json_supported: true, media_type: "image", notes: "" },
+  { key: "krea2", label: "Krea2", formats: { natural: fallbackRule(true, "Write a Krea2 natural prompt."), tags: fallbackRule(false), json: fallbackRule(true, "Write Krea2 structured bbox JSON.") }, default_format: "natural", negative_supported: true, json_supported: true, media_type: "image", notes: "" },
   { key: "z_image", label: "Z-Image", formats: { natural: fallbackRule(true, "Write a detailed Z-Image natural prompt."), tags: fallbackRule(false), json: fallbackRule(false) }, default_format: "natural", negative_supported: true, json_supported: false, media_type: "image", notes: "" },
   { key: "wan2_2", label: "WAN 2.2", formats: { natural: fallbackRule(true, "Write a WAN 2.2 video prompt."), tags: fallbackRule(false), json: fallbackRule(false) }, default_format: "natural", negative_supported: true, json_supported: false, media_type: "video", notes: "" },
   { key: "ltx_2_3", label: "LTX 2.3", formats: { natural: fallbackRule(true, "Write an LTX 2.3 chronological video prompt."), tags: fallbackRule(false), json: fallbackRule(false) }, default_format: "natural", negative_supported: true, json_supported: false, media_type: "video", notes: "" },
@@ -40,7 +48,7 @@ const NODE_MIN_WIDGET_HEIGHT = 420;
 let nextDockZ = 12000;
 
 let profilesPromise = null;
-const pinnedDocks = new Set();
+const graphDocks = new Set();
 let dockRAF = 0;
 let dockWakesInstalled = false;
 
@@ -53,11 +61,26 @@ function chainCallback(object, callbackName, callback) {
   };
 }
 
-function applyPinnedDockTransform(node) {
+function screenGeometryToGraph(node, rect, fallbackGraph) {
   const canvas = app.canvas;
-  const dock = node?.__workflowXUapPinnedDock;
+  const ds = canvas?.ds;
+  const canvasRect = canvas?.canvas?.getBoundingClientRect?.();
+  if (!node?.pos || !ds || !canvasRect || !rect) return { ...fallbackGraph };
+  const scale = ds.scale || 1;
+  return {
+    x: (rect.x - canvasRect.left) / scale - ds.offset[0] - node.pos[0],
+    y: (rect.y - canvasRect.top) / scale - ds.offset[1] - node.pos[1],
+    w: Math.max(320, rect.w / scale),
+    h: Math.max(220, rect.h / scale),
+  };
+}
+
+function applyGraphDockTransform(dock) {
+  const canvas = app.canvas;
+  const node = dock?.__workflowXNode;
   const graph = dock?.__workflowXGraph;
-  if (!canvas || !dock || !graph) return;
+  if (!canvas || !dock || !node || !graph) return;
+  if (dock.classList.contains("fullscreen")) return;
 
   let nodeEl = null;
   if (window.LiteGraph?.vueNodesMode && node.id != null) {
@@ -74,21 +97,22 @@ function applyPinnedDockTransform(node) {
       dock.style.position = "absolute";
       dock.style.transform = "";
       dock.style.transformOrigin = "";
-      dock.style.zIndex = "";
-      node.__workflowXUapDockSig = "";
+      dock.__workflowXDockSig = "";
     }
-    const sig = `vue|${graph.x}|${graph.y}`;
-    if (node.__workflowXUapDockSig !== sig) {
+    const sig = `vue|${graph.x}|${graph.y}|${graph.w}|${graph.h}`;
+    if (dock.__workflowXDockSig !== sig) {
       dock.style.left = `${graph.x}px`;
       dock.style.top = `${titleHeight + graph.y}px`;
-      node.__workflowXUapDockSig = sig;
+      dock.style.width = `${graph.w}px`;
+      dock.style.height = `${graph.h}px`;
+      dock.__workflowXDockSig = sig;
     }
     return;
   }
 
   if (dock.parentElement !== document.body) {
     document.body.appendChild(dock);
-    node.__workflowXUapDockSig = "";
+    dock.__workflowXDockSig = "";
   }
   if (!node.pos) return;
   const ds = canvas.ds;
@@ -96,30 +120,34 @@ function applyPinnedDockTransform(node) {
   const rect = canvas.canvas.getBoundingClientRect();
   const left = rect.left + (node.pos[0] + graph.x + ds.offset[0]) * scale;
   const top = rect.top + (node.pos[1] + graph.y + ds.offset[1]) * scale;
-  const sig = `fixed|${left}|${top}|${scale}`;
-  if (node.__workflowXUapDockSig !== sig) {
+  const sig = `fixed|${left}|${top}|${scale}|${graph.w}|${graph.h}`;
+  if (dock.__workflowXDockSig !== sig) {
     dock.style.position = "fixed";
+    dock.style.left = "0px";
+    dock.style.top = "0px";
+    dock.style.width = `${graph.w}px`;
+    dock.style.height = `${graph.h}px`;
     dock.style.transformOrigin = "top left";
     dock.style.transform = `translate(${left}px, ${top}px) scale(${scale})`;
-    node.__workflowXUapDockSig = sig;
+    dock.__workflowXDockSig = sig;
   }
 }
 
-function tickPinnedDocks() {
+function tickGraphDocks() {
   dockRAF = 0;
-  for (const node of pinnedDocks) applyPinnedDockTransform(node);
+  for (const dock of graphDocks) applyGraphDockTransform(dock);
 }
 
-function wakePinnedDocks() {
-  if (!dockRAF && pinnedDocks.size) dockRAF = requestAnimationFrame(tickPinnedDocks);
+function wakeGraphDocks() {
+  if (!dockRAF && graphDocks.size) dockRAF = requestAnimationFrame(tickGraphDocks);
 }
 
 function installDockWakes() {
   if (dockWakesInstalled) return;
   if (!app.canvas) return;
   dockWakesInstalled = true;
-  chainCallback(app.canvas, "onDrawForeground", wakePinnedDocks);
-  window.addEventListener("resize", wakePinnedDocks);
+  chainCallback(app.canvas, "onDrawForeground", wakeGraphDocks);
+  window.addEventListener("resize", wakeGraphDocks);
 }
 
 function injectStyle() {
@@ -331,19 +359,25 @@ function injectStyle() {
   background: #242424;
   border: 1px solid #555;
   border-radius: 7px;
+  box-sizing: border-box;
   box-shadow: 0 10px 32px rgba(0,0,0,.55);
   color: #ddd;
   font: 12px ui-sans-serif, system-ui, sans-serif;
-  max-height: 60vh;
-  min-width: 360px;
+  max-height: 56vh;
+  max-width: calc(100vw - 16px);
+  min-width: 320px;
+  overflow-x: hidden;
   overflow-y: auto;
-  padding: 8px;
+  padding: 6px;
   position: fixed;
+  width: min(560px, calc(100vw - 16px));
   z-index: 13000;
 }
 .workflowx-uap-ideo-layer-header {
   color: #999;
   margin-bottom: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .workflowx-uap-ideo-layer-row {
@@ -351,7 +385,7 @@ function injectStyle() {
   border-radius: 4px;
   cursor: pointer;
   display: flex;
-  gap: 8px;
+  gap: 6px;
   min-height: 27px;
   padding: 3px 4px;
   transition: transform .16s ease, background .12s ease;
@@ -393,11 +427,17 @@ function injectStyle() {
   cursor: pointer;
   flex: 0 0 auto;
   font: 12px ui-sans-serif, system-ui, sans-serif;
+  min-width: 38px;
   padding: 2px 5px;
+  text-align: center;
 }
 .workflowx-uap-ideo-layer-btn.on {
   background: #7a5a16;
   color: #fff;
+}
+.workflowx-uap-ideo-layer-btn:disabled {
+  cursor: default;
+  opacity: .35;
 }
 .workflowx-uap-ideo-menu-row {
   align-items: center;
@@ -740,6 +780,42 @@ function storeGeminiKey(key) {
   }
 }
 
+function loadStoredOpenAIKey() {
+  try {
+    return window.localStorage?.getItem(OPENAI_KEY_STORAGE_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function storeOpenAIKey(key) {
+  try {
+    const trimmed = String(key || "").trim();
+    if (trimmed) window.localStorage?.setItem(OPENAI_KEY_STORAGE_KEY, trimmed);
+    else window.localStorage?.removeItem(OPENAI_KEY_STORAGE_KEY);
+  } catch {
+    // Browser storage can be unavailable in restricted contexts.
+  }
+}
+
+function loadStoredOpenAIBaseUrl() {
+  try {
+    return window.localStorage?.getItem(OPENAI_BASE_URL_STORAGE_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function storeOpenAIBaseUrl(baseUrl) {
+  try {
+    const trimmed = String(baseUrl || "").trim();
+    if (trimmed) window.localStorage?.setItem(OPENAI_BASE_URL_STORAGE_KEY, trimmed);
+    else window.localStorage?.removeItem(OPENAI_BASE_URL_STORAGE_KEY);
+  } catch {
+    // Browser storage can be unavailable in restricted contexts.
+  }
+}
+
 function loadStoredModelSelection() {
   try {
     const parsed = JSON.parse(window.localStorage?.getItem(MODEL_SELECTION_STORAGE_KEY) || "{}");
@@ -753,8 +829,8 @@ function storeModelSelection(selection) {
   try {
     const next = loadStoredModelSelection();
     const backend = String(selection?.backend || "").trim();
-    if (["gemini", "ollama", "local"].includes(backend)) next.backend = backend;
-    for (const key of ["gemini_model", "ollama_model", "local_model"]) {
+    if (["gemini", "openai", "ollama", "local"].includes(backend)) next.backend = backend;
+    for (const key of ["gemini_model", "openai_model", "ollama_model", "local_model"]) {
       const value = String(selection?.[key] || "").trim();
       if (value) next[key] = value;
     }
@@ -876,6 +952,14 @@ function hideWidget(node, name) {
   if (index != null && index !== -1) node.removeInput(index);
 }
 
+function ensureInputSocket(node, name, type) {
+  if (!node) return;
+  node.inputs ||= [];
+  if (node.inputs.some((input) => input.name === name)) return;
+  node.addInput?.(name, type);
+  markDirty();
+}
+
 function markDirty() {
   app.graph?.setDirtyCanvas?.(true, true);
   app.canvas?.setDirty?.(true, true);
@@ -903,15 +987,15 @@ async function fetchJsonChecked(url, options = {}, label = "Request") {
   const response = await fetch(url, options);
   const text = await response.text();
   let data = null;
+  const restartHint = "Restart ComfyUI so the new WorkflowX backend routes are registered.";
   if (text.trim()) {
     try {
       data = JSON.parse(text);
     } catch {
-      throw new Error(`${label} returned non-JSON HTTP ${response.status}: ${text.slice(0, 180)}`);
+      throw new Error(`${label} returned non-JSON HTTP ${response.status}: ${text.slice(0, 180)}. ${restartHint}`);
     }
   }
   if (!data) {
-    const restartHint = "Restart ComfyUI so the new WorkflowX backend routes are registered.";
     throw new Error(`${label} returned an empty response${response.status ? ` (HTTP ${response.status})` : ""}. ${restartHint}`);
   }
   if (!response.ok || data.error) {
@@ -933,6 +1017,22 @@ function profileMap(profiles) {
 
 function profileIsVideo(profile) {
   return profile?.media_type === "video";
+}
+
+function bboxTargetConfig(targetModel) {
+  return BBOX_LAYOUT_TARGETS[targetModel] || null;
+}
+
+function isBboxLayoutTarget(targetModel) {
+  return Boolean(bboxTargetConfig(targetModel));
+}
+
+function bboxOrder(targetModel) {
+  return bboxTargetConfig(targetModel)?.order || "yx";
+}
+
+function bboxOrderLabel(targetModel) {
+  return bboxTargetConfig(targetModel)?.orderLabel || BBOX_LAYOUT_TARGETS.ideogram4.orderLabel;
 }
 
 function formatRule(profile, promptFormat) {
@@ -1038,6 +1138,7 @@ function defaultState(node) {
     saved = {};
   }
   const storedModels = loadStoredModelSelection();
+  const storedOpenAIBaseUrl = loadStoredOpenAIBaseUrl();
   const generatedPositive = widgetValue(node, "generated_positive", "");
   const generatedNegative = widgetValue(node, "generated_negative", "");
   const finalPrompt = widgetValue(node, "final_prompt", "");
@@ -1060,6 +1161,12 @@ function defaultState(node) {
     text: saved.text || "",
     detail: saved.detail || "high",
     image_note: saved.image_note || "",
+    enable_bbox_json_input: saved.enable_bbox_json_input == null
+      ? Boolean(widgetValue(node, "enable_bbox_json_input", false))
+      : Boolean(saved.enable_bbox_json_input),
+    enable_text_input: saved.enable_text_input == null
+      ? Boolean(widgetValue(node, "enable_text_input", false))
+      : Boolean(saved.enable_text_input),
     ideogram_layout: saved.ideogram_layout || "",
     ideogram_palette: saved.ideogram_palette || "",
     ideogram_overlay_visible: saved.ideogram_overlay_visible !== false,
@@ -1081,6 +1188,9 @@ function defaultState(node) {
     extra_instructions: saved.extra_instructions || "",
     gemini_model: saved.gemini_model || storedModels.gemini_model || "",
     gemini_timeout: saved.gemini_timeout || 120,
+    openai_base_url: saved.openai_base_url || storedOpenAIBaseUrl || DEFAULT_OPENAI_BASE_URL,
+    openai_model: saved.openai_model || storedModels.openai_model || "",
+    openai_timeout: saved.openai_timeout || 120,
     ollama_host: saved.ollama_host || DEFAULT_OLLAMA_HOST,
     ollama_model: saved.ollama_model || storedModels.ollama_model || "",
     ollama_think: Boolean(saved.ollama_think || false),
@@ -1121,7 +1231,12 @@ function serializableState(state) {
     connected_image_b64,
     connected_image_url,
     connected_image_available,
+    connected_bbox_json,
+    connected_bbox_json_available,
+    connected_raw_prompt_text,
+    connected_raw_prompt_text_available,
     gemini_key,
+    openai_key,
     ...rest
   } = state;
   return rest;
@@ -1156,6 +1271,8 @@ function syncOutputWidgets(node, state, activeProfile) {
   setWidgetValue(node, "target_model", outputTarget);
   setWidgetValue(node, "prompt_format", outputFormat);
   setWidgetValue(node, "negative_enabled", negativeEnabled);
+  setWidgetValue(node, "enable_bbox_json_input", Boolean(state.enable_bbox_json_input));
+  setWidgetValue(node, "enable_text_input", Boolean(state.enable_text_input));
   setWidgetValue(node, "generated_positive", positive || "");
   setWidgetValue(node, "generated_negative", negative || "");
   setWidgetValue(node, "final_prompt", finalPrompt || "");
@@ -1264,6 +1381,63 @@ function resolveSourcePreview(node, inputName) {
   return null;
 }
 
+function inputIsLinked(node, inputName) {
+  return Boolean(node?.inputs?.some((input) => input.name === inputName && input.link != null));
+}
+
+function coerceTextValue(value) {
+  if (value == null) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value || "");
+  }
+}
+
+function resolveSourceText(node, inputName) {
+  if (!node?.graph || !node.inputs) return null;
+  const inputSlot = node.inputs.findIndex((input) => input.name === inputName);
+  if (inputSlot < 0) return null;
+  const input = node.inputs[inputSlot];
+  if (!input || input.link == null) return null;
+  const link = graphLink(node.graph, input.link);
+  if (!link) return null;
+  const srcNode = node.graph.getNodeById?.(link.origin_id);
+  if (!srcNode) return null;
+
+  const aliases = [
+    srcNode.outputs?.[link.origin_slot]?.name,
+    inputName,
+    "text",
+    "string",
+    "value",
+    "prompt",
+    "json",
+    "output",
+  ].map((name) => String(name || "").trim().toLowerCase()).filter(Boolean);
+
+  const widgets = Array.isArray(srcNode.widgets) ? srcNode.widgets : [];
+  let widget = widgets.find((item) => aliases.includes(String(item.name || "").trim().toLowerCase()));
+  if (!widget && Number.isInteger(link.origin_slot) && widgets[link.origin_slot]) widget = widgets[link.origin_slot];
+  if (!widget) {
+    widget = widgets.find((item) => ["string", "text", "customtext", "combo"].includes(String(item.type || "").toLowerCase()));
+  }
+  if (!widget && widgets.length === 1) widget = widgets[0];
+  if (widget && "value" in widget) return { value: coerceTextValue(widget.value), widget, sourceNode: srcNode };
+
+  if (Array.isArray(srcNode.widgets_values) && link.origin_slot < srcNode.widgets_values.length) {
+    return { value: coerceTextValue(srcNode.widgets_values[link.origin_slot]), widget: null, sourceNode: srcNode };
+  }
+  for (const key of ["value", "text", "prompt", "json"]) {
+    if (srcNode.properties && srcNode.properties[key] != null) {
+      return { value: coerceTextValue(srcNode.properties[key]), widget: null, sourceNode: srcNode };
+    }
+  }
+  return { value: "", widget: null, sourceNode: srcNode };
+}
+
 function captureVideoFrame(videoEl, callback) {
   const capture = () => {
     if (!videoEl?.videoWidth || !videoEl?.videoHeight) return;
@@ -1322,13 +1496,68 @@ function watchImageInputs(node, inputName, onChange) {
   return unwatch;
 }
 
+function watchTextInput(node, inputName, onChange) {
+  let watchedWidgets = [];
+
+  function unwatch() {
+    for (const { widget, callback } of watchedWidgets) widget.callback = callback;
+    watchedWidgets = [];
+  }
+
+  function resolve() {
+    const source = resolveSourceText(node, inputName);
+    return {
+      connected: inputIsLinked(node, inputName),
+      value: source ? source.value : "",
+      available: Boolean(source),
+    };
+  }
+
+  function watchSourceWidget() {
+    unwatch();
+    const source = resolveSourceText(node, inputName);
+    const widget = source?.widget;
+    if (!widget) return;
+    const callback = widget.callback;
+    widget.callback = function workflowXTextWidgetChanged() {
+      const result = callback?.apply(this, arguments);
+      setTimeout(() => onChange(resolve()), 80);
+      return result;
+    };
+    watchedWidgets.push({ widget, callback });
+  }
+
+  chainCallback(node, "onConnectionsChange", function workflowXUapTextInputChanged(type) {
+    if (type != null && type !== 1) return;
+    setTimeout(() => {
+      watchSourceWidget();
+      onChange(resolve());
+    }, 100);
+  });
+  chainCallback(node, "onRemoved", unwatch);
+  setTimeout(() => {
+    watchSourceWidget();
+    onChange(resolve());
+  }, 100);
+  return unwatch;
+}
+
 function savedDockGeometry(node, key, fallback) {
   node.properties ||= {};
   node.properties.workflowx_uap_docks ||= {};
   const saved = node.properties.workflowx_uap_docks[key] || {};
-  const graph = saved.graph && typeof saved.graph === "object" ? saved.graph : null;
+  let graph = saved.graph && typeof saved.graph === "object" ? saved.graph : null;
+  const hasScreenGeometry = Number.isFinite(saved.x) && Number.isFinite(saved.y) && Number.isFinite(saved.w) && Number.isFinite(saved.h);
+  if (saved.attached !== true && saved.pinned === false && hasScreenGeometry) {
+    graph = screenGeometryToGraph(node, {
+      x: saved.x,
+      y: saved.y,
+      w: saved.w,
+      h: saved.h,
+    }, fallback.graph);
+  }
   return {
-    pinned: saved.pinned !== false,
+    locked: Boolean(saved.locked),
     graph: graph ? {
       x: Number.isFinite(graph.x) ? graph.x : fallback.graph.x,
       y: Number.isFinite(graph.y) ? graph.y : fallback.graph.y,
@@ -1347,20 +1576,21 @@ function storeDockGeometry(node, key, dock, minimized = false) {
   if (!node?.properties || !dock) return;
   node.properties.workflowx_uap_docks ||= {};
   if (dock.classList.contains("fullscreen")) return;
-  const pinned = Boolean(dock.__workflowXPinned);
   const graph = dock.__workflowXGraph || { x: 0, y: (node.size?.[1] || 0) + 12, w: dock.offsetWidth, h: dock.offsetHeight };
+  const rect = dock.getBoundingClientRect();
   node.properties.workflowx_uap_docks[key] = {
-    pinned,
+    attached: true,
+    locked: Boolean(dock.__workflowXLocked),
     graph: {
       x: graph.x,
       y: graph.y,
-      w: Math.max(320, dock.offsetWidth),
-      h: Math.max(220, dock.offsetHeight),
+      w: Math.max(320, graph.w),
+      h: Math.max(220, graph.h),
     },
-    x: Math.max(0, dock.offsetLeft),
-    y: Math.max(0, dock.offsetTop),
-    w: Math.max(320, dock.offsetWidth),
-    h: Math.max(220, dock.offsetHeight),
+    x: Math.max(0, rect.left),
+    y: Math.max(0, rect.top),
+    w: Math.max(320, rect.width),
+    h: Math.max(220, rect.height),
     minimized,
   };
   markDirty();
@@ -1373,10 +1603,7 @@ function closeDock(node, key) {
   dock.__workflowXOnClose?.();
   dock.remove();
   delete node.__workflowXUapDocks[key];
-  if (node.__workflowXUapPinnedDock === dock) {
-    node.__workflowXUapPinnedDock = null;
-    pinnedDocks.delete(node);
-  }
+  graphDocks.delete(dock);
 }
 
 function dockIsOpen(node, key) {
@@ -1410,25 +1637,20 @@ function createDockWindow(node, key, title, options = {}) {
   };
   const geom = savedDockGeometry(node, key, fallback);
   const dock = buildDom("div", "workflowx-uap-dock");
-  const pinned = options.pinned !== false && geom.pinned !== false;
-  dock.__workflowXPinned = pinned;
+  const locked = Boolean(geom.locked);
+  dock.__workflowXNode = node;
+  dock.__workflowXKey = key;
+  dock.__workflowXLocked = locked;
   dock.__workflowXGraph = { ...geom.graph };
-  if (pinned) {
-    dock.style.width = `${geom.graph.w}px`;
-    dock.style.height = `${geom.graph.h}px`;
-  } else {
-    dock.style.left = `${geom.x}px`;
-    dock.style.top = `${geom.y}px`;
-    dock.style.width = `${geom.w}px`;
-    dock.style.height = `${geom.h}px`;
-  }
+  dock.style.width = `${geom.graph.w}px`;
+  dock.style.height = `${geom.graph.h}px`;
   bringDockForward(dock);
 
   const head = buildDom("div", "workflowx-uap-dock-head");
   const titleEl = buildDom("div", "workflowx-uap-dock-title", title);
   const minBtn = buildDom("button", "workflowx-uap-btn", "_");
   const fullBtn = buildDom("button", "workflowx-uap-btn", "[]");
-  const pinBtn = buildDom("button", `workflowx-uap-btn${pinned ? " active" : ""}`, "pin");
+  const pinBtn = buildDom("button", `workflowx-uap-btn${locked ? " active" : ""}`, "pin");
   const closeBtn = buildDom("button", "workflowx-uap-btn", "x");
   for (const button of [minBtn, fullBtn, pinBtn, closeBtn]) button.type = "button";
   head.appendChild(titleEl);
@@ -1441,12 +1663,9 @@ function createDockWindow(node, key, title, options = {}) {
   dock.appendChild(body);
   document.body.appendChild(dock);
   stopGraphEvents(dock);
-  if (pinned) {
-    node.__workflowXUapPinnedDock = dock;
-    pinnedDocks.add(node);
-    installDockWakes();
-    wakePinnedDocks();
-  }
+  graphDocks.add(dock);
+  installDockWakes();
+  wakeGraphDocks();
 
   if (geom.minimized) dock.classList.add("minimized");
 
@@ -1456,17 +1675,10 @@ function createDockWindow(node, key, title, options = {}) {
     event.preventDefault();
     const dx = (event.clientX - dragging.x) / dragging.scale;
     const dy = (event.clientY - dragging.y) / dragging.scale;
-    if (dock.__workflowXPinned) {
-      dock.__workflowXGraph.x = dragging.graphX + dx;
-      dock.__workflowXGraph.y = dragging.graphY + dy;
-      node.__workflowXUapDockSig = "";
-      applyPinnedDockTransform(node);
-    } else {
-      const x = Math.max(0, dragging.left + dx);
-      const y = Math.max(0, dragging.top + dy);
-      dock.style.left = `${Math.min(window.innerWidth - 80, x)}px`;
-      dock.style.top = `${Math.min(window.innerHeight - 40, y)}px`;
-    }
+    dock.__workflowXGraph.x = dragging.graphX + dx;
+    dock.__workflowXGraph.y = dragging.graphY + dy;
+    dock.__workflowXDockSig = "";
+    applyGraphDockTransform(dock);
   };
   const pointerUp = () => {
     if (dragging) storeDockGeometry(node, key, dock, dock.classList.contains("minimized"));
@@ -1477,15 +1689,14 @@ function createDockWindow(node, key, title, options = {}) {
   head.addEventListener("pointerdown", (event) => {
     if (event.target !== head && event.target !== titleEl) return;
     if (dock.classList.contains("fullscreen")) return;
+    if (dock.__workflowXLocked) return;
     bringDockForward(dock);
     dragging = {
       x: event.clientX,
       y: event.clientY,
-      left: dock.offsetLeft,
-      top: dock.offsetTop,
       graphX: dock.__workflowXGraph?.x || 0,
       graphY: dock.__workflowXGraph?.y || 0,
-      scale: dock.__workflowXPinned ? app.canvas?.ds?.scale || 1 : 1,
+      scale: app.canvas?.ds?.scale || 1,
     };
     document.addEventListener("pointermove", pointerMove, true);
     document.addEventListener("pointerup", pointerUp, true);
@@ -1497,22 +1708,19 @@ function createDockWindow(node, key, title, options = {}) {
     dock.appendChild(handle);
     handle.addEventListener("pointerdown", (event) => {
       if (dock.classList.contains("fullscreen")) return;
+      if (dock.__workflowXLocked) return;
       event.preventDefault();
       bringDockForward(dock);
       const start = {
         x: event.clientX,
         y: event.clientY,
-        left: dock.offsetLeft,
-        top: dock.offsetTop,
         graphX: dock.__workflowXGraph?.x || 0,
         graphY: dock.__workflowXGraph?.y || 0,
-        width: dock.offsetWidth,
-        height: dock.offsetHeight,
-        scale: dock.__workflowXPinned ? app.canvas?.ds?.scale || 1 : 1,
+        width: dock.__workflowXGraph?.w || dock.offsetWidth,
+        height: dock.__workflowXGraph?.h || dock.offsetHeight,
+        scale: app.canvas?.ds?.scale || 1,
       };
       const resizeMove = (moveEvent) => {
-        let left = start.left;
-        let top = start.top;
         let width = start.width;
         let height = start.height;
         const dx = (moveEvent.clientX - start.x) / start.scale;
@@ -1523,29 +1731,20 @@ function createDockWindow(node, key, title, options = {}) {
         if (dir.includes("s")) height = start.height + dy;
         if (dir.includes("w")) {
           width = start.width - dx;
-          left = start.left + dx;
           graphX = start.graphX + dx;
         }
         if (dir.includes("n")) {
           height = start.height - dy;
-          top = start.top + dy;
           graphY = start.graphY + dy;
         }
         width = Math.max(320, width);
         height = Math.max(220, height);
-        dock.style.width = `${width}px`;
-        dock.style.height = `${height}px`;
-        if (dock.__workflowXPinned) {
-          dock.__workflowXGraph.x = graphX;
-          dock.__workflowXGraph.y = graphY;
-          dock.__workflowXGraph.w = width;
-          dock.__workflowXGraph.h = height;
-          node.__workflowXUapDockSig = "";
-          applyPinnedDockTransform(node);
-        } else {
-          dock.style.left = `${Math.max(0, left)}px`;
-          dock.style.top = `${Math.max(0, top)}px`;
-        }
+        dock.__workflowXGraph.x = graphX;
+        dock.__workflowXGraph.y = graphY;
+        dock.__workflowXGraph.w = width;
+        dock.__workflowXGraph.h = height;
+        dock.__workflowXDockSig = "";
+        applyGraphDockTransform(dock);
       };
       const resizeUp = () => {
         storeDockGeometry(node, key, dock, dock.classList.contains("minimized"));
@@ -1562,42 +1761,24 @@ function createDockWindow(node, key, title, options = {}) {
     storeDockGeometry(node, key, dock, dock.classList.contains("minimized"));
   });
   fullBtn.addEventListener("click", () => {
-    dock.classList.toggle("fullscreen");
+    const entering = !dock.classList.contains("fullscreen");
+    dock.classList.toggle("fullscreen", entering);
     bringDockForward(dock);
-    if (!dock.classList.contains("fullscreen")) storeDockGeometry(node, key, dock, dock.classList.contains("minimized"));
-  });
-  pinBtn.addEventListener("click", () => {
-    dock.__workflowXPinned = !dock.__workflowXPinned;
-    pinBtn.classList.toggle("active", dock.__workflowXPinned);
-    if (dock.__workflowXPinned) {
-      const rect = dock.getBoundingClientRect();
-      const canvas = app.canvas;
-      const ds = canvas?.ds;
-      const canvasRect = canvas?.canvas?.getBoundingClientRect();
-      if (ds && canvasRect) {
-        dock.__workflowXGraph = {
-          x: (rect.left - canvasRect.left) / (ds.scale || 1) - ds.offset[0] - node.pos[0],
-          y: (rect.top - canvasRect.top) / (ds.scale || 1) - ds.offset[1] - node.pos[1],
-          w: rect.width,
-          h: rect.height,
-        };
-      }
-      node.__workflowXUapPinnedDock = dock;
-      pinnedDocks.add(node);
-      installDockWakes();
-      node.__workflowXUapDockSig = "";
-      applyPinnedDockTransform(node);
-    } else {
-      pinnedDocks.delete(node);
-      if (node.__workflowXUapPinnedDock === dock) node.__workflowXUapPinnedDock = null;
-      const rect = dock.getBoundingClientRect();
-      document.body.appendChild(dock);
+    if (entering) {
       dock.style.position = "fixed";
       dock.style.transform = "";
       dock.style.transformOrigin = "";
-      dock.style.left = `${rect.left}px`;
-      dock.style.top = `${rect.top}px`;
+      dock.__workflowXDockSig = "";
+    } else {
+      dock.__workflowXDockSig = "";
+      applyGraphDockTransform(dock);
+      storeDockGeometry(node, key, dock, dock.classList.contains("minimized"));
     }
+  });
+  pinBtn.addEventListener("click", () => {
+    dock.__workflowXLocked = !dock.__workflowXLocked;
+    pinBtn.classList.toggle("active", dock.__workflowXLocked);
+    pinBtn.title = dock.__workflowXLocked ? "Unlock moving and resizing" : "Lock moving and resizing";
     storeDockGeometry(node, key, dock, dock.classList.contains("minimized"));
   });
   closeBtn.addEventListener("click", () => closeDock(node, key));
@@ -1607,6 +1788,8 @@ function createDockWindow(node, key, title, options = {}) {
     document.removeEventListener("pointerup", pointerUp, true);
   };
   node.__workflowXUapDocks[key] = dock;
+  pinBtn.title = dock.__workflowXLocked ? "Unlock moving and resizing" : "Lock moving and resizing";
+  applyGraphDockTransform(dock);
   return { dock, body, close: () => closeDock(node, key) };
 }
 
@@ -1632,6 +1815,8 @@ function setupUnifiedAutoprompter(node) {
     "target_model",
     "prompt_format",
     "negative_enabled",
+    "enable_bbox_json_input",
+    "enable_text_input",
     "generated_positive",
     "generated_negative",
     "final_prompt",
@@ -1639,12 +1824,20 @@ function setupUnifiedAutoprompter(node) {
   ]) {
     hideWidget(node, name);
   }
+  ensureInputSocket(node, "bbox_json", "STRING");
+  ensureInputSocket(node, "raw_prompt_text", "STRING");
 
   const state = defaultState(node);
   state.gemini_key = loadStoredGeminiKey();
+  state.openai_key = loadStoredOpenAIKey();
+  state.openai_base_url = state.openai_base_url || DEFAULT_OPENAI_BASE_URL;
   state.connected_image_b64 = "";
   state.connected_image_url = "";
   state.connected_image_available = false;
+  state.connected_bbox_json = "";
+  state.connected_bbox_json_available = false;
+  state.connected_raw_prompt_text = "";
+  state.connected_raw_prompt_text_available = false;
   state.ideogram_overlay_visible = state.ideogram_overlay_visible !== false;
   state.ideogram_overlay_brightness = Number(state.ideogram_overlay_brightness || 35);
   state.ideogram_width = Math.max(16, Number(state.ideogram_width || 1024));
@@ -1663,9 +1856,10 @@ function setupUnifiedAutoprompter(node) {
 
   const backendRow = buildDom("div", "workflowx-uap-row");
   const geminiBtn = buildDom("button", "workflowx-uap-btn", "Gemini");
+  const openaiBtn = buildDom("button", "workflowx-uap-btn", "OpenAI Compatible");
   const ollamaBtn = buildDom("button", "workflowx-uap-btn", "Ollama");
   const localBtn = buildDom("button", "workflowx-uap-btn", "Local GGUF");
-  for (const button of [geminiBtn, ollamaBtn, localBtn]) {
+  for (const button of [geminiBtn, openaiBtn, ollamaBtn, localBtn]) {
     button.type = "button";
     backendRow.appendChild(button);
   }
@@ -1694,6 +1888,45 @@ function setupUnifiedAutoprompter(node) {
   geminiModelsRow.appendChild(geminiModelSelect);
   geminiPanel.appendChild(geminiModelsRow);
   wrap.appendChild(geminiPanel);
+
+  const openaiPanel = buildDom("div", "workflowx-uap-panel");
+  const openaiGrid = buildDom("div", "workflowx-uap-grid");
+  const openaiBaseUrlInput = createInput("text");
+  openaiBaseUrlInput.placeholder = DEFAULT_OPENAI_BASE_URL;
+  openaiBaseUrlInput.value = state.openai_base_url || DEFAULT_OPENAI_BASE_URL;
+  const openaiKeyInput = createInput("password");
+  openaiKeyInput.placeholder = "optional for local servers";
+  openaiKeyInput.value = state.openai_key || "";
+  const openaiModelInput = createInput("text");
+  openaiModelInput.placeholder = "Model ID (manual or fetched)";
+  openaiModelInput.value = state.openai_model || "";
+  const openaiTimeoutInput = createInput("number");
+  openaiTimeoutInput.min = "5";
+  openaiTimeoutInput.max = "3600";
+  openaiTimeoutInput.step = "1";
+  openaiTimeoutInput.value = String(state.openai_timeout || 120);
+  field(openaiGrid, "Base URL", openaiBaseUrlInput);
+  field(openaiGrid, "API key", openaiKeyInput);
+  field(openaiGrid, "Model ID", openaiModelInput);
+  field(openaiGrid, "Timeout seconds", openaiTimeoutInput);
+  openaiPanel.appendChild(openaiGrid);
+  const openaiModelsRow = buildDom("div", "workflowx-uap-row");
+  const fetchOpenaiBtn = buildDom("button", "workflowx-uap-btn", "Fetch models");
+  fetchOpenaiBtn.type = "button";
+  const openaiUnloadToggle = buildDom("label", "workflowx-uap-toggle");
+  const openaiUnloadInput = document.createElement("input");
+  openaiUnloadInput.type = "checkbox";
+  openaiUnloadInput.checked = state.unload_after !== false;
+  openaiUnloadToggle.appendChild(openaiUnloadInput);
+  openaiUnloadToggle.appendChild(document.createTextNode("unload after"));
+  const openaiModelSelect = createSelect();
+  openaiModelSelect.style.flex = "1";
+  option(openaiModelSelect, state.openai_model || "", state.openai_model || "No model selected");
+  openaiModelsRow.appendChild(fetchOpenaiBtn);
+  openaiModelsRow.appendChild(openaiUnloadToggle);
+  openaiModelsRow.appendChild(openaiModelSelect);
+  openaiPanel.appendChild(openaiModelsRow);
+  wrap.appendChild(openaiPanel);
 
   const ollamaPanel = buildDom("div", "workflowx-uap-panel");
   const ollamaGrid = buildDom("div", "workflowx-uap-grid");
@@ -1813,13 +2046,30 @@ function setupUnifiedAutoprompter(node) {
   ideogramLayoutArea.placeholder = '{"background":"...","elements":[{"type":"obj","bbox":[200,250,800,750],"desc":"..."}]}';
   const ideogramPaletteInput = createInput("text");
   ideogramPaletteInput.placeholder = "#FFFFFF, #111111, #E43F5A";
-  field(ideogramPanel, "Ideogram bbox/layout JSON hints", ideogramLayoutArea);
-  field(ideogramPanel, "Ideogram palette hints", ideogramPaletteInput);
+  field(ideogramPanel, "BBox layout JSON hints", ideogramLayoutArea);
+  field(ideogramPanel, "BBox palette hints", ideogramPaletteInput);
   ideogramPanel.classList.add("workflowx-uap-hidden");
   wrap.appendChild(ideogramPanel);
 
   const extraArea = createTextarea(2);
   field(wrap, "Extra instructions", extraArea);
+
+  const connectedInputRow = buildDom("div", "workflowx-uap-row");
+  const bboxJsonToggle = buildDom("label", "workflowx-uap-toggle");
+  const bboxJsonInput = document.createElement("input");
+  bboxJsonInput.type = "checkbox";
+  bboxJsonInput.checked = Boolean(state.enable_bbox_json_input);
+  bboxJsonToggle.appendChild(bboxJsonInput);
+  bboxJsonToggle.appendChild(document.createTextNode("use connected bbox JSON"));
+  const rawTextToggle = buildDom("label", "workflowx-uap-toggle");
+  const rawTextInput = document.createElement("input");
+  rawTextInput.type = "checkbox";
+  rawTextInput.checked = Boolean(state.enable_text_input);
+  rawTextToggle.appendChild(rawTextInput);
+  rawTextToggle.appendChild(document.createTextNode("use connected text"));
+  connectedInputRow.appendChild(bboxJsonToggle);
+  connectedInputRow.appendChild(rawTextToggle);
+  wrap.appendChild(connectedInputRow);
 
   const imageRow = buildDom("div", "workflowx-uap-row");
   const negativeToggle = buildDom("label", "workflowx-uap-toggle");
@@ -1836,7 +2086,7 @@ function setupUnifiedAutoprompter(node) {
   positivePreviewBtn.type = "button";
   const negativePreviewBtn = buildDom("button", "workflowx-uap-btn", "Show negative");
   negativePreviewBtn.type = "button";
-  const ideogramBtn = buildDom("button", "workflowx-uap-btn", "Ideogram layout");
+  const ideogramBtn = buildDom("button", "workflowx-uap-btn", "BBox layout");
   ideogramBtn.type = "button";
   const modelSettingsBtn = buildDom("button", "workflowx-uap-btn", "Model settings");
   modelSettingsBtn.type = "button";
@@ -1889,9 +2139,11 @@ function setupUnifiedAutoprompter(node) {
 
   function refreshBackends() {
     geminiBtn.classList.toggle("active", state.backend === "gemini");
+    openaiBtn.classList.toggle("active", state.backend === "openai");
     ollamaBtn.classList.toggle("active", state.backend === "ollama");
     localBtn.classList.toggle("active", state.backend === "local");
     geminiPanel.classList.toggle("workflowx-uap-hidden", state.backend !== "gemini");
+    openaiPanel.classList.toggle("workflowx-uap-hidden", state.backend !== "openai");
     ollamaPanel.classList.toggle("workflowx-uap-hidden", state.backend !== "ollama");
     localPanel.classList.toggle("workflowx-uap-hidden", state.backend !== "local");
     requestAnimationFrame(resizeNodeToVisibleContent);
@@ -1913,8 +2165,8 @@ function setupUnifiedAutoprompter(node) {
     setSelectOptions(formatSelect, formats, state.prompt_format, (value) => value);
     state.prompt_format = formatSelect.value;
     ideogramPanel.classList.add("workflowx-uap-hidden");
-    ideogramBtn.classList.toggle("workflowx-uap-hidden", state.target_model !== "ideogram4");
-    if (state.target_model !== "ideogram4") closeDock(node, "ideogram");
+    ideogramBtn.classList.toggle("workflowx-uap-hidden", !isBboxLayoutTarget(state.target_model));
+    if (!isBboxLayoutTarget(state.target_model)) closeDock(node, "ideogram");
     videoPanel.classList.toggle("workflowx-uap-hidden", !profileIsVideo(profile));
     state.negative_enabled = Boolean(state.negative_enabled);
     negativeInput.checked = state.negative_enabled;
@@ -1931,6 +2183,8 @@ function setupUnifiedAutoprompter(node) {
     state.text = textInput.value;
     state.detail = detailSelect.value;
     state.image_note = imageNoteInput.value;
+    state.enable_bbox_json_input = bboxJsonInput.checked;
+    state.enable_text_input = rawTextInput.checked;
     state.ideogram_layout = ideogramLayoutArea.value;
     state.ideogram_palette = ideogramPaletteInput.value;
     state.video_duration_or_frames = videoDurationInput.value;
@@ -1941,9 +2195,12 @@ function setupUnifiedAutoprompter(node) {
     state.reference_or_control_notes = controlNotesArea.value;
     state.extra_instructions = extraArea.value;
     state.gemini_timeout = Number(timeoutInput.value || 120);
+    state.openai_base_url = openaiBaseUrlInput.value.trim() || DEFAULT_OPENAI_BASE_URL;
+    state.openai_model = (openaiModelInput.value || openaiModelSelect.value || "").trim();
+    state.openai_timeout = Number(openaiTimeoutInput.value || 120);
     state.ollama_host = hostInput.value || DEFAULT_OLLAMA_HOST;
     state.ollama_think = thinkInput.checked;
-    state.unload_after = unloadInput.checked;
+    state.unload_after = state.backend === "openai" ? openaiUnloadInput.checked : unloadInput.checked;
     state.max_tokens = Number(maxTokensInput.value || 768);
     state.temperature = Number(tempInput.value || 0.7);
     state.ctx_size = Number(ctxInput.value || 8192);
@@ -1965,6 +2222,7 @@ function setupUnifiedAutoprompter(node) {
     storeModelSelection({
       backend: state.backend,
       gemini_model: state.gemini_model,
+      openai_model: state.openai_model,
       ollama_model: state.ollama_model,
       local_model: state.local_model,
     });
@@ -1981,6 +2239,9 @@ function setupUnifiedAutoprompter(node) {
   function setPreviewButtonLabels() {
     positivePreviewBtn.textContent = dockIsOpen(node, "output_positive") ? "Hide positive" : "Show positive";
     negativePreviewBtn.textContent = dockIsOpen(node, "output_negative") ? "Hide negative" : "Show negative";
+    const ideogramOpen = dockIsOpen(node, "ideogram");
+    ideogramBtn.textContent = ideogramOpen ? "Hide layout" : "BBox layout";
+    ideogramBtn.classList.toggle("active", ideogramOpen);
   }
 
   function updateOutputDocks() {
@@ -2043,7 +2304,6 @@ function setupUnifiedAutoprompter(node) {
     const dock = createDockWindow(node, key, `${label} Preview`, {
       width: 520,
       height: 440,
-      pinned: false,
       matchNodeWidth: false,
     });
     const view = document.createElement("textarea");
@@ -2949,10 +3209,11 @@ function setupUnifiedAutoprompter(node) {
 
   function normalizeBoxFromBbox(element, index) {
     const bbox = Array.isArray(element?.bbox) ? element.bbox : [80 + index * 40, 80 + index * 40, 320 + index * 40, 360 + index * 40];
-    const ymin = clamp01(Number(bbox[0]) / 1000);
-    const xmin = clamp01(Number(bbox[1]) / 1000);
-    const ymax = clamp01(Number(bbox[2]) / 1000);
-    const xmax = clamp01(Number(bbox[3]) / 1000);
+    const order = bboxOrder(state.target_model);
+    const xmin = clamp01(Number(order === "xy" ? bbox[0] : bbox[1]) / 1000);
+    const ymin = clamp01(Number(order === "xy" ? bbox[1] : bbox[0]) / 1000);
+    const xmax = clamp01(Number(order === "xy" ? bbox[2] : bbox[3]) / 1000);
+    const ymax = clamp01(Number(order === "xy" ? bbox[3] : bbox[2]) / 1000);
     const palette = Array.isArray(element?.color_palette)
       ? element.color_palette.map((item) => String(item || "").trim()).filter(Boolean)
       : [];
@@ -2971,9 +3232,12 @@ function setupUnifiedAutoprompter(node) {
   }
 
   function openIdeogramLayoutEditor() {
-    if (state.target_model !== "ideogram4") return;
+    if (!isBboxLayoutTarget(state.target_model)) return;
     readFieldsIntoState();
-    const dock = createDockWindow(node, "ideogram", "ideogram 4 prompt editor X", { height: 470, pinned: true, matchNodeWidth: true });
+    const targetLabel = bboxTargetConfig(state.target_model)?.label || activeProfile()?.label || "BBox";
+    const dock = createDockWindow(node, "ideogram", `${targetLabel} bbox layout editor X`, { height: 470, matchNodeWidth: true });
+    dock.dock.__workflowXOnClose = () => setPreviewButtonLabels();
+    setPreviewButtonLabels();
 
     function normalizeCaptionPayload(payload) {
       if (!payload || typeof payload !== "object") return {};
@@ -2996,14 +3260,19 @@ function setupUnifiedAutoprompter(node) {
       );
     }
 
-    function activeIdeogramCaption() {
+    function activeBboxCaption() {
       const candidates = [];
-      if (state.last_generation?.target_model === "ideogram4" && state.last_generation?.prompt_format === "json") {
+      if (state.enable_bbox_json_input && state.connected_bbox_json_available) {
+        candidates.push(state.connected_bbox_json || "");
+      }
+      if (state.last_generation?.target_model === state.target_model && state.last_generation?.prompt_format === "json") {
         candidates.push(state.last_generation.prompt);
         candidates.push(state.last_generation.positive);
       }
       candidates.push(widgetValue(node, "final_prompt", ""));
       candidates.push(state.final_prompt || "");
+      candidates.push(widgetValue(node, "generated_positive", ""));
+      candidates.push(state.generated_positive || "");
       candidates.push(state.ideogram_layout || "");
       for (const candidate of candidates) {
         const caption = parseCaptionText(candidate);
@@ -3012,7 +3281,7 @@ function setupUnifiedAutoprompter(node) {
       return {};
     }
 
-    const parsed = activeIdeogramCaption();
+    const parsed = activeBboxCaption();
     const decomp = parsed.compositional_deconstruction || {};
     const sourceElements = Array.isArray(decomp.elements) ? decomp.elements : Array.isArray(parsed.elements) ? parsed.elements : [];
     const boxes = sourceElements.map(normalizeBoxFromBbox);
@@ -3021,6 +3290,8 @@ function setupUnifiedAutoprompter(node) {
     let draggingBox = null;
     let inlineEditor = null;
     let layerMenu = null;
+    let layerDismiss = null;
+    let toolbarMenuDismiss = null;
     let highLevelDescription = parsed.high_level_description || state.subject || state.idea || "";
     let backgroundDescription = decomp.background || state.idea || "";
     let stylePalette = String(state.ideogram_palette || "")
@@ -3075,6 +3346,8 @@ function setupUnifiedAutoprompter(node) {
     const cvBox = buildDom("div", "workflowx-uap-ideo-cv");
     const canvas = document.createElement("canvas");
     canvas.className = "workflowx-uap-ideo-canvas";
+    canvas.title = "Drag to draw, click to select, Alt-click to cycle overlapping regions, right-click for regions";
+    canvas.tabIndex = 0;
     canvas.width = state.ideogram_width;
     canvas.height = state.ideogram_height;
     cvBox.appendChild(canvas);
@@ -3159,15 +3432,26 @@ function setupUnifiedAutoprompter(node) {
     const templatesMenu = buildDom("div", "workflowx-uap-ideo-menu workflowx-uap-hidden");
     document.body.appendChild(templatesMenu);
 
-    function showMenu(menu, button) {
+    function closeToolbarMenus() {
+      toolbarMenuDismiss?.();
+      toolbarMenuDismiss = null;
       for (const item of [bgMenu, textMenu, templatesMenu]) {
-        if (item !== menu) item.classList.add("workflowx-uap-hidden");
+        item.classList.add("workflowx-uap-hidden");
       }
-      menu.classList.toggle("workflowx-uap-hidden");
-      if (menu.classList.contains("workflowx-uap-hidden")) return;
+    }
+
+    function showMenu(menu, button) {
+      const shouldOpen = menu.classList.contains("workflowx-uap-hidden");
+      closeToolbarMenus();
+      if (!shouldOpen) return;
+      menu.classList.remove("workflowx-uap-hidden");
       const rect = button.getBoundingClientRect();
       menu.style.left = `${Math.max(4, Math.min(rect.left, window.innerWidth - 260))}px`;
       menu.style.top = `${Math.min(rect.bottom + 4, window.innerHeight - 180)}px`;
+      toolbarMenuDismiss = armOutsideDismiss(menu, () => {
+        menu.classList.add("workflowx-uap-hidden");
+        toolbarMenuDismiss = null;
+      }, button);
     }
 
     async function buildTemplatesMenu() {
@@ -3222,11 +3506,12 @@ function setupUnifiedAutoprompter(node) {
       const previous = dock.dock.__workflowXCleanup;
       return () => {
         previous?.();
+        closeToolbarMenus();
+        closeLayerMenu();
         bgMenu.remove();
         textMenu.remove();
         templatesMenu.remove();
         inlineEditor?.remove();
-        layerMenu?.remove();
         canvasResizeObserver?.disconnect?.();
         if (node.__workflowXUapRenderIdeogram === renderAll) node.__workflowXUapRenderIdeogram = null;
         if (node.__workflowXUapOnOverlayImageLoad) node.__workflowXUapOnOverlayImageLoad = null;
@@ -3234,15 +3519,19 @@ function setupUnifiedAutoprompter(node) {
     })();
 
     function buildCaption() {
+      const toTargetBbox = (box) => {
+        const xmin = Math.round(box.x * 1000);
+        const ymin = Math.round(box.y * 1000);
+        const xmax = Math.round((box.x + box.w) * 1000);
+        const ymax = Math.round((box.y + box.h) * 1000);
+        return bboxOrder(state.target_model) === "xy"
+          ? [xmin, ymin, xmax, ymax]
+          : [ymin, xmin, ymax, xmax];
+      };
       const elements = boxes.map((box) => {
         const element = {
           type: box.type === "text" ? "text" : "obj",
-          bbox: [
-            Math.round(box.y * 1000),
-            Math.round(box.x * 1000),
-            Math.round((box.y + box.h) * 1000),
-            Math.round((box.x + box.w) * 1000),
-          ],
+          bbox: toTargetBbox(box),
         };
         if (box.type === "text") element.text = box.text || "";
         element.desc = box.desc || "";
@@ -3306,9 +3595,10 @@ function setupUnifiedAutoprompter(node) {
       const prompt = JSON.stringify(buildCaption(), null, 2);
       ideogramLayoutArea.value = prompt;
       state.ideogram_layout = prompt;
-      state.target_model = "ideogram4";
-      state.prompt_format = "json";
-      targetSelect.value = "ideogram4";
+      const targetModel = isBboxLayoutTarget(state.target_model) ? state.target_model : "ideogram4";
+      state.target_model = targetModel;
+      if (enabledProfileFormats(activeProfile()).includes("json")) state.prompt_format = "json";
+      targetSelect.value = targetModel;
       if (Array.from(formatSelect.options).some((option) => option.value === "json")) {
         formatSelect.value = "json";
       }
@@ -3320,18 +3610,35 @@ function setupUnifiedAutoprompter(node) {
         prompt,
         positive: prompt,
         negative,
-        target_model: "ideogram4",
+        target_model: targetModel,
         prompt_format: "json",
         negative_enabled: Boolean(state.negative_enabled),
-        source: "ideogram_layout_apply",
+        source: "bbox_layout_apply",
         generated_at: new Date().toISOString(),
       };
       syncPreview();
-      setStatus("Ideogram layout applied to output.");
+      setStatus("BBox layout applied to output.");
     }
 
     function activeBox() {
       return boxes[activeIndex] || null;
+    }
+
+    function deleteActiveBox() {
+      const box = activeBox();
+      if (!box) return false;
+      if (box.locked) {
+        setStatus("Unlock the selected region before deleting it.", true);
+        return false;
+      }
+      boxes.splice(activeIndex, 1);
+      activeIndex = Math.min(activeIndex, boxes.length - 1);
+      closeInlineEditor();
+      closeLayerMenu();
+      commitIdeogramState();
+      renderAll();
+      setStatus("Region deleted.");
+      return true;
     }
 
     function boxColor(box) {
@@ -3341,6 +3648,37 @@ function setupUnifiedAutoprompter(node) {
     function boxLabel(box, index) {
       const main = box.type === "text" && box.text ? `"${box.text}"` : box.desc || "";
       return main || (box.type === "text" ? "(text)" : "(empty)");
+    }
+
+    function armOutsideDismiss(menu, onDismiss, anchor = null) {
+      let active = true;
+      const isAnchor = (target) => Boolean(anchor && (target === anchor || anchor.contains?.(target)));
+      const disarm = () => {
+        if (!active) return;
+        active = false;
+        document.removeEventListener("pointerdown", dismiss, true);
+        document.removeEventListener("mousedown", dismiss, true);
+        document.removeEventListener("keydown", onKey, true);
+      };
+      const dismiss = (event) => {
+        if (!active) return;
+        const target = event.target;
+        if (menu.contains(target) || isAnchor(target)) return;
+        disarm();
+        onDismiss();
+      };
+      const onKey = (event) => {
+        if (!active || event.key !== "Escape") return;
+        disarm();
+        onDismiss();
+      };
+      setTimeout(() => {
+        if (!active) return;
+        document.addEventListener("pointerdown", dismiss, true);
+        document.addEventListener("mousedown", dismiss, true);
+        document.addEventListener("keydown", onKey, true);
+      }, 0);
+      return disarm;
     }
 
     function stopEditorEvents(element) {
@@ -3560,7 +3898,9 @@ function setupUnifiedAutoprompter(node) {
         const color = boxColor(box);
         ctx.strokeStyle = color;
         ctx.lineWidth = index === activeIndex ? 5 : 3;
+        if (box.locked) ctx.setLineDash([10, 6]);
         ctx.strokeRect(x, y, w, h);
+        ctx.setLineDash([]);
         ctx.fillStyle = color;
         ctx.globalAlpha = clamp01(Number(state.ideogram_box_opacity ?? 18) / 100);
         ctx.fillRect(x, y, w, h);
@@ -3571,8 +3911,12 @@ function setupUnifiedAutoprompter(node) {
           ctx.fillText(String(index + 1), x + 8, y + 28);
           const label = box.type === "text" && box.text ? box.text : box.desc;
           if (label) ctx.fillText(String(label).slice(0, 32), x + 8, Math.min(y + h - 12, y + 58));
+          if (box.locked) {
+            ctx.font = "18px sans-serif";
+            ctx.fillText("locked", x + 8, Math.min(y + h - 12, y + 86));
+          }
         }
-        if (index === activeIndex) {
+        if (index === activeIndex && !box.locked) {
           const handle = Math.max(8, Math.min(14, Math.min(canvasWidth, canvasHeight) * 0.012));
           ctx.fillStyle = "#ffffff";
           ctx.strokeStyle = "#10151a";
@@ -3598,21 +3942,38 @@ function setupUnifiedAutoprompter(node) {
 
     function boxToPx(box) {
       const [width, height] = dims();
-      return [
-        Math.round(box.y * height),
-        Math.round(box.x * width),
-        Math.round((box.y + box.h) * height),
-        Math.round((box.x + box.w) * width),
-      ];
+      const xmin = Math.round(box.x * width);
+      const ymin = Math.round(box.y * height);
+      const xmax = Math.round((box.x + box.w) * width);
+      const ymax = Math.round((box.y + box.h) * height);
+      return bboxOrder(state.target_model) === "xy" ? [xmin, ymin, xmax, ymax] : [ymin, xmin, ymax, xmax];
     }
 
     function boxToGrid(box) {
-      return [
-        Math.round(box.y * 1000),
-        Math.round(box.x * 1000),
-        Math.round((box.y + box.h) * 1000),
-        Math.round((box.x + box.w) * 1000),
-      ];
+      const xmin = Math.round(box.x * 1000);
+      const ymin = Math.round(box.y * 1000);
+      const xmax = Math.round((box.x + box.w) * 1000);
+      const ymax = Math.round((box.y + box.h) * 1000);
+      return bboxOrder(state.target_model) === "xy" ? [xmin, ymin, xmax, ymax] : [ymin, xmin, ymax, xmax];
+    }
+
+    function parseOrderedBox(nums, width, height) {
+      let xmin;
+      let ymin;
+      let xmax;
+      let ymax;
+      if (bboxOrder(state.target_model) === "xy") {
+        [xmin, ymin, xmax, ymax] = nums;
+      } else {
+        [ymin, xmin, ymax, xmax] = nums;
+      }
+      ymin = Math.max(0, Math.min(height, ymin));
+      ymax = Math.max(0, Math.min(height, ymax));
+      xmin = Math.max(0, Math.min(width, xmin));
+      xmax = Math.max(0, Math.min(width, xmax));
+      if (ymin > ymax) [ymin, ymax] = [ymax, ymin];
+      if (xmin > xmax) [xmin, xmax] = [xmax, xmin];
+      return { xmin, ymin, xmax, ymax };
     }
 
     function parseBboxNumbers(input) {
@@ -3682,20 +4043,15 @@ function setupUnifiedAutoprompter(node) {
         typeRow.appendChild(button);
       }
       typeRow.appendChild(buildDom("span", "", "px:"));
-      const pxField = makeBboxField("ymin, xmin, ymax, xmax", "Pixel bbox: ymin, xmin, ymax, xmax", () => {
+      const orderLabel = bboxOrderLabel(state.target_model);
+      const pxField = makeBboxField(orderLabel, `Pixel bbox: ${orderLabel}`, () => {
         const nums = parseBboxNumbers(pxField);
         if (!nums) {
           pxField.value = boxToPx(box).join(", ");
           return;
         }
         const [width, height] = dims();
-        let [ymin, xmin, ymax, xmax] = nums;
-        ymin = Math.max(0, Math.min(height, ymin));
-        ymax = Math.max(0, Math.min(height, ymax));
-        xmin = Math.max(0, Math.min(width, xmin));
-        xmax = Math.max(0, Math.min(width, xmax));
-        if (ymin > ymax) [ymin, ymax] = [ymax, ymin];
-        if (xmin > xmax) [xmin, xmax] = [xmax, xmin];
+        const { xmin, ymin, xmax, ymax } = parseOrderedBox(nums, width, height);
         box.y = ymin / height;
         box.x = xmin / width;
         box.h = Math.max(0.01, (ymax - ymin) / height);
@@ -3707,15 +4063,13 @@ function setupUnifiedAutoprompter(node) {
       pxField.value = boxToPx(box).join(", ");
       typeRow.appendChild(pxField);
       typeRow.appendChild(buildDom("span", "", "out:"));
-      const gridField = makeBboxField("ymin, xmin, ymax, xmax", "Exported 0-1000 bbox: ymin, xmin, ymax, xmax", () => {
+      const gridField = makeBboxField(orderLabel, `Exported 0-1000 bbox: ${orderLabel}`, () => {
         const nums = parseBboxNumbers(gridField);
         if (!nums) {
           gridField.value = boxToGrid(box).join(", ");
           return;
         }
-        let [ymin, xmin, ymax, xmax] = nums.map((number) => Math.max(0, Math.min(1000, number)));
-        if (ymin > ymax) [ymin, ymax] = [ymax, ymin];
-        if (xmin > xmax) [xmin, xmax] = [xmax, xmin];
+        const { xmin, ymin, xmax, ymax } = parseOrderedBox(nums.map((number) => Math.max(0, Math.min(1000, number))), 1000, 1000);
         box.y = ymin / 1000;
         box.x = xmin / 1000;
         box.h = Math.max(0.01, (ymax - ymin) / 1000);
@@ -3797,12 +4151,14 @@ function setupUnifiedAutoprompter(node) {
       return box;
     }
 
-    function hitTest(point) {
+    function hitCandidates(point) {
       const handleX = Math.min(10 / Math.max(1, canvas.getBoundingClientRect().width), 0.04);
       const handleY = Math.min(10 / Math.max(1, canvas.getBoundingClientRect().height), 0.04);
       const handleHit = (pointValue, target, radius) => Math.abs(pointValue - target) <= radius;
+      const candidates = [];
       for (let index = 0; index < boxes.length; index += 1) {
         const box = boxes[index];
+        if (box.locked) continue;
         const x1 = box.x;
         const y1 = box.y;
         const x2 = box.x + box.w;
@@ -3812,19 +4168,32 @@ function setupUnifiedAutoprompter(node) {
         const nearR = handleHit(point.x, x2, handleX);
         const nearT = handleHit(point.y, y1, handleY);
         const nearB = handleHit(point.y, y2, handleY);
-        if (nearL && nearT) return { index, mode: "resize-tl" };
-        if (nearR && nearT) return { index, mode: "resize-tr" };
-        if (nearL && nearB) return { index, mode: "resize-bl" };
-        if (nearR && nearB) return { index, mode: "resize-br" };
-        if (nearL && point.y >= y1 && point.y <= y2) return { index, mode: "resize-l" };
-        if (nearR && point.y >= y1 && point.y <= y2) return { index, mode: "resize-r" };
-        if (nearT && point.x >= x1 && point.x <= x2) return { index, mode: "resize-t" };
-        if (nearB && point.x >= x1 && point.x <= x2) return { index, mode: "resize-b" };
-        if (point.x >= x1 && point.x <= x2 && point.y >= y1 && point.y <= y2) {
-          return { index, mode: "move" };
-        }
+        let mode = "";
+        if (nearL && nearT) mode = "resize-tl";
+        else if (nearR && nearT) mode = "resize-tr";
+        else if (nearL && nearB) mode = "resize-bl";
+        else if (nearR && nearB) mode = "resize-br";
+        else if (nearL && point.y >= y1 && point.y <= y2) mode = "resize-l";
+        else if (nearR && point.y >= y1 && point.y <= y2) mode = "resize-r";
+        else if (nearT && point.x >= x1 && point.x <= x2) mode = "resize-t";
+        else if (nearB && point.x >= x1 && point.x <= x2) mode = "resize-b";
+        else if (point.x >= x1 && point.x <= x2 && point.y >= y1 && point.y <= y2) mode = "move";
+        if (mode) candidates.push({ index, mode });
       }
-      return null;
+      return candidates;
+    }
+
+    function hitTest(point, cycle = false) {
+      const candidates = hitCandidates(point);
+      if (!candidates.length) return null;
+      if (cycle && candidates.length > 1) {
+        const ordered = [...candidates].sort((a, b) => a.index - b.index);
+        const current = ordered.findIndex((item) => item.index === activeIndex);
+        return ordered[(current + 1) % ordered.length];
+      }
+      const activeHandle = candidates.find((item) => item.index === activeIndex && item.mode !== "move");
+      if (activeHandle) return activeHandle;
+      return candidates[0];
     }
 
     function closeInlineEditor() {
@@ -3884,6 +4253,8 @@ function setupUnifiedAutoprompter(node) {
     }
 
     function closeLayerMenu() {
+      layerDismiss?.();
+      layerDismiss = null;
       layerMenu?.remove();
       layerMenu = null;
     }
@@ -3902,10 +4273,14 @@ function setupUnifiedAutoprompter(node) {
         const num = buildDom("span", "workflowx-uap-ideo-layer-num", String(index + 1).padStart(2, "0"));
         const text = buildDom("span", `workflowx-uap-ideo-layer-text${boxLabel(box, index) ? "" : " empty"}`, boxLabel(box, index));
         text.title = boxLabel(box, index);
-        const lock = buildDom("button", `workflowx-uap-ideo-layer-btn${box.locked ? " on" : ""}`, box.locked ? "lock" : "open");
+        const lock = buildDom("button", `workflowx-uap-ideo-layer-btn${box.locked ? " on" : ""}`, box.locked ? "unlock" : "lock");
         const duplicate = buildDom("button", "workflowx-uap-ideo-layer-btn", "copy");
         const remove = buildDom("button", "workflowx-uap-ideo-layer-btn", "x");
         for (const button of [lock, duplicate, remove]) button.type = "button";
+        lock.title = box.locked ? "Unlock this region for canvas editing" : "Lock this region against canvas editing";
+        duplicate.title = "Duplicate this region";
+        remove.title = box.locked ? "Unlock this region before removing it" : "Remove this region";
+        remove.disabled = Boolean(box.locked);
         row.appendChild(swatch);
         row.appendChild(num);
         row.appendChild(text);
@@ -4000,6 +4375,7 @@ function setupUnifiedAutoprompter(node) {
     function openLayerMenu(clientX, clientY) {
       closeLayerMenu();
       const menu = buildDom("div", "workflowx-uap-ideo-layer-menu");
+      stopEditorEvents(menu);
       menu.appendChild(buildDom("div", "workflowx-uap-ideo-layer-header", "Regions - top = front - click select - drag reorder"));
       const list = buildDom("div");
       menu.appendChild(list);
@@ -4011,25 +4387,27 @@ function setupUnifiedAutoprompter(node) {
       const top = Math.max(4, Math.min(clientY, window.innerHeight - rect.height - 4));
       menu.style.left = `${left}px`;
       menu.style.top = `${top}px`;
-      const dismiss = (event) => {
-        if (menu.contains(event.target)) return;
+      layerDismiss = armOutsideDismiss(menu, () => {
         closeLayerMenu();
-        document.removeEventListener("mousedown", dismiss, true);
-      };
-      setTimeout(() => document.addEventListener("mousedown", dismiss, true), 0);
+      });
     }
 
-    canvas.addEventListener("pointerdown", (event) => {
+    canvas.addEventListener("keydown", (event) => {
+      if (!["Delete", "Backspace"].includes(event.key)) return;
+      if (inlineEditor) return;
       event.preventDefault();
+      event.stopPropagation();
+      deleteActiveBox();
+    });
+    canvas.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      canvas.focus();
       closeInlineEditor();
       const point = eventPoint(event);
-      const hit = hitTest(point);
+      const hit = hitTest(point, event.altKey);
       if (hit) {
         activeIndex = hit.index;
-        if (boxes[hit.index]?.locked) {
-          renderAll();
-          return;
-        }
         draggingBox = {
           mode: hit.mode,
           start: point,
@@ -4126,13 +4504,16 @@ function setupUnifiedAutoprompter(node) {
     copyBtn.addEventListener("click", () => navigator.clipboard?.writeText?.(ideogramLayoutArea.value || JSON.stringify(buildCaption(), null, 2)));
     applyBtn.addEventListener("click", applyIdeogramLayoutToOutput);
     syncBtn.addEventListener("click", () => {
-      const caption = activeIdeogramCaption();
+      if (state.enable_bbox_json_input && inputIsLinked(node, "bbox_json") && !state.connected_bbox_json_available) {
+        setStatus("Connected bbox_json input is enabled but could not be read. Using cached output if available.", true);
+      }
+      const caption = activeBboxCaption();
       if (!hasCaptionContent(caption)) {
-        setStatus("No Ideogram JSON available to sync.", true);
+        setStatus("No BBox JSON available to sync.", true);
         return;
       }
       loadCaption(caption, false);
-      setStatus("Ideogram layout synced.");
+      setStatus("BBox layout synced.");
     });
     clearBtn.addEventListener("click", () => {
       closeInlineEditor();
@@ -4216,6 +4597,15 @@ function setupUnifiedAutoprompter(node) {
     renderAll();
   }
 
+  function toggleIdeogramLayoutEditor() {
+    if (dockIsOpen(node, "ideogram")) {
+      closeDock(node, "ideogram");
+      setPreviewButtonLabels();
+      return;
+    }
+    openIdeogramLayoutEditor();
+  }
+
   async function fetchGeminiModels() {
     state.gemini_key = keyInput.value.trim();
     storeGeminiKey(state.gemini_key);
@@ -4243,6 +4633,37 @@ function setupUnifiedAutoprompter(node) {
       setStatus(`Error: ${error.message}`, true);
     } finally {
       fetchGeminiBtn.disabled = false;
+    }
+  }
+
+  async function fetchOpenaiModels() {
+    state.openai_base_url = openaiBaseUrlInput.value.trim() || DEFAULT_OPENAI_BASE_URL;
+    state.openai_key = openaiKeyInput.value.trim();
+    storeOpenAIBaseUrl(state.openai_base_url);
+    storeOpenAIKey(state.openai_key);
+    fetchOpenaiBtn.disabled = true;
+    setStatus("Fetching OpenAI-compatible models...");
+    try {
+      const data = await fetchJsonChecked(`${ROUTE}/openai/models`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          base_url: state.openai_base_url,
+          api_key: state.openai_key,
+          timeout: Number(openaiTimeoutInput.value || 120),
+        }),
+      }, "Fetch OpenAI-compatible models");
+      fillModelSelect(openaiModelSelect, data.models, state.openai_model);
+      if (!openaiModelSelect.value && openaiModelSelect.options.length) openaiModelSelect.selectedIndex = 0;
+      state.openai_model = openaiModelSelect.value;
+      if (state.openai_model) openaiModelInput.value = state.openai_model;
+      persistModelSelection();
+      syncPreview();
+      setStatus(`${data.models.length} OpenAI-compatible models loaded.`);
+    } catch (error) {
+      setStatus(`Error: ${error.message}`, true);
+    } finally {
+      fetchOpenaiBtn.disabled = false;
     }
   }
 
@@ -4295,14 +4716,21 @@ function setupUnifiedAutoprompter(node) {
 
   async function generatePrompt() {
     readFieldsIntoState();
-    const hasTextSeed = Boolean(state.idea.trim() || state.subject.trim());
+    const rawPromptText = state.enable_text_input ? String(state.connected_raw_prompt_text || "").trim() : "";
+    const textInputLinked = inputIsLinked(node, "raw_prompt_text");
+    const textInputWarning = state.enable_text_input && (!textInputLinked || !state.connected_raw_prompt_text_available || !rawPromptText)
+      ? "Connected raw_prompt_text is enabled but missing or unreadable; using form fields."
+      : "";
+    const hasTextSeed = Boolean(rawPromptText || state.idea.trim() || state.subject.trim());
     const hasConnectedImage = Boolean(state.connected_image_b64);
     const hasUnresolvedConnectedImage = Boolean(
-      node.inputs?.some((input) => input.name === "image" && input.link != null) && !hasConnectedImage
+      inputIsLinked(node, "image") && !hasConnectedImage
     );
     if (!hasTextSeed && !hasConnectedImage) {
       setStatus(
-        hasUnresolvedConnectedImage
+        textInputWarning
+          ? `${textInputWarning} Enter form text or connect a readable raw_prompt_text input.`
+          : hasUnresolvedConnectedImage
           ? "Connected image has no preview yet. Run or refresh the upstream image node first."
           : "Enter an idea, subject, or connect an image.",
         true,
@@ -4325,8 +4753,10 @@ function setupUnifiedAutoprompter(node) {
         text: state.text,
         detail: state.detail,
         image_note: state.image_note,
-        ideogram_layout: state.target_model === "ideogram4" ? state.ideogram_layout : "",
-        ideogram_palette: state.target_model === "ideogram4" ? state.ideogram_palette : "",
+        raw_prompt_text: rawPromptText,
+        bbox_layout: isBboxLayoutTarget(state.target_model) ? state.ideogram_layout : "",
+        ideogram_layout: isBboxLayoutTarget(state.target_model) ? state.ideogram_layout : "",
+        ideogram_palette: isBboxLayoutTarget(state.target_model) ? state.ideogram_palette : "",
         video_duration_or_frames: profileIsVideo(activeProfile()) ? state.video_duration_or_frames : "",
         motion_action: profileIsVideo(activeProfile()) ? state.motion_action : "",
         temporal_beats: profileIsVideo(activeProfile()) ? state.temporal_beats : "",
@@ -4335,7 +4765,7 @@ function setupUnifiedAutoprompter(node) {
         reference_or_control_notes: profileIsVideo(activeProfile()) ? state.reference_or_control_notes : "",
         extra_instructions: state.extra_instructions,
       },
-      timeout: state.gemini_timeout,
+      timeout: state.backend === "openai" ? state.openai_timeout : state.gemini_timeout,
     };
 
     if (state.backend === "gemini") {
@@ -4348,6 +4778,20 @@ function setupUnifiedAutoprompter(node) {
       payload.api_key = state.gemini_key;
       payload.model = geminiModelSelect.value;
       state.gemini_model = geminiModelSelect.value;
+    } else if (state.backend === "openai") {
+      state.openai_base_url = openaiBaseUrlInput.value.trim() || DEFAULT_OPENAI_BASE_URL;
+      state.openai_key = openaiKeyInput.value.trim();
+      state.openai_model = (openaiModelInput.value || openaiModelSelect.value || "").trim();
+      storeOpenAIBaseUrl(state.openai_base_url);
+      storeOpenAIKey(state.openai_key);
+      if (!state.openai_model) {
+        setStatus("Set an OpenAI-compatible model ID first.", true);
+        return;
+      }
+      payload.base_url = state.openai_base_url;
+      payload.api_key = state.openai_key;
+      payload.model = state.openai_model;
+      payload.unload_after = state.unload_after;
     } else if (state.backend === "ollama") {
       if (!ollamaModelSelect.value) {
         setStatus("Fetch and select an Ollama model first.", true);
@@ -4383,7 +4827,7 @@ function setupUnifiedAutoprompter(node) {
 
     persistModelSelection();
     setBusy(true);
-    setStatus("Generating...");
+    setStatus(textInputWarning ? `${textInputWarning} Generating...` : "Generating...", Boolean(textInputWarning));
     try {
       const response = await fetch(`${ROUTE}/generate`, {
         method: "POST",
@@ -4436,7 +4880,13 @@ function setupUnifiedAutoprompter(node) {
     ideogramLayoutArea,
     ideogramPaletteInput,
     extraArea,
+    bboxJsonInput,
+    rawTextInput,
     timeoutInput,
+    openaiBaseUrlInput,
+    openaiModelInput,
+    openaiTimeoutInput,
+    openaiUnloadInput,
     hostInput,
     thinkInput,
     unloadInput,
@@ -4476,6 +4926,12 @@ function setupUnifiedAutoprompter(node) {
     persistModelSelection();
     syncPreview();
   });
+  openaiBtn.addEventListener("click", () => {
+    state.backend = "openai";
+    refreshBackends();
+    persistModelSelection();
+    syncPreview();
+  });
   ollamaBtn.addEventListener("click", () => {
     state.backend = "ollama";
     refreshBackends();
@@ -4492,9 +4948,33 @@ function setupUnifiedAutoprompter(node) {
     state.gemini_key = keyInput.value;
     storeGeminiKey(state.gemini_key);
   });
+  openaiKeyInput.addEventListener("input", () => {
+    state.openai_key = openaiKeyInput.value;
+    storeOpenAIKey(state.openai_key);
+  });
+  openaiBaseUrlInput.addEventListener("input", () => {
+    state.openai_base_url = openaiBaseUrlInput.value.trim() || DEFAULT_OPENAI_BASE_URL;
+    storeOpenAIBaseUrl(state.openai_base_url);
+  });
   geminiModelSelect.addEventListener("change", () => {
     state.gemini_model = geminiModelSelect.value;
     persistModelSelection();
+    syncPreview();
+  });
+  openaiModelSelect.addEventListener("change", () => {
+    state.openai_model = openaiModelSelect.value;
+    openaiModelInput.value = state.openai_model;
+    persistModelSelection();
+    syncPreview();
+  });
+  openaiModelInput.addEventListener("input", () => {
+    state.openai_model = openaiModelInput.value.trim();
+    persistModelSelection();
+    syncPreview();
+  });
+  openaiUnloadInput.addEventListener("change", () => {
+    state.unload_after = openaiUnloadInput.checked;
+    unloadInput.checked = state.unload_after;
     syncPreview();
   });
   ollamaModelSelect.addEventListener("change", () => {
@@ -4506,12 +4986,18 @@ function setupUnifiedAutoprompter(node) {
     state.local_model = localModelSelect.value || "";
     persistModelSelection();
   });
+  unloadInput.addEventListener("change", () => {
+    state.unload_after = unloadInput.checked;
+    openaiUnloadInput.checked = state.unload_after;
+    syncPreview();
+  });
   fetchGeminiBtn.addEventListener("click", fetchGeminiModels);
+  fetchOpenaiBtn.addEventListener("click", fetchOpenaiModels);
   fetchOllamaBtn.addEventListener("click", fetchOllamaModels);
   fetchLocalBtn.addEventListener("click", fetchLocalModels);
   positivePreviewBtn.addEventListener("click", () => toggleOutputPreview("positive"));
   negativePreviewBtn.addEventListener("click", () => toggleOutputPreview("negative"));
-  ideogramBtn.addEventListener("click", openIdeogramLayoutEditor);
+  ideogramBtn.addEventListener("click", toggleIdeogramLayoutEditor);
   modelSettingsBtn.addEventListener("click", openModelSettingsModalV3);
   generateBtn.addEventListener("click", generatePrompt);
 
@@ -4593,6 +5079,22 @@ function setupUnifiedAutoprompter(node) {
       loadOverlayImage(source.url);
     }
   });
+  const unwatchBBoxJsonInput = watchTextInput(node, "bbox_json", (source) => {
+    state.connected_bbox_json = source?.value || "";
+    state.connected_bbox_json_available = Boolean(source?.available);
+    if (state.enable_bbox_json_input && source?.connected && !source.available) {
+      setStatus("Connected bbox_json input could not be read; Sync will use cached output if available.", true);
+    }
+    syncPreview();
+  });
+  const unwatchRawPromptTextInput = watchTextInput(node, "raw_prompt_text", (source) => {
+    state.connected_raw_prompt_text = source?.value || "";
+    state.connected_raw_prompt_text_available = Boolean(source?.available);
+    if (state.enable_text_input && source?.connected && !source.available) {
+      setStatus("Connected raw_prompt_text input could not be read; generation will use form fields.", true);
+    }
+    syncPreview();
+  });
 
   node.__workflowXUapWidgetHeight = NODE_MIN_WIDGET_HEIGHT;
   node.__workflowXUapWidget = node.addDOMWidget("unified_autoprompter_x", "Unified Autoprompter X", wrap, {
@@ -4604,6 +5106,8 @@ function setupUnifiedAutoprompter(node) {
 
   chainCallback(node, "onRemoved", () => {
     unwatchImageInput?.();
+    unwatchBBoxJsonInput?.();
+    unwatchRawPromptTextInput?.();
     closeDock(node, "output_positive");
     closeDock(node, "output_negative");
     closeDock(node, "ideogram");

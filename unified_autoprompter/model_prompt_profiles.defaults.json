@@ -212,6 +212,41 @@
       }
     },
     {
+      "key": "krea2",
+      "label": "Krea2",
+      "media_type": "image",
+      "default_format": "natural",
+      "negative_supported": true,
+      "json_supported": true,
+      "notes": "Krea2 supports medium-to-long natural language prompts and structured bbox JSON for composition control. Bboxes use normalized 0-1000 coordinates in [x_min,y_min,x_max,y_max] order.",
+      "formats": {
+        "natural": {
+          "enabled": true,
+          "common_instructions": "Write a Krea2 natural-language prompt as one cohesive, production-ready paragraph. Preserve the user's subject, action, medium, pose, colors, readable text, and spatial relationships. Add grounded visual detail for composition, crop, lighting, camera or medium, background, materials, and typography without changing the core intent. If a connected image is present, describe the requested result as an edit or refinement anchored to that reference.",
+          "output_contract_negative_off": "Return ONLY valid JSON with exactly this shape:\n{\n  \"positive\": \"the final prompt only, with no heading or explanation\",\n  \"negative\": \"\"\n}\nThe positive field must be ready to paste into Krea2. Leave negative empty. Do not include markdown, analysis, or labels.",
+          "output_contract_negative_on": "Return ONLY valid JSON with exactly this shape:\n{\n  \"positive\": \"the final positive prompt only, with no heading or explanation\",\n  \"negative\": \"the final negative prompt only\"\n}\nThe positive field must be ready to paste into Krea2. Do not include markdown, analysis, or labels inside either field. Negative guidance: Krea2 negative prompting is downstream-helper oriented; keep it concise with artifact terms such as blur, distorted anatomy, unreadable text, watermark, duplicates, and unwanted overlays.",
+          "with_image_reference_instructions": "A connected image reference is available. Use it as the visual anchor for identity, composition, crop, pose, colors, lighting, background, and style. Preserve visible facts unless the user asks to change them, and name the intended edit clearly.",
+          "without_image_reference_instructions": "No image reference is available. Build the complete image from the text fields. Decide the medium, viewpoint, crop, pose, environment, lighting, color palette, style, and text placement directly from the user's intent."
+        },
+        "tags": {
+          "enabled": false,
+          "common_instructions": "",
+          "output_contract_negative_off": "",
+          "output_contract_negative_on": "",
+          "with_image_reference_instructions": "",
+          "without_image_reference_instructions": ""
+        },
+        "json": {
+          "enabled": true,
+          "common_instructions": "Write Krea2 structured bbox JSON for composition control. Use top-level keys high_level_description, style_description, and compositional_deconstruction. Put scene-wide background, ground, walls, atmosphere, and lighting in compositional_deconstruction.background. Put individually placeable people, products, props, signs, readable text, and layout-critical objects in compositional_deconstruction.elements. Each element must use type, bbox, desc, and optional color_palette; text elements also use text. Bboxes use normalized 0-1000 coordinates in [x_min,y_min,x_max,y_max] order with integers. If a user supplies BBox layout JSON or bbox hints, treat that layout as authoritative unless invalid.",
+          "output_contract_negative_off": "Return ONLY valid JSON with this wrapper object:\n{\n  \"prompt_json\": {\n    \"high_level_description\": \"final one- or two-sentence Krea2 description\",\n    \"style_description\": {\n      \"aesthetics\": \"final aesthetics\",\n      \"lighting\": \"final lighting\",\n      \"medium\": \"photograph\",\n      \"color_palette\": [\"#RRGGBB\"]\n    },\n    \"compositional_deconstruction\": {\n      \"background\": \"final background / scene shell\",\n      \"elements\": []\n    }\n  }\n}\nThe prompt_json value must be the final Krea2 caption object, not a string. Do not add a negative field when negative mode is off.",
+          "output_contract_negative_on": "Return ONLY valid JSON with this wrapper object:\n{\n  \"prompt_json\": {\n    \"high_level_description\": \"final one- or two-sentence Krea2 description\",\n    \"style_description\": {\n      \"aesthetics\": \"final aesthetics\",\n      \"lighting\": \"final lighting\",\n      \"medium\": \"photograph\",\n      \"color_palette\": [\"#RRGGBB\"]\n    },\n    \"compositional_deconstruction\": {\n      \"background\": \"final background / scene shell\",\n      \"elements\": []\n    }\n  },\n  \"negative\": \"optional downstream negative prompt; keep empty unless the user explicitly enables negative output\"\n}\nThe prompt_json value must be the final Krea2 caption object, not a string.",
+          "with_image_reference_instructions": "A connected image reference is available. Use it to infer composition, crop, subject placement, text placement, colors, and bbox layout. Preserve user-drawn or supplied bboxes unless the user explicitly asks for regeneration.",
+          "without_image_reference_instructions": "No image reference is available. Expand the text fields into complete Krea2 JSON, including concrete viewpoint, crop, background, object/text elements, bboxes, and colors. Commit to one coherent layout."
+        }
+      }
+    },
+    {
       "key": "z_image",
       "label": "Z-Image",
       "media_type": "image",

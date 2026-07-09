@@ -18,6 +18,14 @@ class UnifiedAutoprompterX:
                 "target_model": (profile_options(), {"default": "ideogram4"}),
                 "prompt_format": (format_options(), {"default": FORMAT_JSON}),
                 "negative_enabled": ("BOOLEAN", {"default": False}),
+                "enable_bbox_json_input": (
+                    "BOOLEAN",
+                    {"default": False, "tooltip": "UI-managed toggle for syncing a connected bbox_json STRING into BBox Layout."},
+                ),
+                "enable_text_input": (
+                    "BOOLEAN",
+                    {"default": False, "tooltip": "UI-managed toggle for using raw_prompt_text as the prompt source during generation."},
+                ),
                 "generated_positive": (
                     "STRING",
                     {"default": "", "multiline": True, "tooltip": "Managed by the WorkflowX UI."},
@@ -33,6 +41,24 @@ class UnifiedAutoprompterX:
             },
             "optional": {
                 "image": ("IMAGE",),
+                "bbox_json": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "multiline": True,
+                        "forceInput": True,
+                        "tooltip": "Optional connected raw bbox layout JSON for the frontend BBox Layout Sync action.",
+                    },
+                ),
+                "raw_prompt_text": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "multiline": True,
+                        "forceInput": True,
+                        "tooltip": "Optional connected raw prompt text used during generation when enabled in the UI.",
+                    },
+                ),
                 "ui_state": (
                     "STRING",
                     {"default": "{}", "multiline": True, "tooltip": "Managed by the WorkflowX UI."},
@@ -45,10 +71,14 @@ class UnifiedAutoprompterX:
         target_model: str = "ideogram4",
         prompt_format: str = FORMAT_JSON,
         negative_enabled: bool = False,
+        enable_bbox_json_input: bool = False,
+        enable_text_input: bool = False,
         generated_positive: str = "",
         generated_negative: str = "",
         final_prompt: str = "",
         image=None,
+        bbox_json: str = "",
+        raw_prompt_text: str = "",
         ui_state: str = "{}",
     ) -> tuple[str, str, str]:
         prompt_format = normalize_format(target_model, prompt_format)

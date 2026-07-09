@@ -9,7 +9,7 @@ from typing import Any
 from aiohttp import web
 from PIL import Image
 
-from . import gemini_backend, local_llama_backend, ollama_backend
+from . import gemini_backend, local_llama_backend, ollama_backend, openai_backend
 from .folder_registry import model_options, mmproj_options, system_prompt_options
 from .profile_config import profile_config_payload, reset_config, save_config
 from .profiles import normalize_format, profiles_payload
@@ -111,6 +111,23 @@ def register_routes(app=None) -> None:
         except Exception as exc:
             return _json_error(str(exc))
 
+    @routes.post(f"{ROUTE_PREFIX}/openai/models")
+    async def workflowx_unified_openai_models(request):
+        try:
+            data = await request.json()
+            timeout = _timeout_seconds(data.get("timeout"))
+            loop = asyncio.get_event_loop()
+            models = await loop.run_in_executor(
+                None,
+                openai_backend.list_models,
+                (data.get("base_url") or "").strip(),
+                (data.get("api_key") or "").strip(),
+                timeout,
+            )
+            return web.json_response({"models": models})
+        except Exception as exc:
+            return _json_error(str(exc))
+
     @routes.post(f"{ROUTE_PREFIX}/ollama/models")
     async def workflowx_unified_ollama_models(request):
         try:
@@ -154,6 +171,20 @@ def register_routes(app=None) -> None:
                         user_prompt,
                         pil_image=pil_image,
                         timeout=timeout,
+                    ),
+                )
+            elif backend == "openai":
+                raw = await loop.run_in_executor(
+                    None,
+                    lambda: openai_backend.generate(
+                        data.get("base_url") or "",
+                        (data.get("api_key") or "").strip(),
+                        data.get("model") or "",
+                        system_prompt,
+                        user_prompt,
+                        pil_image=pil_image,
+                        timeout=timeout,
+                        unload_after=bool(data.get("unload_after", False)),
                     ),
                 )
             elif backend == "ollama":

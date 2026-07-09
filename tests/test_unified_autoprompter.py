@@ -5,6 +5,8 @@ import sys
 import tempfile
 import types
 
+from PIL import Image
+
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -42,6 +44,24 @@ def _load_package_modules():
     return profiles, prompt_io, prompt_builder, node, profile_config
 
 
+def _load_openai_backend():
+    _install_folder_paths_stub()
+    package_name = "workflowx_unified_autoprompter_test"
+    package = sys.modules.setdefault(package_name, types.ModuleType(package_name))
+    package.__path__ = [str(ROOT / "unified_autoprompter")]
+    return _load_module("unified_autoprompter/openai_backend.py", f"{package_name}.openai_backend")
+
+
+class _FakeResponse:
+    def __init__(self, payload, status_code=200, text=""):
+        self._payload = payload
+        self.status_code = status_code
+        self.text = text
+
+    def json(self):
+        return self._payload
+
+
 def _with_temp_profile_paths(profile_config):
     tmp = tempfile.TemporaryDirectory()
     root = pathlib.Path(tmp.name)
@@ -63,6 +83,7 @@ def test_prompt_profiles_capture_allowed_formats_and_negative_rules():
         "z_image",
         "wan2_2",
         "ltx_2_3",
+        "krea2",
     }
     assert profiles.normalize_format("z_image", "json") == "natural"
     assert profiles.normalize_format("sdxl", "json") == "tags"
@@ -91,6 +112,21 @@ def test_granular_defaults_cover_enabled_formats_and_image_modes():
     assert all_profiles["ideogram4"].formats["json"].with_image_reference_instructions != all_profiles["ideogram4"].formats["json"].without_image_reference_instructions
     assert all_profiles["sdxl"].formats["tags"].common_instructions != all_profiles["sdxl"].formats["natural"].common_instructions
     assert all_profiles["flux2_dev"].formats["json"].common_instructions != all_profiles["flux2_dev"].formats["natural"].common_instructions
+    assert all_profiles["krea2"].json_supported is True
+    assert "[x_min,y_min,x_max,y_max]" in all_profiles["krea2"].formats["json"].common_instructions
+    assert "[y_min,x_min,y_max,x_max]" in all_profiles["ideogram4"].formats["json"].common_instructions
+
+
+def test_default_profile_config_includes_krea2_json_bbox_order():
+    _profiles, _prompt_io, _prompt_builder, _node, profile_config = _load_package_modules()
+    defaults = profile_config.default_config()
+    profiles_by_key = {profile["key"]: profile for profile in defaults["profiles"]}
+
+    assert "krea2" in profiles_by_key
+    krea2 = profiles_by_key["krea2"]
+    assert krea2["json_supported"] is True
+    assert krea2["formats"]["json"]["enabled"] is True
+    assert "[x_min,y_min,x_max,y_max]" in krea2["formats"]["json"]["common_instructions"]
 
 
 def test_system_prompt_uses_format_contract_and_image_mode():
@@ -203,6 +239,47 @@ def test_video_prompt_builder_includes_video_fields_only_for_video_profiles():
     assert "Motion / action" not in image_prompt
 
 
+def test_prompt_builder_uses_connected_raw_prompt_text_as_context():
+    _profiles, _prompt_io, prompt_builder, _node, _profile_config = _load_package_modules()
+
+    prompt = prompt_builder.build_user_prompt(
+        {
+            "idea": "ignore this idea",
+            "subject": "ignore this subject",
+            "raw_prompt_text": '{"scene":"raw upstream prompt"}',
+            "extra_instructions": "keep final output concise",
+        },
+        target_model="flux2_dev",
+    )
+
+    assert "Raw input prompt:" in prompt
+    assert '{"scene":"raw upstream prompt"}' in prompt
+    assert "Idea: ignore this idea" not in prompt
+    assert "Subject: ignore this subject" not in prompt
+    assert "Extra instructions: keep final output concise" in prompt
+
+
+def test_prompt_builder_adds_bbox_layout_hints_for_bbox_targets_only():
+    _profiles, _prompt_io, prompt_builder, _node, _profile_config = _load_package_modules()
+    fields = {
+        "idea": "poster",
+        "bbox_layout": '{"compositional_deconstruction":{"elements":[]}}',
+        "ideogram_palette": "#ffffff",
+    }
+
+    krea2_prompt = prompt_builder.build_user_prompt(fields, target_model="krea2")
+    ideogram_prompt = prompt_builder.build_user_prompt(
+        {"idea": "poster", "ideogram_layout": fields["bbox_layout"]},
+        target_model="ideogram4",
+    )
+    sdxl_prompt = prompt_builder.build_user_prompt(fields, target_model="sdxl")
+
+    assert "BBox layout JSON / bbox hints" in krea2_prompt
+    assert "BBox palette hints: #ffffff" in krea2_prompt
+    assert "BBox layout JSON / bbox hints" in ideogram_prompt
+    assert "BBox layout JSON / bbox hints" not in sdxl_prompt
+
+
 def test_wan_and_ltx_response_parsing_for_positive_and_negative():
     _profiles, prompt_io, _prompt_builder, _node, _profile_config = _load_package_modules()
 
@@ -303,6 +380,88 @@ def test_apply_layout_output_contract_uses_raw_json_as_prompt_and_positive():
     assert negative2 == ""
 
 
+def test_openai_backend_lists_compatible_models_with_optional_auth():
+    openai_backend = _load_openai_backend()
+    calls = []
+
+    def fake_get(url, headers, timeout):
+        calls.append((url, headers, timeout))
+        return _FakeResponse({
+            "data": [
+                {"id": "text-embedding-3-large"},
+                {"id": "gpt-image-1"},
+                {"id": "gpt-4.1"},
+                {"id": "o3-mini"},
+            ]
+        })
+
+    original_get = openai_backend.requests.get
+    try:
+        openai_backend.requests.get = fake_get
+        models = openai_backend.list_models("http://localhost:1234/v1", "", timeout=42)
+        models_with_key = openai_backend.list_models("http://localhost:3000/api", "sk-test", timeout=12)
+    finally:
+        openai_backend.requests.get = original_get
+
+    assert calls == [
+        ("http://localhost:1234/v1/models", {"Content-Type": "application/json"}, 42),
+        (
+            "http://localhost:3000/api/models",
+            {"Content-Type": "application/json", "Authorization": "Bearer sk-test"},
+            12,
+        ),
+    ]
+    assert models == [
+        {"id": "gpt-4.1", "display_name": "gpt-4.1"},
+        {"id": "o3-mini", "display_name": "o3-mini"},
+    ]
+    assert models_with_key == models
+
+
+def test_openai_backend_generates_chat_completions_text_with_optional_image():
+    openai_backend = _load_openai_backend()
+    captured = {}
+
+    def fake_post(url, headers, json, timeout):
+        captured.update({"url": url, "headers": headers, "json": json, "timeout": timeout})
+        return _FakeResponse({
+            "choices": [{
+                "message": {"content": "{\"positive\":\"cinematic portrait\"}"},
+            }]
+        })
+
+    original_post = openai_backend.requests.post
+    try:
+        openai_backend.requests.post = fake_post
+        raw = openai_backend.generate(
+            "http://localhost:1234/v1",
+            "sk-test",
+            "gpt-4.1",
+            "system prompt",
+            "user prompt",
+            pil_image=Image.new("RGB", (1, 1), color=(255, 0, 0)),
+            timeout=33,
+            unload_after=True,
+        )
+    finally:
+        openai_backend.requests.post = original_post
+
+    assert raw == "{\"positive\":\"cinematic portrait\"}"
+    assert captured["url"] == "http://localhost:1234/v1/chat/completions"
+    assert captured["headers"] == {"Authorization": "Bearer sk-test", "Content-Type": "application/json"}
+    assert captured["timeout"] == 33
+    assert captured["json"]["model"] == "gpt-4.1"
+    assert captured["json"]["stream"] is False
+    assert captured["json"]["ttl"] == 0
+    assert captured["json"]["messages"][0] == {"role": "system", "content": "system prompt"}
+    user_message = captured["json"]["messages"][1]
+    assert user_message["role"] == "user"
+    assert user_message["content"][0] == {"type": "text", "text": "user prompt"}
+    assert user_message["content"][1]["type"] == "image_url"
+    assert user_message["content"][1]["image_url"]["detail"] == "auto"
+    assert user_message["content"][1]["image_url"]["url"].startswith("data:image/png;base64,")
+
+
 def test_unified_autoprompter_node_is_registered_and_builds_outputs():
     _profiles, _prompt_io, _prompt_builder, node, _profile_config = _load_package_modules()
 
@@ -311,16 +470,27 @@ def test_unified_autoprompter_node_is_registered_and_builds_outputs():
     assert node.NODE_DISPLAY_NAME_MAPPINGS["UnifiedAutoprompterX"] == "Unified Autoprompter X"
     assert klass.RETURN_NAMES == ("prompt", "positive", "negative")
     assert klass.CATEGORY == "WorkflowX_Configurator/Prompting"
-    assert klass.INPUT_TYPES()["optional"]["image"] == ("IMAGE",)
+    input_types = klass.INPUT_TYPES()
+    assert input_types["required"]["enable_bbox_json_input"][0] == "BOOLEAN"
+    assert input_types["required"]["enable_text_input"][0] == "BOOLEAN"
+    assert input_types["optional"]["image"] == ("IMAGE",)
+    assert input_types["optional"]["bbox_json"][0] == "STRING"
+    assert input_types["optional"]["bbox_json"][1]["forceInput"] is True
+    assert input_types["optional"]["raw_prompt_text"][0] == "STRING"
+    assert input_types["optional"]["raw_prompt_text"][1]["forceInput"] is True
 
     instance = klass()
     result = instance.build(
         target_model="sdxl",
         prompt_format="tags",
         negative_enabled=True,
+        enable_bbox_json_input=True,
+        enable_text_input=True,
         generated_positive="cinematic portrait",
         generated_negative="low quality",
         image="ignored frontend overlay",
+        bbox_json="ignored frontend sync input",
+        raw_prompt_text="ignored frontend generation input",
     )
     assert result == (
         "Positive:\ncinematic portrait\n\nNegative:\nlow quality",
