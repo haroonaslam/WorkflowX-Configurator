@@ -26,6 +26,10 @@ class UnifiedAutoprompterX:
                     "BOOLEAN",
                     {"default": False, "tooltip": "UI-managed toggle for using raw_prompt_text as the prompt source during generation."},
                 ),
+                "refresh_vram": (
+                    "BOOLEAN",
+                    {"default": False, "tooltip": "UI-managed toggle to unload ComfyUI models and clear cache before prompt generation."},
+                ),
                 "generated_positive": (
                     "STRING",
                     {"default": "", "multiline": True, "tooltip": "Managed by the WorkflowX UI."},
@@ -73,6 +77,7 @@ class UnifiedAutoprompterX:
         negative_enabled: bool = False,
         enable_bbox_json_input: bool = False,
         enable_text_input: bool = False,
+        refresh_vram: bool = False,
         generated_positive: str = "",
         generated_negative: str = "",
         final_prompt: str = "",

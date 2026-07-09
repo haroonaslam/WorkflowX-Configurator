@@ -52,6 +52,17 @@ def _load_openai_backend():
     return _load_module("unified_autoprompter/openai_backend.py", f"{package_name}.openai_backend")
 
 
+def _load_routes_module():
+    _load_package_modules()
+    aiohttp = sys.modules.setdefault("aiohttp", types.ModuleType("aiohttp"))
+    web = types.ModuleType("aiohttp.web")
+    web.json_response = lambda data, status=200: {"data": data, "status": status}
+    aiohttp.web = web
+    sys.modules.setdefault("aiohttp.web", web)
+    package_name = "workflowx_unified_autoprompter_test"
+    return _load_module("unified_autoprompter/routes.py", f"{package_name}.routes")
+
+
 class _FakeResponse:
     def __init__(self, payload, status_code=200, text=""):
         self._payload = payload
@@ -115,6 +126,8 @@ def test_granular_defaults_cover_enabled_formats_and_image_modes():
     assert all_profiles["krea2"].json_supported is True
     assert "[x_min,y_min,x_max,y_max]" in all_profiles["krea2"].formats["json"].common_instructions
     assert "[y_min,x_min,y_max,x_max]" in all_profiles["ideogram4"].formats["json"].common_instructions
+    assert 'every non-text element must use "type": "obj"' in all_profiles["ideogram4"].formats["json"].common_instructions
+    assert 'every non-text element must use "type": "obj"' in all_profiles["krea2"].formats["json"].common_instructions
 
 
 def test_default_profile_config_includes_krea2_json_bbox_order():
@@ -127,6 +140,7 @@ def test_default_profile_config_includes_krea2_json_bbox_order():
     assert krea2["json_supported"] is True
     assert krea2["formats"]["json"]["enabled"] is True
     assert "[x_min,y_min,x_max,y_max]" in krea2["formats"]["json"]["common_instructions"]
+    assert 'every non-text element must use "type": "obj"' in krea2["formats"]["json"]["common_instructions"]
 
 
 def test_system_prompt_uses_format_contract_and_image_mode():
@@ -200,6 +214,28 @@ def test_generation_response_normalizes_ideogram_and_flux_json():
     assert ideogram["positive"] == ideogram["prompt"]
     assert '"scene": "rainy street"' in flux["prompt"]
     assert flux["negative"] == ""
+
+
+def test_bbox_json_response_normalizes_semantic_element_types():
+    _profiles, prompt_io, _prompt_builder, _node, _profile_config = _load_package_modules()
+    raw = json.dumps({
+        "prompt_json": {
+            "high_level_description": "portrait",
+            "compositional_deconstruction": {
+                "elements": [
+                    {"type": "person", "bbox": [100, 200, 800, 700], "desc": "subject"},
+                    {"type": "text", "bbox": [820, 100, 900, 500], "text": "SALE", "desc": "label"},
+                ],
+            },
+        }
+    })
+
+    ideogram = prompt_io.parse_generation_response("ideogram4", "json", raw, negative_enabled=False)
+    krea = prompt_io.parse_generation_response("krea2", "json", raw, negative_enabled=False)
+
+    assert json.loads(ideogram["positive"])["compositional_deconstruction"]["elements"][0]["type"] == "obj"
+    assert json.loads(ideogram["positive"])["compositional_deconstruction"]["elements"][1]["type"] == "text"
+    assert json.loads(krea["positive"])["compositional_deconstruction"]["elements"][0]["type"] == "obj"
 
 
 def test_json_generation_response_keeps_wrapper_negative_for_downstream_nodes():
@@ -420,15 +456,17 @@ def test_openai_backend_lists_compatible_models_with_optional_auth():
 
 def test_openai_backend_generates_chat_completions_text_with_optional_image():
     openai_backend = _load_openai_backend()
-    captured = {}
+    calls = []
 
     def fake_post(url, headers, json, timeout):
-        captured.update({"url": url, "headers": headers, "json": json, "timeout": timeout})
-        return _FakeResponse({
-            "choices": [{
-                "message": {"content": "{\"positive\":\"cinematic portrait\"}"},
-            }]
-        })
+        calls.append({"url": url, "headers": headers, "json": json, "timeout": timeout})
+        if url.endswith("/chat/completions"):
+            return _FakeResponse({
+                "choices": [{
+                    "message": {"content": "{\"positive\":\"cinematic portrait\"}"},
+                }]
+            })
+        return _FakeResponse({"instance_id": json["instance_id"]})
 
     original_post = openai_backend.requests.post
     try:
@@ -447,19 +485,96 @@ def test_openai_backend_generates_chat_completions_text_with_optional_image():
         openai_backend.requests.post = original_post
 
     assert raw == "{\"positive\":\"cinematic portrait\"}"
-    assert captured["url"] == "http://localhost:1234/v1/chat/completions"
-    assert captured["headers"] == {"Authorization": "Bearer sk-test", "Content-Type": "application/json"}
-    assert captured["timeout"] == 33
-    assert captured["json"]["model"] == "gpt-4.1"
-    assert captured["json"]["stream"] is False
-    assert captured["json"]["ttl"] == 0
-    assert captured["json"]["messages"][0] == {"role": "system", "content": "system prompt"}
-    user_message = captured["json"]["messages"][1]
+    assert calls[0]["url"] == "http://localhost:1234/v1/chat/completions"
+    assert calls[0]["headers"] == {"Authorization": "Bearer sk-test", "Content-Type": "application/json"}
+    assert calls[0]["timeout"] == 33
+    assert calls[0]["json"]["model"] == "gpt-4.1"
+    assert calls[0]["json"]["stream"] is False
+    assert "ttl" not in calls[0]["json"]
+    assert calls[0]["json"]["messages"][0] == {"role": "system", "content": "system prompt"}
+    user_message = calls[0]["json"]["messages"][1]
     assert user_message["role"] == "user"
     assert user_message["content"][0] == {"type": "text", "text": "user prompt"}
     assert user_message["content"][1]["type"] == "image_url"
     assert user_message["content"][1]["image_url"]["detail"] == "auto"
     assert user_message["content"][1]["image_url"]["url"].startswith("data:image/png;base64,")
+    assert calls[1] == {
+        "url": "http://localhost:1234/api/v1/models/unload",
+        "headers": {"Authorization": "Bearer sk-test", "Content-Type": "application/json"},
+        "json": {"instance_id": "gpt-4.1"},
+        "timeout": 33,
+    }
+
+
+def test_openai_backend_ignores_unload_failures_after_generation():
+    openai_backend = _load_openai_backend()
+    calls = []
+
+    def fake_post(url, headers, json, timeout):
+        calls.append(url)
+        if url.endswith("/chat/completions"):
+            return _FakeResponse({
+                "choices": [{
+                    "message": {"content": "refined prompt"},
+                }]
+            })
+        raise RuntimeError("server does not expose LM Studio unload")
+
+    original_post = openai_backend.requests.post
+    try:
+        openai_backend.requests.post = fake_post
+        raw = openai_backend.generate(
+            "http://localhost:3000/api",
+            "",
+            "local-model",
+            "system prompt",
+            "user prompt",
+            timeout=11,
+            unload_after=True,
+        )
+    finally:
+        openai_backend.requests.post = original_post
+
+    assert raw == "refined prompt"
+    assert calls == [
+        "http://localhost:3000/api/chat/completions",
+        "http://localhost:3000/api/v1/models/unload",
+    ]
+
+
+def test_refresh_comfy_vram_unloads_all_models_and_cache():
+    routes = _load_routes_module()
+    calls = []
+    comfy = types.ModuleType("comfy")
+    model_management = types.ModuleType("comfy.model_management")
+
+    def unload_all_models():
+        calls.append("unload_all_models")
+
+    def soft_empty_cache(**kwargs):
+        calls.append(("soft_empty_cache", kwargs))
+
+    model_management.unload_all_models = unload_all_models
+    model_management.soft_empty_cache = soft_empty_cache
+    original_comfy = sys.modules.get("comfy")
+    original_model_management = sys.modules.get("comfy.model_management")
+    try:
+        sys.modules["comfy"] = comfy
+        sys.modules["comfy.model_management"] = model_management
+        status = routes.refresh_comfy_vram()
+    finally:
+        if original_comfy is None:
+            sys.modules.pop("comfy", None)
+        else:
+            sys.modules["comfy"] = original_comfy
+        if original_model_management is None:
+            sys.modules.pop("comfy.model_management", None)
+        else:
+            sys.modules["comfy.model_management"] = original_model_management
+
+    assert calls == ["unload_all_models", ("soft_empty_cache", {"force": True})]
+    assert "unloaded all models" in status
+    assert "emptied cache" in status
 
 
 def test_unified_autoprompter_node_is_registered_and_builds_outputs():
@@ -473,6 +588,7 @@ def test_unified_autoprompter_node_is_registered_and_builds_outputs():
     input_types = klass.INPUT_TYPES()
     assert input_types["required"]["enable_bbox_json_input"][0] == "BOOLEAN"
     assert input_types["required"]["enable_text_input"][0] == "BOOLEAN"
+    assert input_types["required"]["refresh_vram"][0] == "BOOLEAN"
     assert input_types["optional"]["image"] == ("IMAGE",)
     assert input_types["optional"]["bbox_json"][0] == "STRING"
     assert input_types["optional"]["bbox_json"][1]["forceInput"] is True

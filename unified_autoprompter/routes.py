@@ -41,6 +41,32 @@ def _decode_image(image_b64: str | None) -> Image.Image | None:
         return None
 
 
+def refresh_comfy_vram() -> str:
+    try:
+        import comfy.model_management as model_management
+    except Exception as exc:
+        return f"refresh VRAM skipped: could not import ComfyUI model management ({exc})"
+
+    messages = []
+    try:
+        model_management.unload_all_models()
+        messages.append("unloaded all models")
+    except Exception as exc:
+        messages.append(f"unload_all_models failed: {exc}")
+    try:
+        model_management.soft_empty_cache(force=True)
+        messages.append("emptied cache")
+    except TypeError:
+        try:
+            model_management.soft_empty_cache()
+            messages.append("emptied cache")
+        except Exception as exc:
+            messages.append(f"soft_empty_cache failed: {exc}")
+    except Exception as exc:
+        messages.append(f"soft_empty_cache failed: {exc}")
+    return "; ".join(messages)
+
+
 def _json_error(message: str, status: int = 400):
     return web.json_response({"error": message}, status=status)
 
@@ -161,6 +187,8 @@ def register_routes(app=None) -> None:
         loop = asyncio.get_event_loop()
 
         try:
+            if bool(data.get("refresh_vram", False)):
+                await loop.run_in_executor(None, refresh_comfy_vram)
             if backend == "gemini":
                 raw = await loop.run_in_executor(
                     None,

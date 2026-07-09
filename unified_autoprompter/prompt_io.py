@@ -6,6 +6,8 @@ from typing import Any
 
 from .profiles import FORMAT_JSON, FORMAT_TAGS, normalize_format
 
+BBOX_JSON_TARGETS = {"ideogram4", "krea2"}
+
 
 def assemble_prompt(positive: str, negative: str = "", negative_enabled: bool = False, prompt_format: str = "natural") -> str:
     positive = str(positive or "").strip()
@@ -85,6 +87,22 @@ def extract_json_object(text: str) -> dict[str, Any] | None:
     return None
 
 
+def _normalize_bbox_element_types(target_model: str, payload: dict[str, Any]) -> dict[str, Any]:
+    if target_model not in BBOX_JSON_TARGETS:
+        return payload
+    decomp = payload.get("compositional_deconstruction")
+    if not isinstance(decomp, dict):
+        return payload
+    elements = decomp.get("elements")
+    if not isinstance(elements, list):
+        return payload
+    for element in elements:
+        if not isinstance(element, dict):
+            continue
+        element["type"] = "text" if element.get("type") == "text" else "obj"
+    return payload
+
+
 def normalize_prompt_json(target_model: str, prompt_format: str, payload: Any) -> str:
     if isinstance(payload, str):
         parsed = extract_json_object(payload)
@@ -94,6 +112,8 @@ def normalize_prompt_json(target_model: str, prompt_format: str, payload: Any) -
 
     if not isinstance(payload, dict):
         payload = {}
+    if normalize_format(target_model, prompt_format) == FORMAT_JSON:
+        payload = _normalize_bbox_element_types(target_model, payload)
     return json.dumps(payload, indent=2, ensure_ascii=False)
 
 

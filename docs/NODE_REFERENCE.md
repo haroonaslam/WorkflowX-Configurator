@@ -232,6 +232,7 @@ Inputs:
 | `negative_enabled` | `BOOLEAN` | Controls whether negative prompt text is emitted. |
 | `enable_bbox_json_input` | `BOOLEAN` | UI-managed toggle for syncing connected bbox JSON into BBox Layout. |
 | `enable_text_input` | `BOOLEAN` | UI-managed toggle for using connected raw prompt text during generation. |
+| `refresh_vram` | `BOOLEAN` | UI-managed toggle for unloading ComfyUI models and clearing cache before prompt generation. |
 | `generated_positive` | multiline `STRING` | Managed by the frontend UI. |
 | `generated_negative` | multiline `STRING` | Managed by the frontend UI. |
 | `final_prompt` | multiline `STRING` | Managed by the frontend UI. |

@@ -35,6 +35,7 @@ Inputs:
 | `negative_enabled` | `BOOLEAN` | Enables separate negative prompt generation/output. |
 | `enable_bbox_json_input` | `BOOLEAN` | UI-managed toggle for reading connected `bbox_json` during BBox Layout sync. |
 | `enable_text_input` | `BOOLEAN` | UI-managed toggle for using connected `raw_prompt_text` during generation. |
+| `refresh_vram` | `BOOLEAN` | UI-managed toggle to unload ComfyUI models and clear cache before prompt generation. |
 | `generated_positive` | multiline `STRING` | UI-managed positive output. |
 | `generated_negative` | multiline `STRING` | UI-managed negative output. |
 | `final_prompt` | multiline `STRING` | UI-managed final prompt. |
@@ -130,7 +131,7 @@ The backend lists models from `{base_url}/models` and generates through `{base_u
 
 The API key is stored in the browser via the frontend helper, not in the node's visible prompt outputs. Leave it empty for local servers that do not require authentication.
 
-When `unload after` is enabled, the compatible backend sends `ttl: 0` in the chat completions payload. LM Studio supports per-request TTL for OpenAI-compatible requests. Other compatible servers may ignore or reject the extra field; disable the toggle if the server does not support it.
+When `unload after` is enabled, the compatible backend first generates through Chat Completions and then attempts LM Studio's unload endpoint, `POST /api/v1/models/unload`, using the selected model ID as `instance_id`. This unload request is best effort: if the endpoint is missing, rejects the request, or times out, generation output is still returned normally. Ollama keeps its separate `keep_alive: 0` unload behavior.
 
 Common base URL examples:
 
@@ -191,6 +192,10 @@ The optional `bbox_json` and `raw_prompt_text` inputs are raw `STRING` connectio
 `raw_prompt_text` is generation-source only. When `Use connected text` is enabled and the connected text is readable, Unified Autoprompter X sends that raw text to the selected backend instead of the Idea, Subject, Style, Camera, and Text fields. The backend still refines it normally for the selected target model and format. The connected text can be plain text or arbitrary JSON.
 
 If either enabled input is missing or unreadable, the UI shows a status warning and falls back to the current cached output or form fields.
+
+## VRAM Refresh
+
+Enable `refresh VRAM` before generation when existing ComfyUI image/video models are still resident and may compete with the prompt model for VRAM. When checked, Unified Autoprompter X asks ComfyUI to unload all loaded models and clear cache before calling the selected prompt backend. This may make generation start a little slower, but can prevent prompt LLM loading from spilling into system RAM.
 
 ## Video Prompt Fields
 

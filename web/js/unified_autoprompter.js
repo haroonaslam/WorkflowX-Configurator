@@ -45,12 +45,31 @@ const FALLBACK_PROFILES = [
   { key: "ltx_2_3", label: "LTX 2.3", formats: { natural: fallbackRule(true, "Write an LTX 2.3 chronological video prompt."), tags: fallbackRule(false), json: fallbackRule(false) }, default_format: "natural", negative_supported: true, json_supported: false, media_type: "video", notes: "" },
 ];
 const NODE_MIN_WIDGET_HEIGHT = 420;
-let nextDockZ = 12000;
+const DOCK_Z_BASE = 9000;
+const DOCK_Z_LIMIT = 9499;
+const DOCK_OBSCURING_MODAL_SELECTOR = [
+  "dialog[open]",
+  "[aria-modal='true']",
+  "[role='dialog']",
+  ".comfy-modal",
+  ".comfy-modal-backdrop",
+  ".comfy-modal-wrapper",
+  ".comfyui-manager",
+  ".p-dialog",
+  ".p-dialog-mask",
+  ".el-dialog__wrapper",
+  ".modal",
+  ".modal-backdrop",
+  ".v-overlay",
+].join(",");
+let nextDockZ = DOCK_Z_BASE;
 
 let profilesPromise = null;
 const graphDocks = new Set();
 let dockRAF = 0;
 let dockWakesInstalled = false;
+let dockModalObserver = null;
+let dockModalRAF = 0;
 
 function chainCallback(object, callbackName, callback) {
   const original = object?.[callbackName];
@@ -142,12 +161,47 @@ function wakeGraphDocks() {
   if (!dockRAF && graphDocks.size) dockRAF = requestAnimationFrame(tickGraphDocks);
 }
 
+function elementLooksVisible(element) {
+  if (!element || !document.body.contains(element)) return false;
+  if (element.closest(".workflowx-uap-dock, .workflowx-uap-ideo-menu, .workflowx-uap-ideo-layer-menu")) return false;
+  const style = window.getComputedStyle(element);
+  if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity || 1) <= 0) return false;
+  const rect = element.getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0;
+}
+
+function hasObscuringModal() {
+  for (const element of document.querySelectorAll(DOCK_OBSCURING_MODAL_SELECTOR)) {
+    if (elementLooksVisible(element)) return true;
+  }
+  return false;
+}
+
+function refreshDockModalOcclusion() {
+  dockModalRAF = 0;
+  const obscured = hasObscuringModal();
+  for (const dock of graphDocks) {
+    dock.classList.toggle("workflowx-uap-dock-obscured", obscured);
+  }
+}
+
+function wakeDockModalOcclusion() {
+  if (!dockModalRAF) dockModalRAF = requestAnimationFrame(refreshDockModalOcclusion);
+}
+
 function installDockWakes() {
   if (dockWakesInstalled) return;
   if (!app.canvas) return;
   dockWakesInstalled = true;
   chainCallback(app.canvas, "onDrawForeground", wakeGraphDocks);
   window.addEventListener("resize", wakeGraphDocks);
+  dockModalObserver = new MutationObserver(wakeDockModalOcclusion);
+  dockModalObserver.observe(document.body, {
+    attributes: true,
+    attributeFilter: ["class", "style", "open", "aria-modal", "role"],
+    childList: true,
+    subtree: true,
+  });
 }
 
 function injectStyle() {
@@ -231,6 +285,10 @@ function injectStyle() {
   overflow: hidden;
   position: fixed;
   pointer-events: auto;
+}
+.workflowx-uap-dock.workflowx-uap-dock-obscured {
+  pointer-events: none !important;
+  visibility: hidden !important;
 }
 .workflowx-uap-dock-head {
   align-items: center;
@@ -353,7 +411,7 @@ function injectStyle() {
   gap: 7px;
   padding: 8px;
   position: fixed;
-  z-index: 13000;
+  z-index: 9400;
 }
 .workflowx-uap-ideo-layer-menu {
   background: #242424;
@@ -371,7 +429,7 @@ function injectStyle() {
   padding: 6px;
   position: fixed;
   width: min(560px, calc(100vw - 16px));
-  z-index: 13000;
+  z-index: 9400;
 }
 .workflowx-uap-ideo-layer-header {
   color: #999;
@@ -1195,6 +1253,9 @@ function defaultState(node) {
     ollama_model: saved.ollama_model || storedModels.ollama_model || "",
     ollama_think: Boolean(saved.ollama_think || false),
     unload_after: saved.unload_after !== false,
+    refresh_vram: saved.refresh_vram == null
+      ? Boolean(widgetValue(node, "refresh_vram", false))
+      : Boolean(saved.refresh_vram),
     local_model: saved.local_model || storedModels.local_model || "",
     local_mmproj: saved.local_mmproj || "none",
     local_system_prompt_preset: saved.local_system_prompt_preset || "none",
@@ -1273,6 +1334,7 @@ function syncOutputWidgets(node, state, activeProfile) {
   setWidgetValue(node, "negative_enabled", negativeEnabled);
   setWidgetValue(node, "enable_bbox_json_input", Boolean(state.enable_bbox_json_input));
   setWidgetValue(node, "enable_text_input", Boolean(state.enable_text_input));
+  setWidgetValue(node, "refresh_vram", Boolean(state.refresh_vram));
   setWidgetValue(node, "generated_positive", positive || "");
   setWidgetValue(node, "generated_negative", negative || "");
   setWidgetValue(node, "final_prompt", finalPrompt || "");
@@ -1604,6 +1666,7 @@ function closeDock(node, key) {
   dock.remove();
   delete node.__workflowXUapDocks[key];
   graphDocks.delete(dock);
+  wakeDockModalOcclusion();
 }
 
 function dockIsOpen(node, key) {
@@ -1612,6 +1675,11 @@ function dockIsOpen(node, key) {
 }
 
 function bringDockForward(dock) {
+  if (nextDockZ >= DOCK_Z_LIMIT) {
+    let z = DOCK_Z_BASE;
+    for (const openDock of graphDocks) openDock.style.zIndex = String(++z);
+    nextDockZ = z;
+  }
   dock.style.zIndex = String(++nextDockZ);
 }
 
@@ -1666,6 +1734,7 @@ function createDockWindow(node, key, title, options = {}) {
   graphDocks.add(dock);
   installDockWakes();
   wakeGraphDocks();
+  wakeDockModalOcclusion();
 
   if (geom.minimized) dock.classList.add("minimized");
 
@@ -2078,7 +2147,14 @@ function setupUnifiedAutoprompter(node) {
   negativeInput.checked = Boolean(state.negative_enabled);
   negativeToggle.appendChild(negativeInput);
   negativeToggle.appendChild(document.createTextNode("generate negative"));
+  const refreshVramToggle = buildDom("label", "workflowx-uap-toggle");
+  const refreshVramInput = document.createElement("input");
+  refreshVramInput.type = "checkbox";
+  refreshVramInput.checked = Boolean(state.refresh_vram);
+  refreshVramToggle.appendChild(refreshVramInput);
+  refreshVramToggle.appendChild(document.createTextNode("refresh VRAM"));
   imageRow.appendChild(negativeToggle);
+  imageRow.appendChild(refreshVramToggle);
   wrap.appendChild(imageRow);
 
   const toolsRow = buildDom("div", "workflowx-uap-row");
@@ -2201,6 +2277,7 @@ function setupUnifiedAutoprompter(node) {
     state.ollama_host = hostInput.value || DEFAULT_OLLAMA_HOST;
     state.ollama_think = thinkInput.checked;
     state.unload_after = state.backend === "openai" ? openaiUnloadInput.checked : unloadInput.checked;
+    state.refresh_vram = refreshVramInput.checked;
     state.max_tokens = Number(maxTokensInput.value || 768);
     state.temperature = Number(tempInput.value || 0.7);
     state.ctx_size = Number(ctxInput.value || 8192);
@@ -4743,6 +4820,7 @@ function setupUnifiedAutoprompter(node) {
       target_model: state.target_model,
       prompt_format: state.prompt_format,
       negative_enabled: state.negative_enabled,
+      refresh_vram: state.refresh_vram,
       image_b64: state.connected_image_b64 || "",
       fields: {
         idea: state.idea,
@@ -4899,6 +4977,7 @@ function setupUnifiedAutoprompter(node) {
     memorySelect,
     reasoningSelect,
     negativeInput,
+    refreshVramInput,
   ];
   for (const input of stateInputs) {
     input.addEventListener("input", syncPreview);
@@ -4918,6 +4997,10 @@ function setupUnifiedAutoprompter(node) {
   negativeInput.addEventListener("change", () => {
     state.negative_enabled = negativeInput.checked;
     state.final_prompt = "";
+    syncPreview();
+  });
+  refreshVramInput.addEventListener("change", () => {
+    state.refresh_vram = refreshVramInput.checked;
     syncPreview();
   });
   geminiBtn.addEventListener("click", () => {

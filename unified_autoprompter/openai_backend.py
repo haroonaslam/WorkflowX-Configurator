@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import io
+from urllib.parse import urlsplit, urlunsplit
 
 import requests
 from PIL import Image
@@ -30,6 +31,21 @@ _NON_GENERATION_TOKENS = (
 
 def _base_url(base_url: str | None) -> str:
     return (base_url or DEFAULT_BASE_URL).strip().rstrip("/")
+
+
+def _lm_studio_unload_url(base_url: str | None) -> str:
+    parsed = urlsplit(_base_url(base_url))
+    path = parsed.path.rstrip("/")
+    if path.endswith("/api/v1"):
+        unload_path = f"{path}/models/unload"
+    elif path.endswith("/api"):
+        unload_path = f"{path}/v1/models/unload"
+    else:
+        prefix = path[:-3] if path.endswith("/v1") else path
+        unload_path = f"{prefix}/api/v1/models/unload"
+    if not unload_path.startswith("/"):
+        unload_path = f"/{unload_path}"
+    return urlunsplit((parsed.scheme, parsed.netloc, unload_path, "", ""))
 
 
 def _headers(api_key: str | None = "") -> dict[str, str]:
@@ -100,6 +116,22 @@ def _extract_text(payload: dict) -> str:
     raise ValueError("OpenAI-compatible server returned no text output.")
 
 
+def unload_model(base_url: str | None, api_key: str | None, instance_id: str, timeout: float = 120) -> bool:
+    name = str(instance_id or "").strip()
+    if not name:
+        return False
+    try:
+        response = requests.post(
+            _lm_studio_unload_url(base_url),
+            headers=_headers(api_key),
+            json={"instance_id": name},
+            timeout=timeout,
+        )
+        return 200 <= response.status_code < 300
+    except Exception:
+        return False
+
+
 def generate(
     base_url: str | None,
     api_key: str,
@@ -127,9 +159,10 @@ def generate(
         ],
         "temperature": 0.7,
     }
-    if unload_after:
-        body["ttl"] = 0
     response = requests.post(f"{_base_url(base_url)}/chat/completions", headers=_headers(api_key), json=body, timeout=timeout)
     if response.status_code != 200:
         raise ValueError(_err(response))
-    return _extract_text(response.json())
+    text = _extract_text(response.json())
+    if unload_after:
+        unload_model(base_url, api_key, model, timeout=timeout)
+    return text
