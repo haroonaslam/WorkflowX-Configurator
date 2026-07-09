@@ -30,6 +30,10 @@ class UnifiedAutoprompterX:
                     "BOOLEAN",
                     {"default": False, "tooltip": "UI-managed toggle to unload ComfyUI models and clear cache before prompt generation."},
                 ),
+                "disable_color_palette": (
+                    "BOOLEAN",
+                    {"default": False, "tooltip": "UI-managed toggle to strip color_palette blocks from JSON outputs without changing the stored model response."},
+                ),
                 "generated_positive": (
                     "STRING",
                     {"default": "", "multiline": True, "tooltip": "Managed by the WorkflowX UI."},
@@ -78,6 +82,7 @@ class UnifiedAutoprompterX:
         enable_bbox_json_input: bool = False,
         enable_text_input: bool = False,
         refresh_vram: bool = False,
+        disable_color_palette: bool = False,
         generated_positive: str = "",
         generated_negative: str = "",
         final_prompt: str = "",
@@ -94,6 +99,7 @@ class UnifiedAutoprompterX:
             negative=generated_negative,
             final_prompt=final_prompt,
             negative_enabled=negative_enabled,
+            disable_color_palette=disable_color_palette,
         )
 
 

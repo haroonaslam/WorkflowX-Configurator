@@ -1256,6 +1256,9 @@ function defaultState(node) {
     refresh_vram: saved.refresh_vram == null
       ? Boolean(widgetValue(node, "refresh_vram", false))
       : Boolean(saved.refresh_vram),
+    disable_color_palette: saved.disable_color_palette == null
+      ? Boolean(widgetValue(node, "disable_color_palette", false))
+      : Boolean(saved.disable_color_palette),
     local_model: saved.local_model || storedModels.local_model || "",
     local_mmproj: saved.local_mmproj || "none",
     local_system_prompt_preset: saved.local_system_prompt_preset || "none",
@@ -1311,6 +1314,35 @@ function positiveAndNegativePrompt(positive, negative, negativeEnabled, promptFo
   return positive;
 }
 
+function stripColorPalettesFromValue(value) {
+  if (Array.isArray(value)) return value.map((item) => stripColorPalettesFromValue(item));
+  if (value && typeof value === "object") {
+    const stripped = {};
+    for (const [key, item] of Object.entries(value)) {
+      if (key === "color_palette") continue;
+      stripped[key] = stripColorPalettesFromValue(item);
+    }
+    return stripped;
+  }
+  return value;
+}
+
+function stripColorPalettesFromPrompt(text, promptFormat) {
+  const raw = String(text || "").trim();
+  if (promptFormat !== "json" || !raw) return raw;
+  try {
+    return JSON.stringify(stripColorPalettesFromValue(JSON.parse(raw)), null, 2);
+  } catch {
+    return raw;
+  }
+}
+
+function outputTextForState(state, text, promptFormat) {
+  return state.disable_color_palette
+    ? stripColorPalettesFromPrompt(text, promptFormat)
+    : String(text || "");
+}
+
 function syncOutputWidgets(node, state, activeProfile) {
   const cached = state.last_generation || null;
   const negativeEnabled = cached ? Boolean(cached.negative_enabled) : Boolean(state.negative_enabled);
@@ -1328,6 +1360,8 @@ function syncOutputWidgets(node, state, activeProfile) {
     negativeEnabled,
     outputFormat,
   );
+  const outputPositive = outputTextForState(state, positive, outputFormat);
+  const outputFinalPrompt = outputTextForState(state, finalPrompt, outputFormat);
 
   setWidgetValue(node, "target_model", outputTarget);
   setWidgetValue(node, "prompt_format", outputFormat);
@@ -1335,12 +1369,13 @@ function syncOutputWidgets(node, state, activeProfile) {
   setWidgetValue(node, "enable_bbox_json_input", Boolean(state.enable_bbox_json_input));
   setWidgetValue(node, "enable_text_input", Boolean(state.enable_text_input));
   setWidgetValue(node, "refresh_vram", Boolean(state.refresh_vram));
+  setWidgetValue(node, "disable_color_palette", Boolean(state.disable_color_palette));
   setWidgetValue(node, "generated_positive", positive || "");
   setWidgetValue(node, "generated_negative", negative || "");
   setWidgetValue(node, "final_prompt", finalPrompt || "");
   setWidgetValue(node, "ui_state", JSON.stringify(serializableState({ ...state, prompt_format: promptFormat }), null, 2));
   markDirty();
-  return finalPrompt;
+  return outputFinalPrompt || outputPositive;
 }
 
 function buildDom(tag, className = "", text = "") {
@@ -1886,6 +1921,8 @@ function setupUnifiedAutoprompter(node) {
     "negative_enabled",
     "enable_bbox_json_input",
     "enable_text_input",
+    "refresh_vram",
+    "disable_color_palette",
     "generated_positive",
     "generated_negative",
     "final_prompt",
@@ -2153,8 +2190,15 @@ function setupUnifiedAutoprompter(node) {
   refreshVramInput.checked = Boolean(state.refresh_vram);
   refreshVramToggle.appendChild(refreshVramInput);
   refreshVramToggle.appendChild(document.createTextNode("refresh VRAM"));
+  const disablePaletteToggle = buildDom("label", "workflowx-uap-toggle");
+  const disablePaletteInput = document.createElement("input");
+  disablePaletteInput.type = "checkbox";
+  disablePaletteInput.checked = Boolean(state.disable_color_palette);
+  disablePaletteToggle.appendChild(disablePaletteInput);
+  disablePaletteToggle.appendChild(document.createTextNode("disable color pallet"));
   imageRow.appendChild(negativeToggle);
   imageRow.appendChild(refreshVramToggle);
+  imageRow.appendChild(disablePaletteToggle);
   wrap.appendChild(imageRow);
 
   const toolsRow = buildDom("div", "workflowx-uap-row");
@@ -2278,6 +2322,7 @@ function setupUnifiedAutoprompter(node) {
     state.ollama_think = thinkInput.checked;
     state.unload_after = state.backend === "openai" ? openaiUnloadInput.checked : unloadInput.checked;
     state.refresh_vram = refreshVramInput.checked;
+    state.disable_color_palette = disablePaletteInput.checked;
     state.max_tokens = Number(maxTokensInput.value || 768);
     state.temperature = Number(tempInput.value || 0.7);
     state.ctx_size = Number(ctxInput.value || 8192);
@@ -2310,6 +2355,8 @@ function setupUnifiedAutoprompter(node) {
       prompt: widgetValue(node, "final_prompt", ""),
       positive: widgetValue(node, "generated_positive", ""),
       negative: widgetValue(node, "generated_negative", ""),
+      target_model: widgetValue(node, "target_model", state.target_model),
+      prompt_format: widgetValue(node, "prompt_format", state.prompt_format),
     };
   }
 
@@ -2326,14 +2373,16 @@ function setupUnifiedAutoprompter(node) {
     if (!refs) return;
     const cached = cachedOutput();
     if (refs.positive?.view && document.body.contains(refs.positive.view)) {
-      refs.positive.view.value = cached.positive || "";
-      refs.positive.prompt = cached.prompt || "";
+      const promptFormat = cached.prompt_format || state.prompt_format;
+      refs.positive.view.value = outputTextForState(state, cached.positive || "", promptFormat);
+      refs.positive.prompt = outputTextForState(state, cached.prompt || "", promptFormat);
     } else if (refs.positive) {
       delete refs.positive;
     }
     if (refs.negative?.view && document.body.contains(refs.negative.view)) {
+      const promptFormat = cached.prompt_format || state.prompt_format;
       refs.negative.view.value = cached.negative || "";
-      refs.negative.prompt = cached.prompt || "";
+      refs.negative.prompt = outputTextForState(state, cached.prompt || "", promptFormat);
     } else if (refs.negative) {
       delete refs.negative;
     }
@@ -2377,6 +2426,7 @@ function setupUnifiedAutoprompter(node) {
     }
     syncPreview();
     const cached = cachedOutput();
+    const promptFormat = cached.prompt_format || state.prompt_format;
     const label = kind === "negative" ? "Negative" : "Positive";
     const dock = createDockWindow(node, key, `${label} Preview`, {
       width: 520,
@@ -2385,13 +2435,15 @@ function setupUnifiedAutoprompter(node) {
     });
     const view = document.createElement("textarea");
     view.className = "workflowx-uap-dock-text";
-    view.value = kind === "negative" ? cached.negative || "" : cached.positive || "";
+    view.value = kind === "negative"
+      ? cached.negative || ""
+      : outputTextForState(state, cached.positive || "", promptFormat);
     view.readOnly = true;
     field(dock.body, label, view);
     node.__workflowXUapOutputRefs ||= {};
     node.__workflowXUapOutputRefs[kind] = {
       view,
-      prompt: cached.prompt || "",
+      prompt: outputTextForState(state, cached.prompt || "", promptFormat),
     };
     dock.dock.__workflowXOnClose = () => {
       if (node.__workflowXUapOutputRefs) delete node.__workflowXUapOutputRefs[kind];
@@ -4978,6 +5030,7 @@ function setupUnifiedAutoprompter(node) {
     reasoningSelect,
     negativeInput,
     refreshVramInput,
+    disablePaletteInput,
   ];
   for (const input of stateInputs) {
     input.addEventListener("input", syncPreview);
@@ -5001,6 +5054,10 @@ function setupUnifiedAutoprompter(node) {
   });
   refreshVramInput.addEventListener("change", () => {
     state.refresh_vram = refreshVramInput.checked;
+    syncPreview();
+  });
+  disablePaletteInput.addEventListener("change", () => {
+    state.disable_color_palette = disablePaletteInput.checked;
     syncPreview();
   });
   geminiBtn.addEventListener("click", () => {

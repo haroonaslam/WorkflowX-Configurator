@@ -19,6 +19,30 @@ def assemble_prompt(positive: str, negative: str = "", negative_enabled: bool = 
     return positive
 
 
+def _strip_color_palette_values(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _strip_color_palette_values(item)
+            for key, item in value.items()
+            if key != "color_palette"
+        }
+    if isinstance(value, list):
+        return [_strip_color_palette_values(item) for item in value]
+    return value
+
+
+def strip_color_palettes_from_prompt(target_model: str, prompt_format: str, text: str) -> str:
+    """Remove Ideogram/Krea-style color palette metadata from a JSON prompt string."""
+    raw = str(text or "").strip()
+    if normalize_format(target_model, prompt_format) != FORMAT_JSON or not raw:
+        return raw
+    parsed = extract_json_object(raw)
+    if parsed is None:
+        return raw
+    stripped = _strip_color_palette_values(parsed)
+    return json.dumps(stripped, indent=2, ensure_ascii=False)
+
+
 def build_outputs(
     target_model: str,
     prompt_format: str,
@@ -26,6 +50,7 @@ def build_outputs(
     negative: str = "",
     final_prompt: str = "",
     negative_enabled: bool = False,
+    disable_color_palette: bool = False,
 ) -> tuple[str, str, str]:
     prompt_format = normalize_format(target_model, prompt_format)
     negative_enabled = bool(negative_enabled)
@@ -37,6 +62,9 @@ def build_outputs(
         prompt = final_prompt
     else:
         prompt = assemble_prompt(positive, negative, negative_enabled, prompt_format)
+    if disable_color_palette:
+        positive = strip_color_palettes_from_prompt(target_model, prompt_format, positive)
+        prompt = strip_color_palettes_from_prompt(target_model, prompt_format, prompt)
     return (prompt, positive, negative)
 
 

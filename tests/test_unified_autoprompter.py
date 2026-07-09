@@ -238,6 +238,45 @@ def test_bbox_json_response_normalizes_semantic_element_types():
     assert json.loads(krea["positive"])["compositional_deconstruction"]["elements"][0]["type"] == "obj"
 
 
+def test_disable_color_palette_strips_json_output_without_mutating_response():
+    _profiles, prompt_io, _prompt_builder, _node, _profile_config = _load_package_modules()
+    raw = json.dumps({
+        "high_level_description": "portrait",
+        "style_description": {
+            "medium": "photograph",
+            "color_palette": ["#FFFFFF", "#111111"],
+        },
+        "compositional_deconstruction": {
+            "elements": [
+                {
+                    "type": "obj",
+                    "bbox": [100, 200, 800, 700],
+                    "desc": "subject",
+                    "color_palette": ["#FAD6B1"],
+                }
+            ],
+        },
+    })
+
+    prompt, positive, negative = prompt_io.build_outputs(
+        "ideogram4",
+        "json",
+        positive=raw,
+        final_prompt=raw,
+        negative="",
+        negative_enabled=False,
+        disable_color_palette=True,
+    )
+    parsed_prompt = json.loads(prompt)
+    parsed_positive = json.loads(positive)
+
+    assert "color_palette" not in parsed_prompt["style_description"]
+    assert "color_palette" not in parsed_prompt["compositional_deconstruction"]["elements"][0]
+    assert parsed_positive == parsed_prompt
+    assert negative == ""
+    assert "color_palette" in raw
+
+
 def test_json_generation_response_keeps_wrapper_negative_for_downstream_nodes():
     _profiles, prompt_io, _prompt_builder, _node, _profile_config = _load_package_modules()
 
@@ -589,6 +628,7 @@ def test_unified_autoprompter_node_is_registered_and_builds_outputs():
     assert input_types["required"]["enable_bbox_json_input"][0] == "BOOLEAN"
     assert input_types["required"]["enable_text_input"][0] == "BOOLEAN"
     assert input_types["required"]["refresh_vram"][0] == "BOOLEAN"
+    assert input_types["required"]["disable_color_palette"][0] == "BOOLEAN"
     assert input_types["optional"]["image"] == ("IMAGE",)
     assert input_types["optional"]["bbox_json"][0] == "STRING"
     assert input_types["optional"]["bbox_json"][1]["forceInput"] is True
@@ -602,6 +642,7 @@ def test_unified_autoprompter_node_is_registered_and_builds_outputs():
         negative_enabled=True,
         enable_bbox_json_input=True,
         enable_text_input=True,
+        disable_color_palette=False,
         generated_positive="cinematic portrait",
         generated_negative="low quality",
         image="ignored frontend overlay",
