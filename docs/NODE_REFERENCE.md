@@ -2,7 +2,7 @@
 
 This reference covers every ComfyUI node registered by WorkflowX Configurator. The main package appears under `WorkflowX_Configurator`; bundled AFJ nodes appear under `AFJ`.
 
-For the Image Compare Edit X expanded editor, see [Image Compare Edit X Editor Guide](IMAGE_COMPARE_EDIT_X_EDITOR.md). For Autoprompter backend setup and profile editing, see [Unified Autoprompter X Guide](UNIFIED_AUTOPROMPTER_X.md).
+For the Image Compare Edit X expanded editor, see [Image Compare Edit X Editor Guide](IMAGE_COMPARE_EDIT_X_EDITOR.md). For crop/edit/stitch workflows, see [Anything Swap Bridge Guide](ANYTHING_SWAP_BRIDGE.md). For Google Gemini image generation, see [NanoBanana Full API Guide](NANOBANANA_FULL_API.md). For Kie and Atlas generation, see [Kie and Atlas Image API Nodes](KIE_ATLAS_API_NODES.md). For Autoprompter backend setup and profile editing, see [Unified Autoprompter X Guide](UNIFIED_AUTOPROMPTER_X.md).
 
 ## Registered Nodes
 
@@ -22,6 +22,11 @@ For the Image Compare Edit X expanded editor, see [Image Compare Edit X Editor G
 | `Group Scopes` | `WorkflowX_Configurator` | Decide which groups appear in configurators or advanced selector sections. |
 | `Unload Models By Type` | `WorkflowX_Configurator/VRAM` | Unload selected resident model classes from memory. |
 | `Image Compare Edit X` | `WorkflowX_Configurator/Image` | Compare two images and edit/save an in-node Image 3 blend. |
+| `Anything Crop (for Swap)` | `WorkflowX_Configurator/Image/Anything Swap` | Segment or mask an object, crop it, and create a stitch payload. |
+| `Anything Stitch` | `WorkflowX_Configurator/Image/Anything Swap` | Composite an edited crop back into the untouched source. |
+| `NanoBanana Full API` | `WorkflowX_Configurator/Image/NanoBanana` | Generate or edit images through current Google Gemini image models. |
+| `Kie Image API X` | `WorkflowX_Configurator/Image/API` | Generate or edit one image through model-aware Kie routes with resumable retrieval. |
+| `Atlas Image API X` | `WorkflowX_Configurator/Image/API` | Generate or edit one image through model-aware Atlas routes with resumable retrieval. |
 | `Unified Autoprompter X` | `WorkflowX_Configurator/Prompting` | Build model-specific prompts from the WorkflowX autoprompting UI. |
 | `AFJ - Visual Builder` | `AFJ` | Build structured prompt JSON visually. |
 | `AFJ - Template Randomizer` | `AFJ` | Randomize fields from saved AFJ templates at runtime. |
@@ -218,6 +223,39 @@ Core behavior:
 - `Copy 3` copies Image 3 to the clipboard.
 
 See [Image Compare Edit X Editor Guide](IMAGE_COMPARE_EDIT_X_EDITOR.md) for the full editing workflow.
+
+## Anything Crop (for Swap)
+
+`Anything Crop (for Swap)` accepts one `IMAGE` and either performs internal text-prompted SAM3 segmentation or uses an optional `MASK`. It selects one detected object, expands and aligns the crop, optionally resizes it, and returns:
+
+- `crop`: the image region for the downstream editing model or API.
+- `crop_mask`: the object mask in crop space.
+- `swap_prompt`: the configured prompt with target, size, and caption tokens resolved.
+- `source_masked`: a source preview with the selected object removed.
+- `stitch`: an opaque `SWAP_STITCH` payload containing exact source geometry.
+- `detected`: whether a usable object or mask was found.
+
+The node accepts only a single source image. When `use_sam3` is off, a mask must be connected. See [Anything Swap Bridge Guide](ANYTHING_SWAP_BRIDGE.md) for the complete input and geometry behavior.
+
+## Anything Stitch
+
+`Anything Stitch` accepts the `SWAP_STITCH` payload and the edited `swapped` crop. It validates the returned resolution and aspect ratio, optionally colour-matches the edit against the original crop, builds the selected payload/full/override composite mask, feathers it, and returns the completed full-size image plus a source-space `changed_mask`.
+
+Pixels outside the changed mask are preserved exactly. See [Anything Swap Bridge Guide](ANYTHING_SWAP_BRIDGE.md) for mask modes and resize behavior.
+
+## NanoBanana Full API
+
+`NanoBanana Full API` preserves the original `NanoBanana_Gemini_2_5_Flash_V2` workflow ID while exposing Gemini 3.1 Flash Image and Gemini 3 Pro Image. It accepts text, a system prompt, up to five optional images, an optional edit mask, 1K/2K/4K resolution, a configurable API timeout, thought-summary controls, generation controls, and four safety thresholds. It returns final images as a ComfyUI batch and structured text output containing thought summaries, answer text, candidate results, safety blocks, and API failures.
+
+The API-key widget takes precedence over `GEMINI_API_KEY`, which takes precedence over `GOOGLE_API_KEY`. See [NanoBanana Full API Guide](NANOBANANA_FULL_API.md) for request syntax, model behavior, and cost considerations.
+
+## Kie Image API X / Atlas Image API X
+
+The two remote API nodes accept a prompt plus up to 14 auto-growing `IMAGE` sockets. No image selects text-to-image; one or more images select the model's image-to-image/edit route. Their rich DOM panel is generated from packaged GemMobi canonical contracts, so each model shows only its exact aspect ratios, named or explicit resolutions, output quality/type, route-specific flags, custom-size limits, and reference maximum. Unsupported values and excessive references fail before upload.
+
+Both nodes return one `IMAGE`. API keys may be entered in the masked panel field or read from `KIE_API_KEY`, `ATLAS_API_KEY`, or `ATLASCLOUD_API_KEY`. A live in-node log reports upload, submission, polling, timeout, cancellation, and download phases. Task IDs are persisted as soon as the provider accepts a submission. **Force Retrieve** polls the same stored task after timeout and cannot resubmit generation. **Stop & Retrieve Later** preserves it; **Stop & Continue** returns a dimension-aware black placeholder and forgets tracking. None of these actions can cancel provider-side work.
+
+See [Kie and Atlas Image API Nodes](KIE_ATLAS_API_NODES.md) for the full model list, model-specific controls, environment configuration, and pending-task lifecycle.
 
 ## Unified Autoprompter X
 

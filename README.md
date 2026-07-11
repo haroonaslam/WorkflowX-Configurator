@@ -11,6 +11,9 @@ WorkflowX Configurator turns sprawling ComfyUI graphs into selectable workflow p
 - [WorkflowX Configurator Nodes](#workflowx-configurator-nodes)
 - [Full Node Reference](docs/NODE_REFERENCE.md)
 - [Image Compare Edit X Editor Guide](docs/IMAGE_COMPARE_EDIT_X_EDITOR.md)
+- [Anything Swap Bridge Guide](docs/ANYTHING_SWAP_BRIDGE.md)
+- [NanoBanana Full API Guide](docs/NANOBANANA_FULL_API.md)
+- [Kie and Atlas Image API Nodes](docs/KIE_ATLAS_API_NODES.md)
 - [Unified Autoprompter X Guide](docs/UNIFIED_AUTOPROMPTER_X.md)
 - [XFlows Workflow Manager](#xflows-workflow-manager)
 - [XPrompts Prompt Library](#xprompts-prompt-library)
@@ -50,6 +53,9 @@ This repository also packages:
 - `AFJ - Visual Builder`, `AFJ - Template Randomizer`, and `AFJ - Prompt Template Importer`.
 - `Unified Autoprompter X`, a model-targeted prompt builder.
 - `Image Compare Edit X`, a compare and in-node image editing output node.
+- `Anything Crop (for Swap)` and `Anything Stitch`, a model-agnostic crop/edit/stitch pair.
+- `NanoBanana Full API`, a Google Gemini image generation and editing node.
+- `Kie Image API X` and `Atlas Image API X`, model-aware remote generation/edit nodes with resumable task retrieval.
 
 These tools keep their existing node names, frontend extension IDs, and backend route prefixes for compatibility.
 
@@ -66,6 +72,9 @@ ComfyUI/
       __init__.py
       nodes.py
       xflows_manager.py
+      anything_swap_bridge/
+      nanobanana_full_api/
+      remote_image_api/
       afj_awesome_flex_json_v2/
       web/js/key_config_tools.js
       web/js/xflows.js
@@ -209,6 +218,30 @@ The compact node view supports single-image viewing, split compare, overlay, dif
 Image 3 is browser-side editor state until you explicitly save, download, or copy it.
 
 For the full editing workflow, see the [Image Compare Edit X editor guide](docs/IMAGE_COMPARE_EDIT_X_EDITOR.md).
+
+### Anything Crop (for Swap) / Anything Stitch
+
+These paired nodes live under `WorkflowX_Configurator/Image/Anything Swap`. The crop node can segment an object internally with native ComfyUI SAM3 or accept a connected mask, then emits the crop, crop mask, prompt text, and an opaque `SWAP_STITCH` payload. Put any local model, LoRA workflow, or remote API between the crop and stitch nodes. `Anything Stitch` uses the payload to resize, colour-match, feather, and composite the edited crop back into the untouched source.
+
+The original node IDs and `SWAP_STITCH` contract are preserved for workflow compatibility. Internal SAM3 requires a recent ComfyUI build and a SAM3 checkpoint; mask-driven operation does not.
+
+See the [Anything Swap Bridge guide](docs/ANYTHING_SWAP_BRIDGE.md) for wiring, crop geometry, mask modes, validation, and troubleshooting.
+
+### NanoBanana Full API
+
+`NanoBanana Full API` lives under `WorkflowX_Configurator/Image/NanoBanana`. It supports text-to-image, up to five labeled reference images, mask-guided editing, candidate batching, a system prompt, aspect ratios, 1K/2K/4K resolution, configurable timeout, thought summaries, Flash thinking levels, seed, temperature, top-p, and per-category safety overrides.
+
+The node supports only `gemini-3.1-flash-image` and `gemini-3-pro-image`. Enter a Google Gemini API key in the password field, or leave it blank to use `GEMINI_API_KEY` and then `GOOGLE_API_KEY` from the environment.
+
+See the [NanoBanana Full API guide](docs/NANOBANANA_FULL_API.md) for the exact API mappings, model choices, safety controls, batching costs, and error behavior.
+
+### Kie Image API X / Atlas Image API X
+
+These nodes live under `WorkflowX_Configurator/Image/API` and provide one-run text-to-image or image-to-image generation through a rich dynamic panel. WorkflowX's packaged copy of GemMobi's canonical contracts controls each model's aspect ratios, named resolution tiers or explicit dimensions, output quality/type, route-specific flags, defaults, payload shape, and reference limit. Image sockets grow automatically from `image_1` to a maximum of 14, while each model's lower limit is enforced before upload.
+
+The panel streams upload, submission, polling, timeout, download, and completion updates into an in-node session log. Remote task IDs are saved before polling. If a run times out, **Force Retrieve** resumes that same paid task without another generation submission. **Stop & Retrieve Later** safely parks an accepted task; **Stop & Continue** returns a black placeholder and abandons local tracking. Provider-side work cannot be cancelled through the documented Kie/Atlas contracts.
+
+See the [Kie and Atlas Image API Nodes guide](docs/KIE_ATLAS_API_NODES.md) for credentials, supported models, controls, routing, timeouts, and retrieval safety.
 
 ### Unified Autoprompter X
 

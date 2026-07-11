@@ -23,6 +23,19 @@ from .unified_autoprompter import (
     NODE_DISPLAY_NAME_MAPPINGS as UNIFIED_AUTOPROMPTER_NODE_DISPLAY_NAME_MAPPINGS,
     register_routes as register_unified_autoprompter_routes,
 )
+from .anything_swap_bridge import (
+    NODE_CLASS_MAPPINGS as ANYTHING_SWAP_NODE_CLASS_MAPPINGS,
+    NODE_DISPLAY_NAME_MAPPINGS as ANYTHING_SWAP_NODE_DISPLAY_NAME_MAPPINGS,
+)
+from .nanobanana_full_api import (
+    NODE_CLASS_MAPPINGS as NANOBANANA_NODE_CLASS_MAPPINGS,
+    NODE_DISPLAY_NAME_MAPPINGS as NANOBANANA_NODE_DISPLAY_NAME_MAPPINGS,
+)
+from .remote_image_api import (
+    NODE_CLASS_MAPPINGS as REMOTE_IMAGE_API_NODE_CLASS_MAPPINGS,
+    NODE_DISPLAY_NAME_MAPPINGS as REMOTE_IMAGE_API_NODE_DISPLAY_NAME_MAPPINGS,
+    register_routes as _register_remote_image_api_routes_on_app,
+)
 
 WEB_DIRECTORY = "./web/js"
 DEBUG_LOG_ROUTE = "/workflowx_configurator/debug_log"
@@ -36,6 +49,9 @@ NODE_CLASS_MAPPINGS = {
     **AFJ_NODE_CLASS_MAPPINGS,
     **XFLOWS_NODE_CLASS_MAPPINGS,
     **UNIFIED_AUTOPROMPTER_NODE_CLASS_MAPPINGS,
+    **ANYTHING_SWAP_NODE_CLASS_MAPPINGS,
+    **NANOBANANA_NODE_CLASS_MAPPINGS,
+    **REMOTE_IMAGE_API_NODE_CLASS_MAPPINGS,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -43,6 +59,9 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     **AFJ_NODE_DISPLAY_NAME_MAPPINGS,
     **XFLOWS_NODE_DISPLAY_NAME_MAPPINGS,
     **UNIFIED_AUTOPROMPTER_NODE_DISPLAY_NAME_MAPPINGS,
+    **ANYTHING_SWAP_NODE_DISPLAY_NAME_MAPPINGS,
+    **NANOBANANA_NODE_DISPLAY_NAME_MAPPINGS,
+    **REMOTE_IMAGE_API_NODE_DISPLAY_NAME_MAPPINGS,
 }
 
 
@@ -349,5 +368,25 @@ def _register_unified_autoprompter_routes() -> None:
 
 
 _register_unified_autoprompter_routes()
+
+
+def _register_remote_image_api_routes() -> None:
+    try:
+        from server import PromptServer
+    except Exception as exc:
+        logger.warning("[WorkflowX Remote Image API] Could not import PromptServer: %s", exc)
+        return
+
+    prompt_server = getattr(PromptServer, "instance", None)
+    app = getattr(prompt_server, "app", None)
+    if app is None:
+        return
+    try:
+        _register_remote_image_api_routes_on_app(app)
+    except Exception as exc:
+        logger.warning("[WorkflowX Remote Image API] Could not register routes: %s", exc)
+
+
+_register_remote_image_api_routes()
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]

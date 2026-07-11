@@ -37,6 +37,9 @@ class _Router:
     def add_post(self, *_args, **_kwargs):
         return None
 
+    def add_delete(self, *_args, **_kwargs):
+        return None
+
 
 def _install_comfy_stubs():
     aiohttp = types.ModuleType("aiohttp")
@@ -84,7 +87,7 @@ def _load_package():
 
 def test_combined_package_exports_workflowx_and_afj_nodes():
     module = _load_package()
-    assert len(module.NODE_CLASS_MAPPINGS) == 27
+    assert len(module.NODE_CLASS_MAPPINGS) == 32
     assert "KVGC_GroupConfigurator" in module.NODE_CLASS_MAPPINGS
     assert "KVGC_ConfigSelectorAdvanced" in module.NODE_CLASS_MAPPINGS
     assert "KVGC_UnloadModelsByType" in module.NODE_CLASS_MAPPINGS
@@ -94,6 +97,21 @@ def test_combined_package_exports_workflowx_and_afj_nodes():
     assert "AFJPromptTemplateImporter" in module.NODE_CLASS_MAPPINGS
     assert "UnifiedAutoprompterX" in module.NODE_CLASS_MAPPINGS
     assert module.NODE_DISPLAY_NAME_MAPPINGS["UnifiedAutoprompterX"] == "Unified Autoprompter X"
+    assert "AnythingCropForSwap" in module.NODE_CLASS_MAPPINGS
+    assert "AnythingStitch" in module.NODE_CLASS_MAPPINGS
+    assert "NanoBanana_Gemini_2_5_Flash_V2" in module.NODE_CLASS_MAPPINGS
+    assert module.NODE_DISPLAY_NAME_MAPPINGS["AnythingCropForSwap"] == "Anything Crop (for Swap)"
+    assert module.NODE_DISPLAY_NAME_MAPPINGS["AnythingStitch"] == "Anything Stitch"
+    assert module.NODE_DISPLAY_NAME_MAPPINGS["NanoBanana_Gemini_2_5_Flash_V2"] == "NanoBanana Full API"
+    assert module.NODE_CLASS_MAPPINGS["AnythingCropForSwap"].CATEGORY == "WorkflowX_Configurator/Image/Anything Swap"
+    assert module.NODE_CLASS_MAPPINGS["AnythingStitch"].CATEGORY == "WorkflowX_Configurator/Image/Anything Swap"
+    assert module.NODE_CLASS_MAPPINGS["NanoBanana_Gemini_2_5_Flash_V2"].CATEGORY == "WorkflowX_Configurator/Image/NanoBanana"
+    assert "WorkflowX_KieImageAPI" in module.NODE_CLASS_MAPPINGS
+    assert "WorkflowX_AtlasImageAPI" in module.NODE_CLASS_MAPPINGS
+    assert module.NODE_DISPLAY_NAME_MAPPINGS["WorkflowX_KieImageAPI"] == "Kie Image API X"
+    assert module.NODE_DISPLAY_NAME_MAPPINGS["WorkflowX_AtlasImageAPI"] == "Atlas Image API X"
+    assert module.NODE_CLASS_MAPPINGS["WorkflowX_KieImageAPI"].CATEGORY == "WorkflowX_Configurator/Image/API"
+    assert module.NODE_CLASS_MAPPINGS["WorkflowX_AtlasImageAPI"].CATEGORY == "WorkflowX_Configurator/Image/API"
     assert module.WEB_DIRECTORY == "./web/js"
 
 
