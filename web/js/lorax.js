@@ -279,6 +279,17 @@ function ensureStyles() {
     .workflowx-lorax-detail-section h3{font-size:13px;margin:0 0 8px;color:#cbd4df}
     .workflowx-lorax-detail-tags{display:flex;flex-wrap:wrap;gap:6px}
     .workflowx-lorax-detail-text{white-space:pre-wrap;color:#d7dde5;line-height:1.42}
+    .workflowx-lorax-detail-text.rich{white-space:normal}
+    .workflowx-lorax-detail-text.rich p{margin:0 0 10px}
+    .workflowx-lorax-detail-text.rich p:last-child{margin-bottom:0}
+    .workflowx-lorax-detail-text.rich ul,.workflowx-lorax-detail-text.rich ol{margin:6px 0 10px 20px;padding:0}
+    .workflowx-lorax-detail-text.rich li{margin:4px 0}
+    .workflowx-lorax-detail-text.rich pre{white-space:pre-wrap;background:#11151b;border:1px solid #30343b;border-radius:6px;padding:9px;overflow:auto}
+    .workflowx-lorax-detail-text.rich code{background:#202630;border:1px solid #30343b;border-radius:4px;padding:1px 4px}
+    .workflowx-lorax-detail-text.rich pre code{background:transparent;border:0;padding:0}
+    .workflowx-lorax-detail-text.rich blockquote{margin:8px 0;padding:6px 10px;border-left:3px solid #4f6fa4;color:#cbd4df;background:#151a21}
+    .workflowx-lorax-detail-text.rich a{color:#8eb5ff;text-decoration:none}
+    .workflowx-lorax-detail-text.rich a:hover{text-decoration:underline}
     .workflowx-lorax-detail-actions{display:flex;gap:8px;justify-content:flex-end;padding:12px 16px;border-top:1px solid #30343b;background:#202328}
     .workflowx-lorax-detail-actions button,.workflowx-lorax-detail-actions a{height:32px;border-radius:6px;border:1px solid #4e5560;background:#252d37;color:#e8eef7;padding:0 12px;text-decoration:none;display:inline-flex;align-items:center;cursor:pointer}
     .workflowx-lorax-detail-actions .primary{background:#315a94;border-color:#5783c4;color:#fff}
@@ -527,8 +538,75 @@ function addChipSection(grid, title, values) {
   grid.appendChild(section);
 }
 
+const RICH_TEXT_TAGS = new Set(["a", "b", "blockquote", "br", "code", "div", "em", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "i", "li", "ol", "p", "pre", "s", "span", "strong", "u", "ul"]);
+
+function textSectionValue(value) {
+  if (value === undefined || value === null) return "";
+  if (typeof value === "string") return value.trim();
+  if (Array.isArray(value)) return uniqueStrings(value).join("\n");
+  if (typeof value === "object") {
+    const keys = Object.keys(value);
+    if (!keys.length) return "";
+    for (const key of ["html", "description", "content", "text", "markdown", "usage_tips", "notes"]) {
+      if (typeof value[key] === "string" && value[key].trim()) return value[key].trim();
+    }
+    return JSON.stringify(value, null, 2);
+  }
+  return String(value).trim();
+}
+
+function hasHtmlMarkup(text) {
+  return /<\/?(?:a|b|blockquote|br|code|div|em|h[1-6]|hr|i|li|ol|p|pre|s|span|strong|u|ul)(?:\s|>|\/)/i.test(text);
+}
+
+function safeHref(value) {
+  try {
+    const url = new URL(value, window.location.href);
+    return ["http:", "https:"].includes(url.protocol) ? url.href : "";
+  } catch {
+    return "";
+  }
+}
+
+function sanitizeRichTextNode(sourceNode) {
+  if (sourceNode.nodeType === Node.TEXT_NODE) return document.createTextNode(sourceNode.textContent || "");
+  if (sourceNode.nodeType !== Node.ELEMENT_NODE) return document.createDocumentFragment();
+
+  const tag = sourceNode.nodeName.toLowerCase();
+  if (["script", "style", "template", "iframe", "object", "embed"].includes(tag)) return document.createDocumentFragment();
+
+  const children = document.createDocumentFragment();
+  for (const child of sourceNode.childNodes) children.appendChild(sanitizeRichTextNode(child));
+
+  if (!RICH_TEXT_TAGS.has(tag)) return children;
+
+  const el = document.createElement(tag);
+  if (tag === "a") {
+    const href = safeHref(sourceNode.getAttribute("href") || "");
+    if (!href) return children;
+    el.href = href;
+    el.target = "_blank";
+    el.rel = "noreferrer";
+  }
+  el.appendChild(children);
+  return el;
+}
+
+function renderTextSectionContent(container, text) {
+  if (!hasHtmlMarkup(text)) {
+    container.textContent = text;
+    return;
+  }
+
+  container.classList.add("rich");
+  const parsed = new DOMParser().parseFromString(text, "text/html");
+  const fragment = document.createDocumentFragment();
+  for (const child of parsed.body.childNodes) fragment.appendChild(sanitizeRichTextNode(child));
+  container.appendChild(fragment);
+}
+
 function addTextSection(grid, title, value) {
-  const text = String(value || "").trim();
+  const text = textSectionValue(value);
   if (!text) return;
   const section = document.createElement("div");
   section.className = "workflowx-lorax-detail-section";
@@ -536,7 +614,7 @@ function addTextSection(grid, title, value) {
   h.textContent = title;
   const content = document.createElement("div");
   content.className = "workflowx-lorax-detail-text";
-  content.textContent = text;
+  renderTextSectionContent(content, text);
   section.append(h, content);
   grid.appendChild(section);
 }
