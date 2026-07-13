@@ -53,6 +53,7 @@ This repository also packages:
 - `AFJ - Visual Builder`, `AFJ - Template Randomizer`, and `AFJ - Prompt Template Importer`.
 - `Unified Autoprompter X`, a model-targeted prompt builder.
 - `Image Compare Edit X`, a compare and in-node image editing output node.
+- `Load ImageX`, a recursive input-folder image loader with a searchable cached thumbnail grid.
 - `Anything Crop (for Swap)` and `Anything Stitch`, a model-agnostic crop/edit/stitch pair.
 - `NanoBanana Full API`, a Google Gemini image generation and editing node.
 - `Kie Image API X` and `Atlas Image API X`, model-aware remote generation/edit nodes with resumable task retrieval.
@@ -208,6 +209,12 @@ If no Group Scopes node is configured, WorkflowX keeps the original fallback: al
 Use it when a workflow stage no longer needs a heavy model and you want to free memory before the next stage begins. For example, it can unload text encoders after prompt encoding, or unload diffusion models before a text-encoding phase.
 
 The node exposes passthrough sockets for `trigger`, `MODEL`, `CLIP`, `VAE`, and `CONDITIONING`, plus a `status` string describing what was unloaded.
+
+### Load ImageX
+
+`Load ImageX` lives under `WorkflowX_Configurator/Image` and returns `IMAGE` plus an alpha-derived `MASK`. It keeps ComfyUI's native upload, dropdown, and node preview while adding a large **Browse Thumbnails** modal. The modal recursively covers the `input` root and all nested input folders, with All/root/folder navigation, search, counts, refresh, and a 128 px grid.
+
+Only visible grid items request thumbnails. Generated thumbnails are cached in the ComfyUI user cache and use file-versioned browser URLs, so unchanged images reopen without being decoded again. Replacing an image changes its version automatically; use **Refresh** to rescan newly added or removed files immediately.
 
 ### Image Compare Edit X
 

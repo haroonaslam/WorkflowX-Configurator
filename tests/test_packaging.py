@@ -87,7 +87,7 @@ def _load_package():
 
 def test_combined_package_exports_workflowx_and_afj_nodes():
     module = _load_package()
-    assert len(module.NODE_CLASS_MAPPINGS) == 32
+    assert len(module.NODE_CLASS_MAPPINGS) == 33
     assert "KVGC_GroupConfigurator" in module.NODE_CLASS_MAPPINGS
     assert "KVGC_ConfigSelectorAdvanced" in module.NODE_CLASS_MAPPINGS
     assert "KVGC_UnloadModelsByType" in module.NODE_CLASS_MAPPINGS
@@ -112,6 +112,9 @@ def test_combined_package_exports_workflowx_and_afj_nodes():
     assert module.NODE_DISPLAY_NAME_MAPPINGS["WorkflowX_AtlasImageAPI"] == "Atlas Image API X"
     assert module.NODE_CLASS_MAPPINGS["WorkflowX_KieImageAPI"].CATEGORY == "WorkflowX_Configurator/Image/API"
     assert module.NODE_CLASS_MAPPINGS["WorkflowX_AtlasImageAPI"].CATEGORY == "WorkflowX_Configurator/Image/API"
+    assert "WorkflowX_LoadImageX" in module.NODE_CLASS_MAPPINGS
+    assert module.NODE_DISPLAY_NAME_MAPPINGS["WorkflowX_LoadImageX"] == "Load ImageX"
+    assert module.NODE_CLASS_MAPPINGS["WorkflowX_LoadImageX"].CATEGORY == "WorkflowX_Configurator/Image"
     assert module.WEB_DIRECTORY == "./web/js"
 
 

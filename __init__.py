@@ -36,6 +36,11 @@ from .remote_image_api import (
     NODE_DISPLAY_NAME_MAPPINGS as REMOTE_IMAGE_API_NODE_DISPLAY_NAME_MAPPINGS,
     register_routes as _register_remote_image_api_routes_on_app,
 )
+from .load_image_x import (
+    NODE_CLASS_MAPPINGS as LOAD_IMAGE_X_NODE_CLASS_MAPPINGS,
+    NODE_DISPLAY_NAME_MAPPINGS as LOAD_IMAGE_X_NODE_DISPLAY_NAME_MAPPINGS,
+    register_routes as _register_load_image_x_routes_on_app,
+)
 
 WEB_DIRECTORY = "./web/js"
 DEBUG_LOG_ROUTE = "/workflowx_configurator/debug_log"
@@ -52,6 +57,7 @@ NODE_CLASS_MAPPINGS = {
     **ANYTHING_SWAP_NODE_CLASS_MAPPINGS,
     **NANOBANANA_NODE_CLASS_MAPPINGS,
     **REMOTE_IMAGE_API_NODE_CLASS_MAPPINGS,
+    **LOAD_IMAGE_X_NODE_CLASS_MAPPINGS,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -62,6 +68,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     **ANYTHING_SWAP_NODE_DISPLAY_NAME_MAPPINGS,
     **NANOBANANA_NODE_DISPLAY_NAME_MAPPINGS,
     **REMOTE_IMAGE_API_NODE_DISPLAY_NAME_MAPPINGS,
+    **LOAD_IMAGE_X_NODE_DISPLAY_NAME_MAPPINGS,
 }
 
 
@@ -388,5 +395,25 @@ def _register_remote_image_api_routes() -> None:
 
 
 _register_remote_image_api_routes()
+
+
+def _register_load_image_x_routes() -> None:
+    try:
+        from server import PromptServer
+    except Exception as exc:
+        logger.warning("[Load ImageX] Could not import PromptServer: %s", exc)
+        return
+
+    prompt_server = getattr(PromptServer, "instance", None)
+    app = getattr(prompt_server, "app", None)
+    if app is None:
+        return
+    try:
+        _register_load_image_x_routes_on_app(app)
+    except Exception as exc:
+        logger.warning("[Load ImageX] Could not register routes: %s", exc)
+
+
+_register_load_image_x_routes()
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]

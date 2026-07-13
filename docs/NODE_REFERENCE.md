@@ -22,6 +22,7 @@ For the Image Compare Edit X expanded editor, see [Image Compare Edit X Editor G
 | `Group Scopes` | `WorkflowX_Configurator` | Decide which groups appear in configurators or advanced selector sections. |
 | `Unload Models By Type` | `WorkflowX_Configurator/VRAM` | Unload selected resident model classes from memory. |
 | `Image Compare Edit X` | `WorkflowX_Configurator/Image` | Compare two images and edit/save an in-node Image 3 blend. |
+| `Load ImageX` | `WorkflowX_Configurator/Image` | Load from input and nested input folders through a cached thumbnail grid. |
 | `Anything Crop (for Swap)` | `WorkflowX_Configurator/Image/Anything Swap` | Segment or mask an object, crop it, and create a stitch payload. |
 | `Anything Stitch` | `WorkflowX_Configurator/Image/Anything Swap` | Composite an edited crop back into the untouched source. |
 | `NanoBanana Full API` | `WorkflowX_Configurator/Image/NanoBanana` | Generate or edit images through current Google Gemini image models. |
@@ -196,6 +197,21 @@ Outputs:
 | `status` | `STRING` | Human-readable unload summary. |
 
 Use it inline before a heavy stage when you want to release a model family before the next stage begins. For example, place it after text encoding to unload text encoders before sampling, or before text encoding to unload diffusion models.
+
+## Load ImageX
+
+`Load ImageX` (`WorkflowX_LoadImageX`) recursively exposes supported images below ComfyUI's `input` directory. Selected values are stored as normalized input-relative paths, so nested values such as `Studio1/image.png` remain compatible with saved workflows and ComfyUI's normal upload behavior.
+
+| Input | Type | Notes |
+| --- | --- | --- |
+| `image` | combo/upload | Image from the input root or any nested input folder. |
+
+| Output | Type | Notes |
+| --- | --- | --- |
+| `image` | `IMAGE` | EXIF-corrected RGB image or same-size multi-frame batch. |
+| `mask` | `MASK` | Inverted alpha channel, or a correctly sized blank mask when alpha is absent. |
+
+The **Browse Thumbnails** modal provides All/root/folder navigation, path-aware search, refresh, lazy 80-item batches, and 128 px thumbnails. Thumbnails are cached under the ComfyUI user directory, keyed by path, size, modification time, and cache format. Requests are restricted to files whose resolved paths remain inside `input`; output, temp, arbitrary paths, traversal, and escaping symlinks are rejected.
 
 ## Image Compare Edit X
 
