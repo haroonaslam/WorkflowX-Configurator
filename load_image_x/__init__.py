@@ -6,6 +6,7 @@ from .runtime import (
     NODE_CLASS_MAPPINGS,
     NODE_DISPLAY_NAME_MAPPINGS,
     catalog_handler,
+    delete_images_handler,
     thumbnail_handler,
 )
 
@@ -16,6 +17,7 @@ def register_routes(app) -> None:
         return
     router.add_get("/workflowx_configurator/load_image_x/images", catalog_handler)
     router.add_get("/workflowx_configurator/load_image_x/thumbnail", thumbnail_handler)
+    router.add_post("/workflowx_configurator/load_image_x/delete", delete_images_handler)
     app._workflowx_load_image_x_routes = True
 
 

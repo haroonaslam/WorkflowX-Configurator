@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
+import stat
 import tempfile
 import threading
 import time
@@ -23,6 +24,7 @@ THUMBNAIL_SIZE = (128, 128)
 THUMBNAIL_QUALITY = 76
 THUMBNAIL_FORMAT_VERSION = "load-image-x-jpeg-v1"
 CACHE_MAX_AGE_SECONDS = 30 * 24 * 60 * 60
+MAX_BATCH_DELETE_FILES = 500
 
 _catalog_lock = threading.RLock()
 _catalog_items: list[dict[str, Any]] = []
@@ -37,6 +39,19 @@ def _is_within(root: Path, candidate: Path) -> bool:
         return os.path.commonpath((str(root), str(candidate))) == str(root)
     except ValueError:
         return False
+
+
+def _is_link_or_junction(path: Path) -> bool:
+    if path.is_symlink():
+        return True
+    is_junction = getattr(path, "is_junction", None)
+    if callable(is_junction) and is_junction():
+        return True
+    try:
+        attributes = path.lstat().st_file_attributes
+    except (AttributeError, OSError):
+        return False
+    return bool(attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
 
 
 def normalize_relative_path(value: object) -> str:
@@ -62,6 +77,29 @@ def resolve_input_path(value: object, folder_paths_module=None) -> tuple[str, Pa
     if not _is_within(root, candidate):
         raise ValueError("Image path escapes the ComfyUI input directory")
     return relative, candidate
+
+
+def resolve_deletable_input_path(value: object, folder_paths_module=None) -> tuple[str, Path]:
+    """Resolve an image that may be permanently removed from input/."""
+    if folder_paths_module is None:
+        folder_paths_module = folder_paths
+    relative, resolved = resolve_input_path(value, folder_paths_module)
+    root = Path(folder_paths_module.get_input_directory()).resolve()
+    requested = root.joinpath(*relative.split("/"))
+
+    cursor = requested
+    while cursor != root:
+        if _is_link_or_junction(cursor):
+            raise ValueError("Linked image paths cannot be deleted")
+        parent = cursor.parent
+        if parent == cursor:
+            raise ValueError("Image path escapes the ComfyUI input directory")
+        cursor = parent
+
+    supported = folder_paths_module.filter_files_content_types([relative], ["image"])
+    if relative not in supported:
+        raise ValueError("Only supported image files can be deleted")
+    return relative, resolved
 
 
 def _version_for(relative: str, stat_result: os.stat_result) -> str:
@@ -379,6 +417,87 @@ async def thumbnail_handler(request):
     )
 
 
+async def delete_images_handler(request):
+    """Permanently delete a validated batch of images from ComfyUI input/."""
+    from aiohttp import web
+
+    if getattr(request, "content_type", "") != "application/json":
+        return web.json_response({"error": "Expected an application/json request"}, status=415)
+    try:
+        payload = await request.json()
+    except (TypeError, ValueError):
+        return web.json_response({"error": "Invalid JSON request"}, status=400)
+
+    requested_paths = payload.get("paths") if isinstance(payload, dict) else None
+    if not isinstance(requested_paths, list) or not requested_paths:
+        return web.json_response({"error": "Select at least one image to delete"}, status=400)
+    if len(requested_paths) > MAX_BATCH_DELETE_FILES:
+        return web.json_response(
+            {"error": f"A maximum of {MAX_BATCH_DELETE_FILES} images can be deleted at once"},
+            status=400,
+        )
+
+    validated: list[tuple[str, Path]] = []
+    seen: set[str] = set()
+    try:
+        for requested_path in requested_paths:
+            if not isinstance(requested_path, str):
+                raise ValueError("Every image path must be text")
+            relative, source = resolve_deletable_input_path(requested_path)
+            if relative not in seen:
+                seen.add(relative)
+                validated.append((relative, source))
+    except ValueError as exc:
+        return web.json_response({"error": str(exc)}, status=400)
+
+    deleted: list[str] = []
+    missing: list[str] = []
+    failed: list[dict[str, str]] = []
+    for relative, source in validated:
+        try:
+            stat_result = await asyncio.to_thread(source.lstat)
+        except FileNotFoundError:
+            missing.append(relative)
+            continue
+        except OSError:
+            failed.append({"path": relative, "error": "Could not inspect image"})
+            continue
+
+        if not stat.S_ISREG(stat_result.st_mode):
+            failed.append({"path": relative, "error": "Image is not a regular file"})
+            continue
+
+        cache_path = thumbnail_cache_path(relative, stat_result)
+        lock_key = str(cache_path)
+        lock = _thumbnail_locks.get(lock_key)
+        if lock is None:
+            lock = _thumbnail_locks[lock_key] = asyncio.Lock()
+        try:
+            async with lock:
+                await asyncio.to_thread(source.unlink)
+                try:
+                    await asyncio.to_thread(cache_path.unlink, missing_ok=True)
+                except OSError:
+                    pass
+            deleted.append(relative)
+        except FileNotFoundError:
+            missing.append(relative)
+        except OSError:
+            failed.append({"path": relative, "error": "Could not delete image"})
+
+    if deleted or missing:
+        invalidate_catalog()
+    return web.json_response(
+        {
+            "deleted": deleted,
+            "missing": missing,
+            "failed": failed,
+            "deleted_count": len(deleted),
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 NODE_CLASS_MAPPINGS = {"WorkflowX_LoadImageX": LoadImageX}
 NODE_DISPLAY_NAME_MAPPINGS = {"WorkflowX_LoadImageX": "Load ImageX"}
 
@@ -389,11 +508,13 @@ __all__ = [
     "NODE_DISPLAY_NAME_MAPPINGS",
     "build_catalog",
     "catalog_handler",
+    "delete_images_handler",
     "generate_thumbnail",
     "get_catalog",
     "normalize_relative_path",
     "prune_thumbnail_cache",
     "resolve_input_path",
+    "resolve_deletable_input_path",
     "thumbnail_cache_path",
     "thumbnail_handler",
 ]

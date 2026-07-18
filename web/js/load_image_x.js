@@ -4,11 +4,13 @@ import {
   groupCatalog,
   higherNodeClipRects,
   isSquareDimensions,
+  reconcileBatchSelection,
   thumbnailURL,
   viewURL,
 } from "./load_image_x_helpers.mjs";
 
 const CATALOG_URL = "/workflowx_configurator/load_image_x/images";
+const DELETE_URL = "/workflowx_configurator/load_image_x/delete";
 const BATCH_SIZE = 80;
 const BROWSE_WIDGET_HEIGHT = 50;
 const PREVIEW_WIDGET_NAME = "$$canvas-image-preview";
@@ -43,7 +45,10 @@ function installCSS() {
       min-width:34px; height:32px; padding:0 10px; cursor:pointer;
     }
     .workflowx-lix-iconbtn:hover { color:#fff; border-color:#7aa2f7; }
-    .workflowx-lix-iconbtn:disabled { cursor:wait; opacity:.55; }
+    .workflowx-lix-iconbtn.active { color:#fff; border-color:#7aa2f7; background:#34405b; }
+    .workflowx-lix-iconbtn.danger { color:#ffb0b0; border-color:#754545; background:#482929; }
+    .workflowx-lix-iconbtn.danger:hover:not(:disabled) { color:#fff; border-color:#ef6b6b; background:#653131; }
+    .workflowx-lix-iconbtn:disabled { cursor:not-allowed; opacity:.55; }
     .workflowx-lix-search {
       flex:1; box-sizing:border-box; padding:8px 11px; background:#171717; color:#eee;
       border:1px solid #444; border-radius:4px; outline:none; font-size:13px;
@@ -65,12 +70,17 @@ function installCSS() {
       background:#202020;
     }
     .workflowx-lix-cell {
-      min-width:0; display:flex; flex-direction:column; align-items:center; padding:6px;
+      position:relative; min-width:0; display:flex; flex-direction:column; align-items:center; padding:6px;
       box-sizing:border-box; cursor:pointer; background:#181818; border:2px solid transparent;
       border-radius:6px; transition:border-color .12s,background .12s;
     }
     .workflowx-lix-cell:hover { border-color:#777; background:#1c1c1c; }
     .workflowx-lix-cell.current { border-color:#7aa2f7; }
+    .workflowx-lix-cell.batch-selected { border-color:#ef6b6b; background:#2d2020; }
+    .workflowx-lix-check {
+      position:absolute; z-index:2; top:10px; left:10px; width:18px; height:18px;
+      margin:0; cursor:pointer; accent-color:#ef6b6b; filter:drop-shadow(0 1px 2px #000);
+    }
     .workflowx-lix-thumb {
       width:112px; height:112px; display:flex; align-items:center; justify-content:center;
       box-sizing:border-box; border-radius:4px; overflow:hidden;
@@ -238,11 +248,22 @@ function openPicker(node, imageWidget) {
   refreshButton.className = "workflowx-lix-iconbtn";
   refreshButton.textContent = "Refresh";
   refreshButton.title = "Rescan ComfyUI input folders";
+  const batchToggle = document.createElement("button");
+  batchToggle.className = "workflowx-lix-iconbtn";
+  batchToggle.textContent = "Batch mode";
+  batchToggle.title = "Select multiple images for permanent deletion";
+  batchToggle.setAttribute("aria-pressed", "false");
+  const deleteButton = document.createElement("button");
+  deleteButton.className = "workflowx-lix-iconbtn danger";
+  deleteButton.textContent = "Delete";
+  deleteButton.title = "Permanently delete selected images";
+  deleteButton.hidden = true;
+  deleteButton.disabled = true;
   const closeButton = document.createElement("button");
   closeButton.className = "workflowx-lix-iconbtn";
   closeButton.textContent = "✕";
   closeButton.title = "Close";
-  header.append(title, refreshButton, closeButton);
+  header.append(title, batchToggle, deleteButton, refreshButton, closeButton);
 
   const searchRow = document.createElement("div");
   searchRow.className = "workflowx-lix-searchrow";
@@ -270,6 +291,9 @@ function openPicker(node, imageWidget) {
   let filteredItems = [];
   let renderedCount = 0;
   let closed = false;
+  let batchMode = false;
+  let deleting = false;
+  const selectedPaths = new Set();
 
   const imageObserver = typeof IntersectionObserver === "function"
     ? new IntersectionObserver((entries) => {
@@ -330,9 +354,45 @@ function openPicker(node, imageWidget) {
     }
   }
 
+  function replaceBatchSelection(nextSelection) {
+    selectedPaths.clear();
+    for (const path of nextSelection) selectedPaths.add(path);
+  }
+
+  function updateBatchControls() {
+    batchToggle.classList.toggle("active", batchMode);
+    batchToggle.setAttribute("aria-pressed", String(batchMode));
+    batchToggle.disabled = deleting;
+    deleteButton.hidden = !batchMode;
+    deleteButton.disabled = deleting || selectedPaths.size === 0;
+    deleteButton.textContent = deleting ? "Deleting…" : `Delete${selectedPaths.size ? ` (${selectedPaths.size})` : ""}`;
+    refreshButton.disabled = deleting;
+    title.textContent = batchMode ? "Select Images" : "Select Image";
+  }
+
+  function updateFooter() {
+    const scope = search.value.trim()
+      ? " · search"
+      : activeFolder === null
+        ? " · all"
+        : ` · ${activeFolder || "root"}`;
+    const selected = batchMode ? ` · ${selectedPaths.size} selected` : "";
+    footer.textContent = `${filteredItems.length} image${filteredItems.length === 1 ? "" : "s"}${scope}${selected}`;
+  }
+
+  function setBatchSelection(path, selected, cell, checkbox) {
+    if (selected) selectedPaths.add(path);
+    else selectedPaths.delete(path);
+    cell?.classList.toggle("batch-selected", selected);
+    if (checkbox) checkbox.checked = selected;
+    updateBatchControls();
+    updateFooter();
+  }
+
   function makeCell(item) {
     const cell = document.createElement("div");
-    cell.className = `workflowx-lix-cell${imageWidget.value === item.path ? " current" : ""}`;
+    const isBatchSelected = selectedPaths.has(item.path);
+    cell.className = `workflowx-lix-cell${imageWidget.value === item.path ? " current" : ""}${isBatchSelected ? " batch-selected" : ""}`;
     cell.title = item.path;
     const thumbnail = document.createElement("div");
     thumbnail.className = "workflowx-lix-thumb";
@@ -356,7 +416,24 @@ function openPicker(node, imageWidget) {
     label.className = "workflowx-lix-label";
     label.textContent = item.name;
     cell.append(thumbnail, label);
+    let checkbox = null;
+    if (batchMode) {
+      checkbox = document.createElement("input");
+      checkbox.className = "workflowx-lix-check";
+      checkbox.type = "checkbox";
+      checkbox.checked = isBatchSelected;
+      checkbox.setAttribute("aria-label", `Select ${item.path}`);
+      checkbox.addEventListener("click", (event) => event.stopPropagation());
+      checkbox.addEventListener("change", () => {
+        setBatchSelection(item.path, checkbox.checked, cell, checkbox);
+      });
+      cell.appendChild(checkbox);
+    }
     cell.addEventListener("click", () => {
+      if (batchMode) {
+        setBatchSelection(item.path, !selectedPaths.has(item.path), cell, checkbox);
+        return;
+      }
       selectImage(node, imageWidget, item);
       close();
     });
@@ -375,7 +452,7 @@ function openPicker(node, imageWidget) {
       grid.appendChild(sentinel);
       batchObserver?.observe(sentinel);
     }
-    footer.textContent = `${filteredItems.length} image${filteredItems.length === 1 ? "" : "s"}${search.value.trim() ? " · search" : activeFolder === null ? " · all" : ` · ${activeFolder || "root"}`}`;
+    updateFooter();
   }
 
   function render() {
@@ -390,10 +467,12 @@ function openPicker(node, imageWidget) {
       empty.className = "workflowx-lix-empty";
       empty.textContent = items.length ? "No matching images" : "No images found in ComfyUI input folders";
       grid.appendChild(empty);
-      footer.textContent = "0 images";
+      updateFooter();
+      updateBatchControls();
       return;
     }
     renderMore();
+    updateBatchControls();
   }
 
   async function refresh(force) {
@@ -401,6 +480,7 @@ function openPicker(node, imageWidget) {
     refreshButton.textContent = "Loading…";
     try {
       items = await fetchCatalog(force);
+      replaceBatchSelection(reconcileBatchSelection(selectedPaths, items));
       updateWidgetOptions(imageWidget, items);
       if (!closed) render();
     } catch (error) {
@@ -415,14 +495,86 @@ function openPicker(node, imageWidget) {
       }
     } finally {
       if (!closed) {
-        refreshButton.disabled = false;
+        refreshButton.disabled = deleting;
         refreshButton.textContent = "Refresh";
       }
     }
   }
 
+  async function deleteSelected() {
+    if (!batchMode || deleting || !selectedPaths.size) return;
+    const paths = [...selectedPaths];
+    const label = `${paths.length} selected image${paths.length === 1 ? "" : "s"}`;
+    if (!window.confirm(`Permanently delete ${label} from ComfyUI input?\n\nThis cannot be undone.`)) return;
+
+    deleting = true;
+    let deletionApplied = false;
+    updateBatchControls();
+    try {
+      if (catalogCache.promise) await catalogCache.promise.catch(() => null);
+      const response = await fetch(DELETE_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paths }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || `Delete request failed (${response.status})`);
+      deletionApplied = true;
+
+      const removed = new Set([...(payload.deleted || []), ...(payload.missing || [])]);
+      const removedCurrent = removed.has(String(imageWidget.value || ""));
+      items = items.filter((item) => !removed.has(item.path));
+      catalogCache.items = items;
+      catalogCache.etag = "";
+      let refreshFailed = false;
+      try {
+        items = await fetchCatalog(true);
+      } catch (error) {
+        refreshFailed = true;
+        console.warn("[Load ImageX] catalog refresh after delete failed", error);
+      }
+      replaceBatchSelection(reconcileBatchSelection(selectedPaths, items));
+      updateWidgetOptions(imageWidget, items);
+
+      if (removedCurrent) {
+        if (items.length) {
+          selectImage(node, imageWidget, items[0]);
+        } else {
+          node._workflowxLixPreviewRequest = (node._workflowxLixPreviewRequest | 0) + 1;
+          imageWidget.value = "";
+          imageWidget.callback?.("");
+          node.imgs = [];
+          node.setDirtyCanvas?.(true, true);
+          node.graph?.setDirtyCanvas?.(true, true);
+        }
+      }
+      render();
+
+      const failures = Array.isArray(payload.failed) ? payload.failed : [];
+      const notices = [];
+      if (failures.length) notices.push(`${failures.length} image${failures.length === 1 ? "" : "s"} could not be deleted.`);
+      if (refreshFailed) notices.push("The catalog could not be refreshed. Use Refresh to rescan the input folders.");
+      if (notices.length) window.alert(notices.join("\n\n"));
+    } catch (error) {
+      console.error("[Load ImageX] batch delete failed", error);
+      window.alert(deletionApplied
+        ? `The images were deleted, but the picker could not finish updating.\n\n${error?.message || error}`
+        : `Could not delete the selected images.\n\n${error?.message || error}`);
+    } finally {
+      deleting = false;
+      if (!closed) updateBatchControls();
+    }
+  }
+
   closeButton.addEventListener("click", close);
   refreshButton.addEventListener("click", () => refresh(true));
+  batchToggle.addEventListener("click", () => {
+    if (deleting) return;
+    batchMode = !batchMode;
+    if (!batchMode) selectedPaths.clear();
+    render();
+  });
+  deleteButton.addEventListener("click", deleteSelected);
   overlay.addEventListener("click", (event) => { if (event.target === overlay) close(); });
   search.addEventListener("input", render);
   search.addEventListener("keydown", (event) => event.stopPropagation());

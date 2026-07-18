@@ -211,7 +211,7 @@ Use it inline before a heavy stage when you want to release a model family befor
 | `image` | `IMAGE` | EXIF-corrected RGB image or same-size multi-frame batch. |
 | `mask` | `MASK` | Inverted alpha channel, or a correctly sized blank mask when alpha is absent. |
 
-The **Browse Thumbnails** modal provides All/root/folder navigation, path-aware search, refresh, lazy 80-item batches, and 128 px thumbnails. Thumbnails are cached under the ComfyUI user directory, keyed by path, size, modification time, and cache format. Requests are restricted to files whose resolved paths remain inside `input`; output, temp, arbitrary paths, traversal, and escaping symlinks are rejected.
+The **Browse Thumbnails** modal provides All/root/folder navigation, path-aware search, refresh, lazy 80-item batches, and 128 px thumbnails. Enable **Batch mode** to add selection checkboxes and permanently delete selected images after confirmation. Thumbnails are cached under the ComfyUI user directory, keyed by path, size, modification time, and cache format. Browse and deletion requests are restricted to supported image files whose resolved paths remain inside `input`; output, temp, arbitrary paths, traversal, symlinks, and junctions are rejected.
 
 ## Image Compare Edit X
 

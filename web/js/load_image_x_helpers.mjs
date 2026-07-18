@@ -52,6 +52,15 @@ export function isSquareDimensions(width, height, tolerance = 1) {
     && Math.abs(numericWidth - numericHeight) <= Math.max(0, Number(tolerance) || 0);
 }
 
+export function reconcileBatchSelection(selectedPaths, items) {
+  const available = new Set((items || []).map((item) => String(item?.path || "")));
+  return new Set(
+    [...(selectedPaths || [])]
+      .map((path) => String(path))
+      .filter((path) => available.has(path)),
+  );
+}
+
 export function higherNodeClipRects(node, nodes, titleHeight = 30) {
   const orderedNodes = Array.isArray(nodes) ? nodes : [];
   const nodeIndex = orderedNodes.indexOf(node);

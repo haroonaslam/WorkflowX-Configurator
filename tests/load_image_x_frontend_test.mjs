@@ -6,6 +6,7 @@ import {
   groupCatalog,
   higherNodeClipRects,
   isSquareDimensions,
+  reconcileBatchSelection,
   splitRelativePath,
   thumbnailURL,
   viewURL,
@@ -50,6 +51,13 @@ test("identifies thumbnails that need non-square padding", () => {
   assert.equal(isSquareDimensions(128, 127), true);
   assert.equal(isSquareDimensions(128, 96), false);
   assert.equal(isSquareDimensions(0, 128), false);
+});
+
+test("retains batch selections that still exist in the refreshed catalog", () => {
+  assert.deepEqual(
+    [...reconcileBatchSelection(new Set(["root.png", "missing.png"]), items)],
+    ["root.png"],
+  );
 });
 
 test("clips a deferred preview beneath nodes that are later in graph order", () => {

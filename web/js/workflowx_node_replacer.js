@@ -1,8 +1,11 @@
 import { app } from "../../scripts/app.js";
 import { $el } from "../../scripts/ui.js";
+import { addNodesToNativeGroup, nodesForGrouping } from "./workflowx_group_helpers.mjs";
 
 const EXTENSION_NAME = "Comfy.WorkflowXNodeReplacer";
 const MENU_LABEL = "WorkflowX: Replace node...";
+const GROUP_MENU_LABEL = "WorkflowX: Add to group";
+const DEFAULT_GROUP_PADDING = 10;
 const CATALOG = new Map();
 const WILDCARD_TYPES = new Set(["*", "any", "ANY", "WILDCARD", "undefined"]);
 
@@ -20,6 +23,36 @@ function getCanvas() {
 function markDirty() {
   getCanvas()?.setDirty?.(true, true);
   getGraph()?.setDirtyCanvas?.(true, true);
+}
+
+function groupPadding() {
+  const setting = app.ui?.settings?.getSettingValue?.("Comfy.GroupSelectedNodes.Padding");
+  const configured = setting == null || setting === "" ? NaN : Number(setting);
+  return Number.isFinite(configured) && configured >= 0 ? configured : DEFAULT_GROUP_PADDING;
+}
+
+function addToGroup(sourceNode) {
+  const canvas = getCanvas();
+  const graph = getGraph();
+  const nodes = nodesForGrouping(canvas, sourceNode);
+
+  if (!graph || !nodes.length) {
+    showToast("Select one or more nodes first", "error");
+    return;
+  }
+
+  try {
+    addNodesToNativeGroup({
+      graph,
+      nodes,
+      LiteGraph: globalThis.LiteGraph,
+      padding: groupPadding(),
+    });
+    markDirty();
+  } catch (error) {
+    console.error("[WorkflowX] Could not add selected nodes to a group", error);
+    showToast("Could not add nodes to group", "error");
+  }
 }
 
 function nodeClass(node) {
@@ -582,6 +615,10 @@ function installMenuHandler(nodeTypeDef) {
     options.push({
       content: MENU_LABEL,
       callback: () => openReplaceDialog(this),
+    });
+    options.push({
+      content: GROUP_MENU_LABEL,
+      callback: () => addToGroup(this),
     });
 
     return result;
