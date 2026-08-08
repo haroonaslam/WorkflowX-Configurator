@@ -863,8 +863,36 @@ function sanitizeRowValue(value) {
   return row;
 }
 
+function rowLoadName(value) {
+  if (!value || typeof value !== "object") return "";
+  const loadName = value.load_name ?? value.loadName ?? value.lora;
+  if (loadName !== undefined && loadName !== null && loadName !== "") return normalizePath(loadName);
+  const legacyNameLooksLikeRow =
+    "strength" in value || "modelStrength" in value || "model_strength" in value || "strength_model" in value;
+  if (!legacyNameLooksLikeRow) return "";
+  const legacyName = value.name ?? "";
+  return normalizePath(legacyName);
+}
+
 function isRowValue(value) {
-  return value && typeof value === "object" && ("load_name" in value || "lora" in value || "name" in value);
+  const loadName = rowLoadName(value);
+  return Boolean(loadName && loadName.toLowerCase() !== "none");
+}
+
+function rowRestoreKey(value) {
+  const row = sanitizeRowValue(value);
+  return JSON.stringify({
+    on: row.on !== false,
+    load_name: row.load_name || "",
+    strength: Number(row.strength ?? 1),
+  });
+}
+
+function restoredRowValues(widgetValues) {
+  if (!Array.isArray(widgetValues)) return [];
+  const rows = widgetValues.filter(isRowValue).map((value) => sanitizeRowValue(value));
+  while (rows.length > 1 && rowRestoreKey(rows.at(-1)) === rowRestoreKey(rows[0])) rows.pop();
+  return rows;
 }
 
 function drawToggle(ctx, x, y, value) {
@@ -1262,8 +1290,11 @@ app.registerExtension({
 
     const originalConfigure = nodeType.prototype.configure;
     nodeType.prototype.configure = function workflowXLoraXConfigure(info) {
-      const values = Array.isArray(info?.widgets_values) ? info.widgets_values.filter(isRowValue) : [];
-      const result = originalConfigure?.apply(this, arguments);
+      const values = restoredRowValues(info?.widgets_values);
+      const configureInfo = info && Array.isArray(info.widgets_values) ? { ...info, widgets_values: [] } : info;
+      const args = [...arguments];
+      args[0] = configureInfo;
+      const result = originalConfigure?.apply(this, args);
       setupNode(this, values);
       return result;
     };
