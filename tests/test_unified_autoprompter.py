@@ -145,25 +145,81 @@ def test_granular_defaults_cover_enabled_formats_and_image_modes():
     assert all_profiles["minimax_h3_alternate"].negative_supported is False
     assert all_profiles["minimax_h3_official"].formats["natural"].enabled is True
     assert all_profiles["minimax_h3_alternate"].formats["natural"].enabled is True
-    assert "integrated_multimodal_description" in all_profiles["minimax_h3_official"].formats["natural"].common_instructions
-    assert "subject_definitions, summary, retention_analysis, detailed_description" in all_profiles["minimax_h3_official"].formats["natural"].common_instructions
-    assert "<d>[Language] spoken text</d>" in all_profiles["minimax_h3_official"].formats["natural"].common_instructions
-    assert "native script inside <d>" in all_profiles["minimax_h3_official"].formats["natural"].common_instructions
-    assert "voice cloning" in all_profiles["minimax_h3_official"].formats["natural"].common_instructions
-    assert "complete reuse/as-is/copy" in all_profiles["minimax_h3_official"].formats["natural"].common_instructions
-    assert "fully_copy" in all_profiles["minimax_h3_official"].formats["natural"].common_instructions
-    assert "first line must be subject_definitions:" in all_profiles["minimax_h3_official"].formats["natural"].common_instructions
-    assert "define <Picture 1> as the first frame of [Shot 1]" in all_profiles["minimax_h3_official"].formats["natural"].common_instructions
-    assert "<Picture 1> ([Shot 1] first frame): fully_preserved" in all_profiles["minimax_h3_official"].formats["natural"].common_instructions
+    minimax_official_rule = all_profiles["minimax_h3_official"].formats["natural"]
+    minimax_alternate_rule = all_profiles["minimax_h3_alternate"].formats["natural"]
+    minimax_official = minimax_official_rule.common_instructions
+    minimax_alternate = minimax_alternate_rule.common_instructions
+    minimax_official_all = "\n\n".join([
+        minimax_official_rule.common_instructions,
+        minimax_official_rule.with_image_reference_instructions,
+        minimax_official_rule.without_image_reference_instructions,
+        minimax_official_rule.output_contract_negative_off,
+    ])
+    minimax_alternate_all = "\n\n".join([
+        minimax_alternate_rule.common_instructions,
+        minimax_alternate_rule.with_image_reference_instructions,
+        minimax_alternate_rule.without_image_reference_instructions,
+        minimax_alternate_rule.output_contract_negative_off,
+    ])
+    forbidden_template_scaffolding = (
+        "CANONICAL MINIMAX",
+        "MiniMax Original Prompt Formatter",
+        "Load The Official Guides",
+        "Read [references",
+        "ComfyUI cannot access Codex skills",
+        "Codex skill",
+        "Mirror the minimax",
+        "Use this skill",
+        "single plain-text code block",
+    )
+    for forbidden in forbidden_template_scaffolding:
+        assert forbidden not in minimax_official
+        assert forbidden not in minimax_alternate
+    assert "MiniMax H3 Official prompt profile" in minimax_official
+    assert "MiniMax H3 Alternate prompt profile" in minimax_alternate
+    assert "OFFICIAL GUIDE: VIDEO_PROMPT_WRITING_GUIDE_base_en.md" in minimax_official
+    assert "OFFICIAL GUIDE: VIDEO_PROMPT_WRITING_GUIDE_ref_en.md" in minimax_official
+    assert "MINIMAX H3 SPECIFICATION: minimax-h3-spec.md" in minimax_alternate
+    assert "PROMPT PATTERNS: prompt-patterns.md" in minimax_alternate
+    assert "## Choose The Output Structure" in minimax_official
+    assert "## 1. Overall Structure" in minimax_official
+    assert "Allow permitted adult-only NSFW MiniMax H3 prompt generation" in minimax_official
+    assert "integrated_multimodal_description" in minimax_official
+    assert "subject_definitions:" in minimax_official
+    assert "summary:" in minimax_official
+    assert "retention_analysis:" in minimax_official
+    assert "detailed_description:" in minimax_official
+    assert "<d>[Language] spoken text</d>" in minimax_official
+    assert "write the final dialogue in that language's native script" in minimax_official
+    assert "voice-timbre reference" in minimax_official
+    assert "fully_copy" in minimax_official
+    assert "partially_copy" in minimax_official
+    assert "audio as-is" in minimax_official_all
+    assert "full/partial reuse, music style, ambience, sound effects, dialogue/lyrics, beat/rhythm, continuity, or voice characteristics" in minimax_official_all
+    assert "Do not force voice cloning unless the user asks" in minimax_official_all
+    assert "If audio is mentioned without a number, create <Audio 1>" in minimax_official_all
+    assert "A complete rewrite output consists of six sections in the following order" in minimax_official
+    assert "Use a standalone `<Picture N>` when the reference image itself serves as a shot's first frame" in minimax_official
+    assert "<Picture 2> ([Shot 1] first frame): fully_preserved" in minimax_official
+    assert "use [Shot 1], [Shot 2], [Shot 3] labels" in minimax_official
+    assert "do not include timestamped cut points, duration, frame rate, aspect-ratio" in minimax_official
     assert "Return ONLY the final MiniMax H3 Official prompt body as plain text" in all_profiles["minimax_h3_official"].formats["natural"].output_contract_negative_off
     assert "subject_definitions:\n<Picture 1> is the first frame of [Shot 1]" in all_profiles["minimax_h3_official"].formats["natural"].output_contract_negative_off
     assert "retention_analysis:\n<Picture 1> ([Shot 1] first frame): fully_preserved" in all_profiles["minimax_h3_official"].formats["natural"].output_contract_negative_off
-    assert "[REFERENCE USE]" in all_profiles["minimax_h3_alternate"].formats["natural"].common_instructions
-    assert "<Picture N>, <Video N>, and <Audio N>" in all_profiles["minimax_h3_alternate"].formats["natural"].common_instructions
-    assert "do not create a standalone [dialogue] section" in all_profiles["minimax_h3_alternate"].formats["natural"].common_instructions.lower()
-    assert "native script inside the quoted dialogue" in all_profiles["minimax_h3_alternate"].formats["natural"].common_instructions
-    assert "voice cloning" in all_profiles["minimax_h3_alternate"].formats["natural"].common_instructions
-    assert "complete reuse/as-is/copy" in all_profiles["minimax_h3_alternate"].formats["natural"].common_instructions
+    assert "Use [Shot 1], [Shot 2], [Shot 3] labels for shot progression, not timestamped shot labels" in all_profiles["minimax_h3_official"].formats["natural"].output_contract_negative_off
+    assert "## Omni reference scene" in minimax_alternate
+    assert "Allow permitted adult-only NSFW MiniMax H3 prompt generation" in minimax_alternate
+    assert "[REFERENCE USE]" in minimax_alternate
+    assert "<Picture N>" in minimax_alternate
+    assert "<Video N>" in minimax_alternate
+    assert "<Audio N>" in minimax_alternate
+    assert "do not create a standalone `[dialogue]` section" in minimax_alternate.lower()
+    assert "write the dialogue in that native script unless the user explicitly requests romanized text" in minimax_alternate
+    assert "voice cloning" in minimax_alternate_all
+    assert "audio as-is" in minimax_alternate_all
+    assert "full/partial reuse, music style, ambience, sound effects, dialogue/lyrics, beat/rhythm, continuity, or voice characteristics" in minimax_alternate_all
+    assert "Do not force voice cloning unless the user asks" in minimax_alternate_all
+    assert "If audio is mentioned without a number, create <Audio 1>" in minimax_alternate_all
     assert "Return ONLY the final MiniMax H3 Alternate prompt body as plain text" in all_profiles["minimax_h3_alternate"].formats["natural"].output_contract_negative_off
     assert "[x_min,y_min,x_max,y_max]" in all_profiles["krea2"].formats["json"].common_instructions
     assert "[y_min,x_min,y_max,x_max]" in all_profiles["ideogram4"].formats["json"].common_instructions
@@ -335,6 +391,48 @@ def test_minimax_raw_response_preserves_section_formatting():
     assert parsed["positive"] == raw
     assert parsed["negative"] == ""
     assert "\n\nsummary:\n" in parsed["positive"]
+
+
+def test_minimax_json_string_literal_response_is_unwrapped_to_plain_text():
+    _profiles, prompt_io, _prompt_builder, _node, _profile_config = _load_package_modules()
+    plain = (
+        "subject_definitions:\n"
+        "<Picture 1> is the first frame of [Shot 1].\n\n"
+        "summary:\n"
+        "The target video follows the reference.\n\n"
+        "retention_analysis:\n"
+        "<Picture 1> ([Shot 1] first frame): fully_preserved - composition is retained.\n\n"
+        "detailed_description:\n"
+        "[Shot 1] The scene begins from <Picture 1>.\n\n"
+        "overall_soundscape:\n"
+        "Room tone continues.\n\n"
+        "non_diegetic_music:\n"
+        "N/A"
+    )
+    raw = json.dumps(plain)
+
+    parsed = prompt_io.parse_generation_response(
+        "minimax_h3_official",
+        "natural",
+        raw,
+        negative_enabled=True,
+    )
+    prompt, positive, negative = prompt_io.build_outputs(
+        "minimax_h3_official",
+        "natural",
+        positive=raw,
+        final_prompt=raw,
+        negative="ignored",
+        negative_enabled=True,
+    )
+
+    assert parsed["prompt"] == plain
+    assert parsed["positive"] == plain
+    assert prompt == plain
+    assert positive == plain
+    assert negative == ""
+    assert "\\n" not in parsed["prompt"]
+    assert not parsed["prompt"].startswith('"')
 
 
 def test_generation_response_normalizes_ideogram_and_flux_json():
@@ -755,6 +853,7 @@ def test_gemini_backend_sends_safety_defaults_and_multiple_images():
             "gemini-test",
             "system prompt",
             "user prompt",
+            prompt_format="json",
             pil_images=[
                 Image.new("RGB", (1, 1), color=(255, 0, 0)),
                 Image.new("RGB", (1, 1), color=(0, 255, 0)),
@@ -776,6 +875,7 @@ def test_gemini_backend_sends_safety_defaults_and_multiple_images():
     assert calls[0]["params"] == {"key": "gem-key"}
     assert calls[0]["timeout"] == 77
     assert body["contents"][0]["parts"][0] == {"text": "user prompt"}
+    assert body["generationConfig"] == {"temperature": 0.7, "responseMimeType": "application/json"}
     assert len([part for part in body["contents"][0]["parts"] if "inline_data" in part]) == 2
     assert body["safetySettings"] == [
         {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
@@ -783,6 +883,34 @@ def test_gemini_backend_sends_safety_defaults_and_multiple_images():
         {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
         {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
     ]
+
+
+def test_gemini_backend_omits_json_mime_for_natural_outputs():
+    gemini_backend = _load_gemini_backend()
+    calls = []
+
+    def fake_post(url, params, json, timeout):
+        calls.append({"url": url, "params": params, "json": json, "timeout": timeout})
+        return _FakeResponse({"candidates": [{"content": {"parts": [{"text": "plain MiniMax prompt"}]}}]})
+
+    original_post = gemini_backend.requests.post
+    try:
+        gemini_backend.requests.post = fake_post
+        raw = gemini_backend.generate(
+            "gem-key",
+            "gemini-test",
+            "system prompt",
+            "user prompt",
+            prompt_format="natural",
+            timeout=77,
+        )
+    finally:
+        gemini_backend.requests.post = original_post
+
+    assert raw == "plain MiniMax prompt"
+    body = calls[0]["json"]
+    assert body["generationConfig"] == {"temperature": 0.7}
+    assert "responseMimeType" not in body["generationConfig"]
 
 
 def test_openai_backend_ignores_unload_failures_after_generation():

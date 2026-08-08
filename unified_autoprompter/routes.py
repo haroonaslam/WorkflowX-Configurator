@@ -224,6 +224,7 @@ def register_routes(app=None) -> None:
                         data.get("model") or "",
                         system_prompt,
                         user_prompt,
+                        prompt_format=prompt_format,
                         pil_image=pil_image,
                         pil_images=pil_images,
                         safety_settings=data.get("gemini_safety") if isinstance(data.get("gemini_safety"), dict) else None,

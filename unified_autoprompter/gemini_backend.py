@@ -77,6 +77,7 @@ def generate(
     user_prompt: str,
     pil_image: Image.Image | None = None,
     pil_images: list[Image.Image] | None = None,
+    prompt_format: str = "json",
     safety_settings: dict[str, str] | None = None,
     timeout: float = 120,
 ) -> str:
@@ -90,13 +91,13 @@ def generate(
         images = [pil_image]
     for image in images:
         parts.append(_image_part(image))
+    generation_config = {"temperature": 0.7}
+    if str(prompt_format or "").strip().lower() == "json":
+        generation_config["responseMimeType"] = "application/json"
     body = {
         "systemInstruction": {"parts": [{"text": system_prompt}]},
         "contents": [{"role": "user", "parts": parts}],
-        "generationConfig": {
-            "temperature": 0.7,
-            "responseMimeType": "application/json",
-        },
+        "generationConfig": generation_config,
     }
     safety = _build_safety_settings(safety_settings)
     if safety:

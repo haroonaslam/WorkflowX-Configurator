@@ -44,6 +44,26 @@ def strip_color_palettes_from_prompt(target_model: str, prompt_format: str, text
     return json.dumps(stripped, indent=2, ensure_ascii=False)
 
 
+def _strip_wrapping_code_fence(text: str) -> str:
+    raw = str(text or "").strip()
+    fence = re.fullmatch(r"```(?:[a-zA-Z0-9_-]+)?\s*\n?(.*?)\n?```", raw, re.DOTALL)
+    if fence:
+        return fence.group(1).strip()
+    return raw
+
+
+def _normalize_minimax_plain_text(text: str) -> str:
+    raw = _strip_wrapping_code_fence(text)
+    if len(raw) >= 2 and raw[0] == '"' and raw[-1] == '"':
+        try:
+            decoded = json.loads(raw)
+        except json.JSONDecodeError:
+            return raw
+        if isinstance(decoded, str):
+            return decoded.strip()
+    return raw
+
+
 def build_outputs(
     target_model: str,
     prompt_format: str,
@@ -60,6 +80,9 @@ def build_outputs(
     positive = str(positive or "").strip()
     negative = str(negative or "").strip() if negative_enabled else ""
     final_prompt = str(final_prompt or "").strip()
+    if target_model in MINIMAX_H3_TARGETS:
+        positive = _normalize_minimax_plain_text(positive)
+        final_prompt = _normalize_minimax_plain_text(final_prompt)
 
     if final_prompt:
         prompt = final_prompt
@@ -153,6 +176,8 @@ def parse_generation_response(target_model: str, prompt_format: str, raw_text: s
     if target_model in MINIMAX_H3_TARGETS:
         negative_enabled = False
     raw_text = str(raw_text or "").strip()
+    if target_model in MINIMAX_H3_TARGETS:
+        raw_text = _normalize_minimax_plain_text(raw_text)
     parsed = extract_json_object(raw_text)
 
     positive = ""
