@@ -139,16 +139,22 @@ def generate(
     system_prompt: str,
     user_prompt: str,
     pil_image: Image.Image | None = None,
+    pil_images: list[Image.Image] | None = None,
     timeout: float = 120,
     unload_after: bool = False,
 ) -> str:
     if not model:
         raise ValueError("No OpenAI-compatible model selected.")
 
+    images = list(pil_images or [])
+    if not images and pil_image is not None:
+        images = [pil_image]
+
     content: str | list[dict] = user_prompt
-    if pil_image is not None:
+    if images:
         content = [{"type": "text", "text": user_prompt}]
-        content.append({"type": "image_url", "image_url": {"url": _image_data_url(pil_image), "detail": "auto"}})
+        for image in images:
+            content.append({"type": "image_url", "image_url": {"url": _image_data_url(image), "detail": "auto"}})
 
     body = {
         "model": model,

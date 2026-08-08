@@ -12,7 +12,7 @@ from PIL import Image
 from . import gemini_backend, local_llama_backend, ollama_backend, openai_backend
 from .folder_registry import model_options, mmproj_options, system_prompt_options
 from .profile_config import profile_config_payload, reset_config, save_config
-from .profiles import normalize_format, profiles_payload
+from .profiles import normalize_format, profiles_payload, supports_negative
 from .prompt_builder import build_system_prompt, build_user_prompt
 from .prompt_io import parse_generation_response
 
@@ -39,6 +39,20 @@ def _decode_image(image_b64: str | None) -> Image.Image | None:
         return Image.open(io.BytesIO(raw)).convert("RGB")
     except Exception:
         return None
+
+
+def _decode_images(data: dict[str, Any]) -> list[Image.Image]:
+    raw_images = data.get("images_b64")
+    if isinstance(raw_images, list) and raw_images:
+        candidates = raw_images
+    else:
+        candidates = [data.get("image_b64")]
+    images = []
+    for candidate in candidates:
+        image = _decode_image(candidate)
+        if image is not None:
+            images.append(image)
+    return images
 
 
 def refresh_comfy_vram() -> str:
@@ -177,11 +191,24 @@ def register_routes(app=None) -> None:
 
         target_model = str(data.get("target_model") or "ideogram4")
         prompt_format = normalize_format(target_model, str(data.get("prompt_format") or ""))
-        negative_enabled = bool(data.get("negative_enabled"))
+        negative_enabled = bool(data.get("negative_enabled")) and supports_negative(target_model)
         fields = data.get("fields") if isinstance(data.get("fields"), dict) else data
-        pil_image = _decode_image(data.get("image_b64"))
-        system_prompt = build_system_prompt(target_model, prompt_format, negative_enabled, has_image=pil_image is not None)
-        user_prompt = build_user_prompt(fields, has_image=pil_image is not None, target_model=target_model)
+        pil_images = _decode_images(data)
+        pil_image = pil_images[0] if pil_images else None
+        reference_count = len(pil_images)
+        system_prompt = build_system_prompt(
+            target_model,
+            prompt_format,
+            negative_enabled,
+            has_image=bool(pil_images),
+            reference_count=reference_count,
+        )
+        user_prompt = build_user_prompt(
+            fields,
+            has_image=bool(pil_images),
+            target_model=target_model,
+            reference_count=reference_count,
+        )
         backend = str(data.get("backend") or "gemini")
         timeout = _timeout_seconds(data.get("timeout"))
         loop = asyncio.get_event_loop()
@@ -198,6 +225,8 @@ def register_routes(app=None) -> None:
                         system_prompt,
                         user_prompt,
                         pil_image=pil_image,
+                        pil_images=pil_images,
+                        safety_settings=data.get("gemini_safety") if isinstance(data.get("gemini_safety"), dict) else None,
                         timeout=timeout,
                     ),
                 )
@@ -211,6 +240,7 @@ def register_routes(app=None) -> None:
                         system_prompt,
                         user_prompt,
                         pil_image=pil_image,
+                        pil_images=pil_images,
                         timeout=timeout,
                         unload_after=bool(data.get("unload_after", False)),
                     ),
@@ -224,6 +254,7 @@ def register_routes(app=None) -> None:
                         system_prompt,
                         user_prompt,
                         pil_image=pil_image,
+                        pil_images=pil_images,
                         think=bool(data.get("think", False)),
                         unload_after=bool(data.get("unload_after", True)),
                     ),
@@ -239,6 +270,7 @@ def register_routes(app=None) -> None:
                         system_prompt=system_prompt,
                         user_prompt=user_prompt,
                         pil_image=pil_image,
+                        pil_images=pil_images,
                         mmproj=data.get("mmproj") or "none",
                         system_prompt_preset=data.get("system_prompt_preset") or "none",
                         options=local_options,

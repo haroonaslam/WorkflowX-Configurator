@@ -235,16 +235,26 @@ def default_config() -> dict[str, Any]:
 
 def load_config() -> dict[str, Any]:
     path = config_path()
+    defaults = default_config()
     if not path.exists():
-        data = default_config()
+        data = defaults
         _config_to_profiles(data)
         _atomic_write(path, data, backup=False)
         return data
     try:
         data = _read_json(path)
+        default_profiles = _config_to_profiles(defaults)
+        existing_keys = {str(profile.get("key") or "") for profile in data.get("profiles", []) if isinstance(profile, dict)}
+        missing_defaults = [profile.to_dict() for profile in default_profiles if profile.key not in existing_keys]
+        if missing_defaults:
+            data = {
+                **data,
+                "version": CONFIG_VERSION,
+                "profiles": list(data.get("profiles") or []) + missing_defaults,
+            }
         profiles = _config_to_profiles(data)
     except Exception:
-        data = default_config()
+        data = defaults
         profiles = _config_to_profiles(data)
     return _profiles_to_config(profiles)
 

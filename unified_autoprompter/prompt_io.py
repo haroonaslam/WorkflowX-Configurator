@@ -7,6 +7,7 @@ from typing import Any
 from .profiles import FORMAT_JSON, FORMAT_TAGS, normalize_format
 
 BBOX_JSON_TARGETS = {"ideogram4", "krea2"}
+MINIMAX_H3_TARGETS = {"minimax_h3_official", "minimax_h3_alternate"}
 
 
 def assemble_prompt(positive: str, negative: str = "", negative_enabled: bool = False, prompt_format: str = "natural") -> str:
@@ -53,6 +54,8 @@ def build_outputs(
     disable_color_palette: bool = False,
 ) -> tuple[str, str, str]:
     prompt_format = normalize_format(target_model, prompt_format)
+    if target_model in MINIMAX_H3_TARGETS:
+        negative_enabled = False
     negative_enabled = bool(negative_enabled)
     positive = str(positive or "").strip()
     negative = str(negative or "").strip() if negative_enabled else ""
@@ -147,6 +150,8 @@ def normalize_prompt_json(target_model: str, prompt_format: str, payload: Any) -
 
 def parse_generation_response(target_model: str, prompt_format: str, raw_text: str, negative_enabled: bool) -> dict[str, str]:
     prompt_format = normalize_format(target_model, prompt_format)
+    if target_model in MINIMAX_H3_TARGETS:
+        negative_enabled = False
     raw_text = str(raw_text or "").strip()
     parsed = extract_json_object(raw_text)
 

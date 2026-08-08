@@ -52,6 +52,14 @@ def _load_openai_backend():
     return _load_module("unified_autoprompter/openai_backend.py", f"{package_name}.openai_backend")
 
 
+def _load_gemini_backend():
+    _install_folder_paths_stub()
+    package_name = "workflowx_unified_autoprompter_test"
+    package = sys.modules.setdefault(package_name, types.ModuleType(package_name))
+    package.__path__ = [str(ROOT / "unified_autoprompter")]
+    return _load_module("unified_autoprompter/gemini_backend.py", f"{package_name}.gemini_backend")
+
+
 def _load_routes_module():
     _load_package_modules()
     aiohttp = sys.modules.setdefault("aiohttp", types.ModuleType("aiohttp"))
@@ -94,6 +102,8 @@ def test_prompt_profiles_capture_allowed_formats_and_negative_rules():
         "z_image",
         "wan2_2",
         "ltx_2_3",
+        "minimax_h3_official",
+        "minimax_h3_alternate",
         "krea2",
     }
     assert profiles.normalize_format("z_image", "json") == "natural"
@@ -101,8 +111,13 @@ def test_prompt_profiles_capture_allowed_formats_and_negative_rules():
     assert profiles.normalize_format("flux2_dev", "json") == "json"
     assert profiles.normalize_format("wan2_2", "json") == "natural"
     assert profiles.normalize_format("ltx_2_3", "tags") == "natural"
+    assert profiles.normalize_format("minimax_h3_official", "json") == "natural"
+    assert profiles.normalize_format("minimax_h3_alternate", "tags") == "natural"
     for profile in profiles.profile_options():
-        assert profiles.supports_negative(profile) is True
+        if profile in {"minimax_h3_official", "minimax_h3_alternate"}:
+            assert profiles.supports_negative(profile) is False
+        else:
+            assert profiles.supports_negative(profile) is True
 
 
 def test_granular_defaults_cover_enabled_formats_and_image_modes():
@@ -124,6 +139,32 @@ def test_granular_defaults_cover_enabled_formats_and_image_modes():
     assert all_profiles["sdxl"].formats["tags"].common_instructions != all_profiles["sdxl"].formats["natural"].common_instructions
     assert all_profiles["flux2_dev"].formats["json"].common_instructions != all_profiles["flux2_dev"].formats["natural"].common_instructions
     assert all_profiles["krea2"].json_supported is True
+    assert all_profiles["minimax_h3_official"].media_type == "video"
+    assert all_profiles["minimax_h3_alternate"].media_type == "video"
+    assert all_profiles["minimax_h3_official"].negative_supported is False
+    assert all_profiles["minimax_h3_alternate"].negative_supported is False
+    assert all_profiles["minimax_h3_official"].formats["natural"].enabled is True
+    assert all_profiles["minimax_h3_alternate"].formats["natural"].enabled is True
+    assert "integrated_multimodal_description" in all_profiles["minimax_h3_official"].formats["natural"].common_instructions
+    assert "subject_definitions, summary, retention_analysis, detailed_description" in all_profiles["minimax_h3_official"].formats["natural"].common_instructions
+    assert "<d>[Language] spoken text</d>" in all_profiles["minimax_h3_official"].formats["natural"].common_instructions
+    assert "native script inside <d>" in all_profiles["minimax_h3_official"].formats["natural"].common_instructions
+    assert "voice cloning" in all_profiles["minimax_h3_official"].formats["natural"].common_instructions
+    assert "complete reuse/as-is/copy" in all_profiles["minimax_h3_official"].formats["natural"].common_instructions
+    assert "fully_copy" in all_profiles["minimax_h3_official"].formats["natural"].common_instructions
+    assert "first line must be subject_definitions:" in all_profiles["minimax_h3_official"].formats["natural"].common_instructions
+    assert "define <Picture 1> as the first frame of [Shot 1]" in all_profiles["minimax_h3_official"].formats["natural"].common_instructions
+    assert "<Picture 1> ([Shot 1] first frame): fully_preserved" in all_profiles["minimax_h3_official"].formats["natural"].common_instructions
+    assert "Return ONLY the final MiniMax H3 Official prompt body as plain text" in all_profiles["minimax_h3_official"].formats["natural"].output_contract_negative_off
+    assert "subject_definitions:\n<Picture 1> is the first frame of [Shot 1]" in all_profiles["minimax_h3_official"].formats["natural"].output_contract_negative_off
+    assert "retention_analysis:\n<Picture 1> ([Shot 1] first frame): fully_preserved" in all_profiles["minimax_h3_official"].formats["natural"].output_contract_negative_off
+    assert "[REFERENCE USE]" in all_profiles["minimax_h3_alternate"].formats["natural"].common_instructions
+    assert "<Picture N>, <Video N>, and <Audio N>" in all_profiles["minimax_h3_alternate"].formats["natural"].common_instructions
+    assert "do not create a standalone [dialogue] section" in all_profiles["minimax_h3_alternate"].formats["natural"].common_instructions.lower()
+    assert "native script inside the quoted dialogue" in all_profiles["minimax_h3_alternate"].formats["natural"].common_instructions
+    assert "voice cloning" in all_profiles["minimax_h3_alternate"].formats["natural"].common_instructions
+    assert "complete reuse/as-is/copy" in all_profiles["minimax_h3_alternate"].formats["natural"].common_instructions
+    assert "Return ONLY the final MiniMax H3 Alternate prompt body as plain text" in all_profiles["minimax_h3_alternate"].formats["natural"].output_contract_negative_off
     assert "[x_min,y_min,x_max,y_max]" in all_profiles["krea2"].formats["json"].common_instructions
     assert "[y_min,x_min,y_max,x_max]" in all_profiles["ideogram4"].formats["json"].common_instructions
     assert 'every non-text element must use "type": "obj"' in all_profiles["ideogram4"].formats["json"].common_instructions
@@ -157,6 +198,71 @@ def test_system_prompt_uses_format_contract_and_image_mode():
     assert "Output contract:" in negative
 
 
+def test_minimax_system_prompt_uses_plain_text_contract():
+    _profiles, _prompt_io, prompt_builder, _node, _profile_config = _load_package_modules()
+
+    official = prompt_builder.build_system_prompt(
+        "minimax_h3_official",
+        "natural",
+        True,
+        reference_count=2,
+    )
+
+    assert "Return plain text only" in official
+    assert "Return valid JSON only" not in official
+    assert "subject_definitions:\n<Picture 1> is the first frame of [Shot 1]" in official
+    assert "retention_analysis:\n<Picture 1> ([Shot 1] first frame): fully_preserved" in official
+    assert "Negative prompt handling:\nDo not invent a negative prompt" in official
+
+
+def test_prompt_builder_labels_multiple_image_references_for_minimax():
+    _profiles, _prompt_io, prompt_builder, _node, _profile_config = _load_package_modules()
+
+    system_prompt = prompt_builder.build_system_prompt(
+        "minimax_h3_official",
+        "natural",
+        False,
+        reference_count=2,
+    )
+    user_prompt = prompt_builder.build_user_prompt(
+        {
+            "idea": "cinematic dance sequence",
+            "reference_or_control_notes": "Audio1 is a female vocal track; use Video1 for background timing.",
+            "extra_instructions": "Use Urdu dialogue. An audio will be provided for voice cloning and matching timbre.",
+        },
+        target_model="minimax_h3_alternate",
+        reference_count=2,
+    )
+
+    assert "Connected image references: Image1, Image2" in system_prompt
+    assert "<Picture 1>/<Picture 2>" in system_prompt
+    assert "Connected image references provided: Image1, Image2." in user_prompt
+    assert "<Picture 1>, <Picture 2>" in user_prompt
+    assert "Audio1 is a female vocal track" in user_prompt
+    assert "Audio reference required: include <Audio 1>" in user_prompt
+    assert "Video reference required: include <Video 1>" in user_prompt
+    assert "Urdu dialogue required" in user_prompt
+    assert "native Urdu script" in user_prompt
+    assert "Do not assume voice cloning" in user_prompt
+
+
+def test_prompt_builder_preserves_minimax_audio_as_is_role():
+    _profiles, _prompt_io, prompt_builder, _node, _profile_config = _load_package_modules()
+
+    user_prompt = prompt_builder.build_user_prompt(
+        {
+            "idea": "moody night drive",
+            "extra_instructions": "An audio will be provided; use audio 1 as-is as the complete final soundtrack.",
+        },
+        target_model="minimax_h3_official",
+    )
+
+    assert "Audio reference required: include <Audio 1>" in user_prompt
+    assert "complete reuse/as-is/copy" in user_prompt
+    assert "reused or copied as the target video's audio track" in user_prompt
+    assert "instead of turning it into a voice-timbre instruction" in user_prompt
+
+
 def test_output_assembly_matches_contract_for_positive_and_negative():
     _profiles, prompt_io, _prompt_builder, _node, _profile_config = _load_package_modules()
 
@@ -187,11 +293,48 @@ def test_output_assembly_preserves_negative_for_every_profile():
         )
 
         assert positive == "positive prompt"
+        if profile in {"minimax_h3_official", "minimax_h3_alternate"}:
+            assert negative == ""
+            assert prompt == "positive prompt"
+            continue
         assert negative == "negative prompt"
         if prompt_format == "json":
             assert prompt == "positive prompt"
         else:
             assert prompt == "Positive:\npositive prompt\n\nNegative:\nnegative prompt"
+
+
+def test_minimax_raw_response_preserves_section_formatting():
+    _profiles, prompt_io, _prompt_builder, _node, _profile_config = _load_package_modules()
+    raw = (
+        "subject_definitions:\n"
+        "<Picture 1> is the first frame of [Shot 1].\n"
+        "<Picture 2> is the last-frame anchor for [Shot 1].\n"
+        "<Subject 1> is the subject from both pictures.\n"
+        "<Audio 1> is the voice-timbre reference for <Subject 1> (S1).\n\n"
+        "summary:\n"
+        "[reference generation + audio reference] The target video uses the references.\n\n"
+        "retention_analysis:\n"
+        "<Picture 1> ([Shot 1] first frame): fully_preserved - first-frame composition is retained.\n\n"
+        "detailed_description:\n"
+        "[Shot 1] The scene begins from <Picture 1>.\n\n"
+        "overall_soundscape:\n"
+        "Room tone continues.\n\n"
+        "non_diegetic_music:\n"
+        "N/A"
+    )
+
+    parsed = prompt_io.parse_generation_response(
+        "minimax_h3_official",
+        "natural",
+        raw,
+        negative_enabled=True,
+    )
+
+    assert parsed["prompt"] == raw
+    assert parsed["positive"] == raw
+    assert parsed["negative"] == ""
+    assert "\n\nsummary:\n" in parsed["positive"]
 
 
 def test_generation_response_normalizes_ideogram_and_flux_json():
@@ -388,6 +531,26 @@ def test_profile_config_loads_and_recreates_node_local_json_when_missing():
         assert "ideogram4" in [profile["key"] for profile in payload["profiles"]]
 
 
+def test_profile_config_appends_new_default_profiles_without_overwriting_existing_config():
+    _profiles, _prompt_io, _prompt_builder, _node, profile_config = _load_package_modules()
+    with _with_temp_profile_paths(profile_config):
+        custom = profile_config.default_config()
+        custom["profiles"] = [
+            {
+                **custom["profiles"][0],
+                "notes": "user edited ideogram notes",
+            }
+        ]
+        profile_config.config_path().write_text(json.dumps(custom), encoding="utf-8")
+
+        loaded = profile_config.load_config()
+        profiles_by_key = {profile["key"]: profile for profile in loaded["profiles"]}
+
+        assert profiles_by_key["ideogram4"]["notes"] == "user edited ideogram notes"
+        assert "minimax_h3_official" in profiles_by_key
+        assert "minimax_h3_alternate" in profiles_by_key
+
+
 def test_profile_config_rejects_invalid_save_without_overwriting_prior_config():
     _profiles, _prompt_io, _prompt_builder, _node, profile_config = _load_package_modules()
     with _with_temp_profile_paths(profile_config):
@@ -545,6 +708,83 @@ def test_openai_backend_generates_chat_completions_text_with_optional_image():
     }
 
 
+def test_openai_backend_generates_chat_completions_with_multiple_images():
+    openai_backend = _load_openai_backend()
+    calls = []
+
+    def fake_post(url, headers, json, timeout):
+        calls.append({"url": url, "json": json})
+        return _FakeResponse({"choices": [{"message": {"content": "refined prompt"}}]})
+
+    original_post = openai_backend.requests.post
+    try:
+        openai_backend.requests.post = fake_post
+        raw = openai_backend.generate(
+            "http://localhost:1234/v1",
+            "",
+            "vision-model",
+            "system prompt",
+            "user prompt",
+            pil_images=[
+                Image.new("RGB", (1, 1), color=(255, 0, 0)),
+                Image.new("RGB", (1, 1), color=(0, 255, 0)),
+            ],
+        )
+    finally:
+        openai_backend.requests.post = original_post
+
+    assert raw == "refined prompt"
+    content = calls[0]["json"]["messages"][1]["content"]
+    assert content[0] == {"type": "text", "text": "user prompt"}
+    assert [item["type"] for item in content[1:]] == ["image_url", "image_url"]
+
+
+def test_gemini_backend_sends_safety_defaults_and_multiple_images():
+    gemini_backend = _load_gemini_backend()
+    calls = []
+
+    def fake_post(url, params, json, timeout):
+        calls.append({"url": url, "params": params, "json": json, "timeout": timeout})
+        return _FakeResponse({"candidates": [{"content": {"parts": [{"text": "{\"positive\":\"ok\"}"}]}}]})
+
+    original_post = gemini_backend.requests.post
+    try:
+        gemini_backend.requests.post = fake_post
+        raw = gemini_backend.generate(
+            "gem-key",
+            "gemini-test",
+            "system prompt",
+            "user prompt",
+            pil_images=[
+                Image.new("RGB", (1, 1), color=(255, 0, 0)),
+                Image.new("RGB", (1, 1), color=(0, 255, 0)),
+            ],
+            safety_settings={
+                "safety_harassment": "BLOCK_NONE",
+                "safety_hate_speech": "BLOCK_NONE",
+                "safety_sexual": "BLOCK_NONE",
+                "safety_dangerous": "BLOCK_NONE",
+            },
+            timeout=77,
+        )
+    finally:
+        gemini_backend.requests.post = original_post
+
+    assert raw == "{\"positive\":\"ok\"}"
+    body = calls[0]["json"]
+    assert calls[0]["url"].endswith("/models/gemini-test:generateContent")
+    assert calls[0]["params"] == {"key": "gem-key"}
+    assert calls[0]["timeout"] == 77
+    assert body["contents"][0]["parts"][0] == {"text": "user prompt"}
+    assert len([part for part in body["contents"][0]["parts"] if "inline_data" in part]) == 2
+    assert body["safetySettings"] == [
+        {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+    ]
+
+
 def test_openai_backend_ignores_unload_failures_after_generation():
     openai_backend = _load_openai_backend()
     calls = []
@@ -630,6 +870,8 @@ def test_unified_autoprompter_node_is_registered_and_builds_outputs():
     assert input_types["required"]["refresh_vram"][0] == "BOOLEAN"
     assert input_types["required"]["disable_color_palette"][0] == "BOOLEAN"
     assert input_types["optional"]["image"] == ("IMAGE",)
+    assert input_types["optional"]["image_1"] == ("IMAGE",)
+    assert input_types["optional"]["image_8"] == ("IMAGE",)
     assert input_types["optional"]["bbox_json"][0] == "STRING"
     assert input_types["optional"]["bbox_json"][1]["forceInput"] is True
     assert input_types["optional"]["raw_prompt_text"][0] == "STRING"
@@ -646,6 +888,7 @@ def test_unified_autoprompter_node_is_registered_and_builds_outputs():
         generated_positive="cinematic portrait",
         generated_negative="low quality",
         image="ignored frontend overlay",
+        image_1="ignored second frontend overlay",
         bbox_json="ignored frontend sync input",
         raw_prompt_text="ignored frontend generation input",
     )

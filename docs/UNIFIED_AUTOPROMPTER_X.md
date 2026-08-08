@@ -17,7 +17,7 @@ It supports:
 - image and video prompt profiles
 - natural, tags, and JSON prompt formats
 - optional negative prompt output
-- optional connected image reference
+- optional connected image references
 - Gemini model generation
 - Ollama model generation
 - local GGUF generation
@@ -39,7 +39,8 @@ Inputs:
 | `generated_positive` | multiline `STRING` | UI-managed positive output. |
 | `generated_negative` | multiline `STRING` | UI-managed negative output. |
 | `final_prompt` | multiline `STRING` | UI-managed final prompt. |
-| `image` | optional `IMAGE` | Optional visual reference. |
+| `image` | optional `IMAGE` | Optional legacy visual reference. |
+| `image_1`, `image_2`, ... | optional dynamic `IMAGE` | Auto-growing ordered visual references for multi-ref prompting. |
 | `bbox_json` | optional connected `STRING` | Raw bbox layout JSON used only when `enable_bbox_json_input` is on and the user clicks BBox Layout `Sync`. |
 | `raw_prompt_text` | optional connected `STRING` | Raw upstream prompt text or JSON used as the generation source when `enable_text_input` is on. |
 | `ui_state` | optional multiline `STRING` | UI-managed editor/backend state. |
@@ -76,6 +77,8 @@ Current built-in targets:
 | Z-Image | `z_image` | image | `natural` |
 | WAN 2.2 | `wan2_2` | video | `natural` |
 | LTX 2.3 | `ltx_2_3` | video | `natural` |
+| MiniMax H3 Official | `minimax_h3_official` | video | `natural` |
+| MiniMax H3 Alternate | `minimax_h3_alternate` | video | `natural` |
 
 Profiles define:
 
@@ -110,9 +113,12 @@ UI fields:
 - Gemini API key
 - Gemini model
 - timeout
+- safety thresholds for harassment, hate speech, sexually explicit, and dangerous content
 - fetch models
 
 The API key is stored in the browser via the frontend helper, not in the node's visible prompt outputs.
+
+Gemini safety thresholds default to `BLOCK_NONE` for all adjustable categories. The UI exposes the same public threshold set used by WorkflowX Gemini image nodes, excluding the special `OFF` value.
 
 ### OpenAI Compatible
 
@@ -170,9 +176,11 @@ Local model support uses:
 
 UI fields include model selection, mmproj selection, system prompt preset, and local generation options.
 
-## Connected Image Input
+## Connected Image Inputs
 
-The optional `image` input lets the frontend capture an upstream image preview and send it as visual context during generation.
+The optional `image` input is kept for backward compatibility. The frontend also adds auto-growing `image_1`, `image_2`, and later sockets as you connect references.
+
+Connected images are sent to the prompt backend in socket order. The first connected image is also used as the BBox Layout overlay. Prompt context names them as `Image1`, `Image2`, and so on.
 
 Use it for:
 
@@ -181,7 +189,7 @@ Use it for:
 - layout or identity preservation
 - color, lighting, pose, or composition extraction
 
-If the connected image has no preview yet, run or refresh the upstream image node first so the frontend can capture it.
+If a connected image has no preview yet, run or refresh the upstream image node first so the frontend can capture it.
 
 ## Connected JSON And Text Inputs
 
@@ -208,7 +216,11 @@ For video profiles, the UI exposes extra intent fields:
 - audio / dialogue
 - reference or control notes
 
-These fields are included only when the active profile is a video profile, such as `wan2_2` or `ltx_2_3`.
+These fields are included only when the active profile is a video profile, such as `wan2_2`, `ltx_2_3`, `minimax_h3_official`, or `minimax_h3_alternate`.
+
+MiniMax H3 profiles prepare prompts for an external video model; they do not call a MiniMax API directly. Unlike the image prompt profiles, MiniMax H3 outputs are plain-text prompt bodies, not JSON-wrapped positive/negative objects. The node preserves MiniMax section headings, reference-definition lines, and blank lines so the output can be pasted directly into the video model.
+
+Connected image refs are converted into exact `<Picture N>` tokens in the generated prompt. Audio and video references are text-only in this node: describe them in Audio / dialogue, Reference / control notes, Raw input prompt, or Extra instructions, for example `Audio1 is a female vocal track`, `use Audio1 as-is as the final soundtrack`, or `Video1 defines the background motion`, and the MiniMax profiles will map them to `<Audio N>` or `<Video N>` roles. Audio roles follow the wording you provide: direct reuse, partial copy, music style, ambience, sound effects, dialogue or lyrics, beat/rhythm, continuity, or voice characteristics. When Urdu dialogue is requested, MiniMax profiles instruct the generator to write the spoken line in native Urdu script, not Roman Urdu, unless romanized text is explicitly requested. MiniMax profiles do not produce a separate UAP negative prompt; the Alternate profile may still include its skill-native `[NEGATIVES]` section inside the prompt body.
 
 ## BBox Layout Tools
 
@@ -294,7 +306,7 @@ Important details:
 2. Choose `target_model`.
 3. Choose `prompt_format`.
 4. Enable negative output only if the downstream workflow needs it.
-5. Optionally connect an image input.
+5. Optionally connect one or more image inputs.
 6. Choose Gemini, OpenAI Compatible, Ollama, or Local GGUF.
 7. Enter the idea, subject, image note, or video notes.
 8. Click `Generate`.

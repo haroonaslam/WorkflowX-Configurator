@@ -1,7 +1,53 @@
 from __future__ import annotations
 
+import re
+from typing import Any
+
 from .profiles import FORMAT_JSON, format_options, normalize_format, profile_options
 from .prompt_io import build_outputs
+
+
+class _FlexibleOptionalInputs(dict):
+    """Accept browser-created image_N sockets while keeping legacy optional inputs."""
+
+    _image_pattern = re.compile(r"^image_\d+$")
+
+    def __init__(self) -> None:
+        super().__init__(
+            {
+                "image": ("IMAGE",),
+                "bbox_json": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "multiline": True,
+                        "forceInput": True,
+                        "tooltip": "Optional connected raw bbox layout JSON for the frontend BBox Layout Sync action.",
+                    },
+                ),
+                "raw_prompt_text": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "multiline": True,
+                        "forceInput": True,
+                        "tooltip": "Optional connected raw prompt text used during generation when enabled in the UI.",
+                    },
+                ),
+                "ui_state": (
+                    "STRING",
+                    {"default": "{}", "multiline": True, "tooltip": "Managed by the WorkflowX UI."},
+                ),
+            }
+        )
+
+    def __getitem__(self, key: str):
+        if self._image_pattern.match(str(key or "")):
+            return ("IMAGE",)
+        return super().__getitem__(key)
+
+    def __contains__(self, key: object) -> bool:
+        return super().__contains__(key) or self._image_pattern.match(str(key or "")) is not None
 
 
 class UnifiedAutoprompterX:
@@ -47,31 +93,7 @@ class UnifiedAutoprompterX:
                     {"default": "", "multiline": True, "tooltip": "Managed by the WorkflowX UI."},
                 ),
             },
-            "optional": {
-                "image": ("IMAGE",),
-                "bbox_json": (
-                    "STRING",
-                    {
-                        "default": "",
-                        "multiline": True,
-                        "forceInput": True,
-                        "tooltip": "Optional connected raw bbox layout JSON for the frontend BBox Layout Sync action.",
-                    },
-                ),
-                "raw_prompt_text": (
-                    "STRING",
-                    {
-                        "default": "",
-                        "multiline": True,
-                        "forceInput": True,
-                        "tooltip": "Optional connected raw prompt text used during generation when enabled in the UI.",
-                    },
-                ),
-                "ui_state": (
-                    "STRING",
-                    {"default": "{}", "multiline": True, "tooltip": "Managed by the WorkflowX UI."},
-                ),
-            },
+            "optional": _FlexibleOptionalInputs(),
         }
 
     def build(
@@ -90,6 +112,7 @@ class UnifiedAutoprompterX:
         bbox_json: str = "",
         raw_prompt_text: str = "",
         ui_state: str = "{}",
+        **kwargs: Any,
     ) -> tuple[str, str, str]:
         prompt_format = normalize_format(target_model, prompt_format)
         return build_outputs(

@@ -16,6 +16,21 @@ const IDEOGRAM_PANEL_DEFAULT_HEIGHT = 176;
 const IDEOGRAM_PANEL_MIN_HEIGHT = 132;
 const IDEOGRAM_PANEL_MAX_HEIGHT = 340;
 const ALL_PROMPT_FORMATS = ["natural", "tags", "json"];
+const REFERENCE_IMAGE_RE = /^image_(\d+)$/;
+const MAX_REFERENCE_IMAGES = 9;
+const GEMINI_SAFETY_OPTIONS = [
+  "BLOCK_DEFAULT",
+  "BLOCK_NONE",
+  "BLOCK_LOW_AND_ABOVE",
+  "BLOCK_MEDIUM_AND_ABOVE",
+  "BLOCK_ONLY_HIGH",
+];
+const GEMINI_SAFETY_FIELDS = [
+  ["safety_harassment", "Harassment"],
+  ["safety_hate_speech", "Hate speech"],
+  ["safety_sexual", "Sexual"],
+  ["safety_dangerous", "Dangerous"],
+];
 const BBOX_LAYOUT_TARGETS = {
   ideogram4: { label: "Ideogram 4", order: "yx", orderLabel: "ymin, xmin, ymax, xmax" },
   krea2: { label: "Krea2", order: "xy", orderLabel: "xmin, ymin, xmax, ymax" },
@@ -43,6 +58,8 @@ const FALLBACK_PROFILES = [
   { key: "z_image", label: "Z-Image", formats: { natural: fallbackRule(true, "Write a detailed Z-Image natural prompt."), tags: fallbackRule(false), json: fallbackRule(false) }, default_format: "natural", negative_supported: true, json_supported: false, media_type: "image", notes: "" },
   { key: "wan2_2", label: "WAN 2.2", formats: { natural: fallbackRule(true, "Write a WAN 2.2 video prompt."), tags: fallbackRule(false), json: fallbackRule(false) }, default_format: "natural", negative_supported: true, json_supported: false, media_type: "video", notes: "" },
   { key: "ltx_2_3", label: "LTX 2.3", formats: { natural: fallbackRule(true, "Write an LTX 2.3 chronological video prompt."), tags: fallbackRule(false), json: fallbackRule(false) }, default_format: "natural", negative_supported: true, json_supported: false, media_type: "video", notes: "" },
+  { key: "minimax_h3_official", label: "MiniMax H3 Official", formats: { natural: fallbackRule(true, "Write a MiniMax H3 prompt using the official video guide structure."), tags: fallbackRule(false), json: fallbackRule(false) }, default_format: "natural", negative_supported: false, json_supported: false, media_type: "video", notes: "" },
+  { key: "minimax_h3_alternate", label: "MiniMax H3 Alternate", formats: { natural: fallbackRule(true, "Write a MiniMax H3 prompt using the alternate cinematic reference-control structure."), tags: fallbackRule(false), json: fallbackRule(false) }, default_format: "natural", negative_supported: false, json_supported: false, media_type: "video", notes: "" },
 ];
 const NODE_MIN_WIDGET_HEIGHT = 420;
 const DOCK_Z_BASE = 9000;
@@ -1018,6 +1035,51 @@ function ensureInputSocket(node, name, type) {
   markDirty();
 }
 
+function referenceImageNumbers(node) {
+  return (node.inputs || [])
+    .map((input) => REFERENCE_IMAGE_RE.exec(String(input.name || "")))
+    .filter(Boolean)
+    .map((match) => Number(match[1]))
+    .sort((a, b) => a - b);
+}
+
+function referenceImageInputNames(node) {
+  const names = [];
+  if (node.inputs?.some((input) => input.name === "image")) names.push("image");
+  for (const number of referenceImageNumbers(node)) names.push(`image_${number}`);
+  return names;
+}
+
+function imageInputLinked(node, name) {
+  return Boolean(node?.inputs?.some((input) => input.name === name && input.link != null));
+}
+
+function linkedReferenceImageInputNames(node) {
+  return referenceImageInputNames(node).filter((name) => imageInputLinked(node, name));
+}
+
+function syncReferenceImageSockets(node) {
+  if (!node) return;
+  let numbers = referenceImageNumbers(node);
+  if (!numbers.length) {
+    ensureInputSocket(node, "image_1", "IMAGE");
+    numbers = [1];
+  }
+  while (numbers.length > 1) {
+    const last = numbers.at(-1);
+    const previous = numbers.at(-2);
+    if (imageInputLinked(node, `image_${last}`) || imageInputLinked(node, `image_${previous}`)) break;
+    const index = node.inputs?.findIndex((input) => input.name === `image_${last}`);
+    if (index >= 0) node.removeInput(index);
+    numbers = referenceImageNumbers(node);
+  }
+  const last = numbers.at(-1) || 1;
+  if (last < MAX_REFERENCE_IMAGES && imageInputLinked(node, `image_${last}`)) {
+    ensureInputSocket(node, `image_${last + 1}`, "IMAGE");
+  }
+  markDirty();
+}
+
 function markDirty() {
   app.graph?.setDirtyCanvas?.(true, true);
   app.canvas?.setDirty?.(true, true);
@@ -1142,8 +1204,14 @@ function negativeInstruction(negativeEnabled) {
     : "Do not invent a negative prompt. Return an empty negative string when the output contract includes negative.";
 }
 
+function isMiniMaxProfile(profile) {
+  const key = typeof profile === "string" ? profile : profile?.key;
+  return key === "minimax_h3_official" || key === "minimax_h3_alternate";
+}
+
 function renderTemplatePreview(profile, promptFormat, negativeEnabled, hasImage = false) {
   profile = ensureProfileShape(profile || {});
+  negativeEnabled = Boolean(negativeEnabled) && Boolean(profile.negative_supported);
   promptFormat = promptFormat || profile?.default_format || "natural";
   const rule = formatRule(profile, promptFormat) || ensureRule();
   const contract = profileOutputContract(profile, promptFormat, negativeEnabled);
@@ -1169,7 +1237,9 @@ function renderTemplatePreview(profile, promptFormat, negativeEnabled, hasImage 
     "Output contract:",
     contract || "",
     "",
-    "Return valid JSON only. No markdown fences, no commentary.",
+    isMiniMaxProfile(profile)
+      ? "Return plain text only. Preserve the required MiniMax section headings, one-reference-per-line definitions, and blank lines between sections. No JSON, no markdown fences, no wrapper keys, no positive/negative labels, no commentary."
+      : "Return valid JSON only. No markdown fences, no commentary.",
   ].join("\n");
   const values = {
     target_label: profile?.label || "",
@@ -1246,6 +1316,10 @@ function defaultState(node) {
     extra_instructions: saved.extra_instructions || "",
     gemini_model: saved.gemini_model || storedModels.gemini_model || "",
     gemini_timeout: saved.gemini_timeout || 120,
+    safety_harassment: saved.safety_harassment || "BLOCK_NONE",
+    safety_hate_speech: saved.safety_hate_speech || "BLOCK_NONE",
+    safety_sexual: saved.safety_sexual || "BLOCK_NONE",
+    safety_dangerous: saved.safety_dangerous || "BLOCK_NONE",
     openai_base_url: saved.openai_base_url || storedOpenAIBaseUrl || DEFAULT_OPENAI_BASE_URL,
     openai_model: saved.openai_model || storedModels.openai_model || "",
     openai_timeout: saved.openai_timeout || 120,
@@ -1293,8 +1367,11 @@ function serializableState(state) {
     generated_negative,
     final_prompt,
     connected_image_b64,
+    connected_images_b64,
     connected_image_url,
+    connected_image_urls,
     connected_image_available,
+    connected_image_count,
     connected_bbox_json,
     connected_bbox_json_available,
     connected_raw_prompt_text,
@@ -1588,6 +1665,59 @@ function watchImageInputs(node, inputName, onChange) {
   chainCallback(node, "onRemoved", unwatch);
   setTimeout(() => {
     watchSourceWidget();
+    onChange(resolve());
+  }, 100);
+  return unwatch;
+}
+
+function watchReferenceImageInputs(node, onChange) {
+  let watchedWidgets = [];
+
+  function unwatch() {
+    for (const { widget, callback } of watchedWidgets) widget.callback = callback;
+    watchedWidgets = [];
+  }
+
+  function resolve() {
+    return linkedReferenceImageInputNames(node)
+      .map((name) => {
+        const source = resolveSourcePreview(node, name);
+        return source ? { ...source, inputName: name } : null;
+      })
+      .filter(Boolean);
+  }
+
+  function watchSourceWidgets() {
+    unwatch();
+    if (!node?.graph || !node.inputs) return;
+    for (const inputName of linkedReferenceImageInputNames(node)) {
+      const input = node.inputs.find((item) => item.name === inputName);
+      const link = graphLink(node.graph, input?.link);
+      const srcNode = link ? node.graph.getNodeById?.(link.origin_id) : null;
+      const widget = srcNode?.widgets?.find((item) => item.name === "image" || item.name === "video");
+      if (!widget) continue;
+      const callback = widget.callback;
+      widget.callback = function workflowXReferenceImageWidgetChanged() {
+        const result = callback?.apply(this, arguments);
+        setTimeout(() => onChange(resolve()), 100);
+        return result;
+      };
+      watchedWidgets.push({ widget, callback });
+    }
+  }
+
+  chainCallback(node, "onConnectionsChange", function workflowXUapReferenceImagesChanged(type) {
+    if (type != null && type !== 1) return;
+    setTimeout(() => {
+      syncReferenceImageSockets(node);
+      watchSourceWidgets();
+      onChange(resolve());
+    }, 100);
+  });
+  chainCallback(node, "onRemoved", unwatch);
+  setTimeout(() => {
+    syncReferenceImageSockets(node);
+    watchSourceWidgets();
     onChange(resolve());
   }, 100);
   return unwatch;
@@ -1932,14 +2062,18 @@ function setupUnifiedAutoprompter(node) {
   }
   ensureInputSocket(node, "bbox_json", "STRING");
   ensureInputSocket(node, "raw_prompt_text", "STRING");
+  syncReferenceImageSockets(node);
 
   const state = defaultState(node);
   state.gemini_key = loadStoredGeminiKey();
   state.openai_key = loadStoredOpenAIKey();
   state.openai_base_url = state.openai_base_url || DEFAULT_OPENAI_BASE_URL;
   state.connected_image_b64 = "";
+  state.connected_images_b64 = [];
   state.connected_image_url = "";
+  state.connected_image_urls = [];
   state.connected_image_available = false;
+  state.connected_image_count = 0;
   state.connected_bbox_json = "";
   state.connected_bbox_json_available = false;
   state.connected_raw_prompt_text = "";
@@ -1983,6 +2117,13 @@ function setupUnifiedAutoprompter(node) {
   timeoutInput.value = String(state.gemini_timeout || 120);
   field(geminiGrid, "Gemini key", keyInput);
   field(geminiGrid, "Timeout seconds", timeoutInput);
+  const geminiSafetySelects = {};
+  for (const [key, label] of GEMINI_SAFETY_FIELDS) {
+    const safetySelect = createSelect();
+    setSelectOptions(safetySelect, GEMINI_SAFETY_OPTIONS, state[key] || "BLOCK_NONE");
+    geminiSafetySelects[key] = safetySelect;
+    field(geminiGrid, `Safety: ${label}`, safetySelect);
+  }
   geminiPanel.appendChild(geminiGrid);
   const geminiModelsRow = buildDom("div", "workflowx-uap-row");
   const fetchGeminiBtn = buildDom("button", "workflowx-uap-btn", "Fetch models");
@@ -2288,8 +2429,11 @@ function setupUnifiedAutoprompter(node) {
     ideogramBtn.classList.toggle("workflowx-uap-hidden", !isBboxLayoutTarget(state.target_model));
     if (!isBboxLayoutTarget(state.target_model)) closeDock(node, "ideogram");
     videoPanel.classList.toggle("workflowx-uap-hidden", !profileIsVideo(profile));
-    state.negative_enabled = Boolean(state.negative_enabled);
+    const negativeSupported = Boolean(profile.negative_supported);
+    state.negative_enabled = negativeSupported && Boolean(state.negative_enabled);
     negativeInput.checked = state.negative_enabled;
+    negativeInput.disabled = !negativeSupported;
+    negativeToggle.classList.toggle("workflowx-uap-hidden", !negativeSupported);
     syncPreview();
     requestAnimationFrame(resizeNodeToVisibleContent);
   }
@@ -2315,6 +2459,7 @@ function setupUnifiedAutoprompter(node) {
     state.reference_or_control_notes = controlNotesArea.value;
     state.extra_instructions = extraArea.value;
     state.gemini_timeout = Number(timeoutInput.value || 120);
+    for (const [key] of GEMINI_SAFETY_FIELDS) state[key] = geminiSafetySelects[key]?.value || "BLOCK_NONE";
     state.openai_base_url = openaiBaseUrlInput.value.trim() || DEFAULT_OPENAI_BASE_URL;
     state.openai_model = (openaiModelInput.value || openaiModelSelect.value || "").trim();
     state.openai_timeout = Number(openaiTimeoutInput.value || 120);
@@ -4850,10 +4995,14 @@ function setupUnifiedAutoprompter(node) {
     const textInputWarning = state.enable_text_input && (!textInputLinked || !state.connected_raw_prompt_text_available || !rawPromptText)
       ? "Connected raw_prompt_text is enabled but missing or unreadable; using form fields."
       : "";
+    const connectedImages = Array.isArray(state.connected_images_b64)
+      ? state.connected_images_b64.filter(Boolean)
+      : (state.connected_image_b64 ? [state.connected_image_b64] : []);
+    const linkedImageCount = linkedReferenceImageInputNames(node).length;
     const hasTextSeed = Boolean(rawPromptText || state.idea.trim() || state.subject.trim());
-    const hasConnectedImage = Boolean(state.connected_image_b64);
+    const hasConnectedImage = connectedImages.length > 0;
     const hasUnresolvedConnectedImage = Boolean(
-      inputIsLinked(node, "image") && !hasConnectedImage
+      linkedImageCount > connectedImages.length
     );
     if (!hasTextSeed && !hasConnectedImage) {
       setStatus(
@@ -4873,7 +5022,8 @@ function setupUnifiedAutoprompter(node) {
       prompt_format: state.prompt_format,
       negative_enabled: state.negative_enabled,
       refresh_vram: state.refresh_vram,
-      image_b64: state.connected_image_b64 || "",
+      image_b64: connectedImages[0] || "",
+      images_b64: connectedImages,
       fields: {
         idea: state.idea,
         subject: state.subject,
@@ -4907,6 +5057,8 @@ function setupUnifiedAutoprompter(node) {
       }
       payload.api_key = state.gemini_key;
       payload.model = geminiModelSelect.value;
+      payload.gemini_safety = {};
+      for (const [key] of GEMINI_SAFETY_FIELDS) payload.gemini_safety[key] = state[key] || "BLOCK_NONE";
       state.gemini_model = geminiModelSelect.value;
     } else if (state.backend === "openai") {
       state.openai_base_url = openaiBaseUrlInput.value.trim() || DEFAULT_OPENAI_BASE_URL;
@@ -5013,6 +5165,7 @@ function setupUnifiedAutoprompter(node) {
     bboxJsonInput,
     rawTextInput,
     timeoutInput,
+    ...Object.values(geminiSafetySelects),
     openaiBaseUrlInput,
     openaiModelInput,
     openaiTimeoutInput,
@@ -5141,82 +5294,98 @@ function setupUnifiedAutoprompter(node) {
   modelSettingsBtn.addEventListener("click", openModelSettingsModalV3);
   generateBtn.addEventListener("click", generatePrompt);
 
-  const hasConnectedImageInput = () => Boolean(
-    node.inputs?.some((input) => input.name === "image" && input.link != null)
-  );
-
-  const setConnectedImageDataUrl = (dataUrl) => {
-    state.connected_image_b64 = dataUrl || "";
-    state.connected_image_available = Boolean(dataUrl);
+  const setConnectedImageDataUrls = (dataUrls, urls = []) => {
+    const clean = (Array.isArray(dataUrls) ? dataUrls : []).filter(Boolean);
+    state.connected_images_b64 = clean;
+    state.connected_image_b64 = clean[0] || "";
+    state.connected_image_available = clean.length > 0;
+    state.connected_image_count = clean.length;
+    state.connected_image_urls = (Array.isArray(urls) ? urls : []).filter(Boolean);
+    state.connected_image_url = state.connected_image_urls[0] || "";
     syncPreview();
   };
 
-  const canvasToConnectedImage = (canvas) => {
+  const canvasToDataUrl = (canvas) => {
     try {
-      setConnectedImageDataUrl(canvas.toDataURL("image/png"));
+      return canvas.toDataURL("image/png");
     } catch (error) {
       console.warn("[WorkflowX Unified Autoprompter] Could not convert connected image to base64", error);
-      setConnectedImageDataUrl("");
+      return "";
     }
   };
 
-  const imageToConnectedDataUrl = (img) => {
+  const imageToDataUrl = (img) => {
     try {
       const canvas = document.createElement("canvas");
       canvas.width = img.naturalWidth || img.width || 1;
       canvas.height = img.naturalHeight || img.height || 1;
       canvas.getContext("2d")?.drawImage(img, 0, 0);
-      canvasToConnectedImage(canvas);
+      return canvasToDataUrl(canvas);
     } catch (error) {
       console.warn("[WorkflowX Unified Autoprompter] Could not capture connected image", error);
-      setConnectedImageDataUrl("");
+      return "";
     }
   };
 
-  const loadOverlayImage = (src, dataUrl = "") => {
+  const setOverlayImage = (src) => {
     if (!src) {
       node.__workflowXUapOverlayImage = null;
-      state.connected_image_url = "";
-      setConnectedImageDataUrl("");
       node.__workflowXUapOnOverlayImageLoad?.(null);
       node.__workflowXUapRenderIdeogram?.();
-      if (hasConnectedImageInput()) {
-        setStatus("Connected image has no preview yet. Run or refresh the upstream image node first.", true);
-      }
       return;
     }
     const img = new Image();
     img.crossOrigin = "anonymous";
     img.onload = () => {
       node.__workflowXUapOverlayImage = img;
-      state.connected_image_url = src;
-      if (dataUrl) setConnectedImageDataUrl(dataUrl);
-      else imageToConnectedDataUrl(img);
       node.__workflowXUapOnOverlayImageLoad?.(img);
       node.__workflowXUapRenderIdeogram?.();
-      setStatus(`Connected image loaded: ${img.naturalWidth || img.width || 0} x ${img.naturalHeight || img.height || 0}.`);
     };
     img.onerror = () => {
       node.__workflowXUapOverlayImage = null;
-      state.connected_image_url = "";
-      setConnectedImageDataUrl("");
       node.__workflowXUapOnOverlayImageLoad?.(null);
       node.__workflowXUapRenderIdeogram?.();
-      setStatus("Connected image preview could not be loaded.", true);
     };
     img.src = src;
   };
-  const unwatchImageInput = watchImageInputs(node, "image", (sources) => {
-    const source = sources?.[0];
+
+  const sourceToDataUrl = (source) => new Promise((resolve) => {
     if (!source) {
-      loadOverlayImage("");
+      resolve("");
     } else if (source.isVideo && source.videoEl) {
-      captureVideoFrame(source.videoEl, (canvas) => {
-        const dataUrl = canvas.toDataURL("image/png");
-        loadOverlayImage(dataUrl, dataUrl);
-      });
+      captureVideoFrame(source.videoEl, (canvas) => resolve(canvasToDataUrl(canvas)));
     } else if (source.url && !source.isVideo) {
-      loadOverlayImage(source.url);
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => resolve(imageToDataUrl(img));
+      img.onerror = () => resolve("");
+      img.src = source.url;
+    } else {
+      resolve("");
+    }
+  });
+
+  let referenceImageLoadToken = 0;
+  const unwatchImageInput = watchReferenceImageInputs(node, async (sources) => {
+    const token = ++referenceImageLoadToken;
+    const linkedCount = linkedReferenceImageInputNames(node).length;
+    if (!sources?.length) {
+      setConnectedImageDataUrls([]);
+      setOverlayImage("");
+      if (linkedCount) setStatus("Connected image references have no preview yet. Run or refresh upstream image nodes first.", true);
+      return;
+    }
+    const dataUrls = await Promise.all(sources.map(sourceToDataUrl));
+    if (token !== referenceImageLoadToken) return;
+    const clean = dataUrls.filter(Boolean);
+    setConnectedImageDataUrls(clean, sources.map((source) => source.url || ""));
+    setOverlayImage(clean[0] || sources[0]?.url || "");
+    if (!clean.length && linkedCount) {
+      setStatus("Connected image references could not be loaded.", true);
+    } else if (clean.length < linkedCount) {
+      setStatus(`${clean.length} of ${linkedCount} connected image references loaded. Unreadable refs were skipped.`, true);
+    } else if (clean.length) {
+      setStatus(`${clean.length} connected image reference${clean.length === 1 ? "" : "s"} loaded.`);
     }
   });
   const unwatchBBoxJsonInput = watchTextInput(node, "bbox_json", (source) => {

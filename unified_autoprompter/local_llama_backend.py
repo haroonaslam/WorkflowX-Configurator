@@ -115,18 +115,23 @@ def build_command(
     system_prompt_path: Path | None,
     system_prompt_text: str,
     pil_image: Image.Image | None,
+    pil_images: list[Image.Image] | None,
     prompt: str,
     options: dict[str, Any],
 ) -> tuple[list[str], tuple[Path | None, ...]]:
     cleanup_paths: list[Path | None] = []
     cli_paths = ensure_llama_cli_paths()
     image_paths: list[Path] = []
-    if pil_image is not None:
+    images = list(pil_images or [])
+    if not images and pil_image is not None:
+        images = [pil_image]
+    if images:
         if mmproj_path is None:
             raise ValueError("Reference image input requires a selected mmproj GGUF file.")
-        image_path = _pil_to_temp_png(pil_image)
-        image_paths.append(image_path)
-        cleanup_paths.append(image_path)
+        for image in images:
+            image_path = _pil_to_temp_png(image)
+            image_paths.append(image_path)
+            cleanup_paths.append(image_path)
 
     prompt_path = _write_prompt_file(prompt)
     cleanup_paths.append(prompt_path)
@@ -173,6 +178,7 @@ def generate(
     system_prompt: str,
     user_prompt: str,
     pil_image: Image.Image | None = None,
+    pil_images: list[Image.Image] | None = None,
     mmproj: str = NO_MMPROJ,
     system_prompt_preset: str = NO_SYSTEM_PROMPT,
     options: dict[str, Any] | None = None,
@@ -190,6 +196,7 @@ def generate(
         system_prompt_path=preset_path,
         system_prompt_text=system_prompt,
         pil_image=pil_image,
+        pil_images=pil_images,
         prompt=user_prompt,
         options=options,
     )

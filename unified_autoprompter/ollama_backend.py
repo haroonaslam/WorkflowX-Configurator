@@ -37,6 +37,7 @@ def generate(
     system_prompt: str,
     user_prompt: str,
     pil_image: Image.Image | None = None,
+    pil_images: list[Image.Image] | None = None,
     think: bool = False,
     unload_after: bool = True,
 ) -> str:
@@ -55,8 +56,11 @@ def generate(
         body["think"] = False
     if unload_after:
         body["keep_alive"] = 0
-    if pil_image is not None:
-        body["messages"][-1]["images"] = [_image_b64(pil_image)]
+    images = list(pil_images or [])
+    if not images and pil_image is not None:
+        images = [pil_image]
+    if images:
+        body["messages"][-1]["images"] = [_image_b64(image) for image in images]
     response = requests.post(f"{_host(host)}/api/chat", json=body, timeout=600)
     response.raise_for_status()
     return response.json().get("message", {}).get("content", "")
