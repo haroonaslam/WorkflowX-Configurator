@@ -19,6 +19,7 @@ from nodes import (
     NODE_CLASS_MAPPINGS,
     ConfigSelector,
     ConfigSelectorAdvanced,
+    ConfigSelectorX,
     GetRelay,
     LoraX,
     SetFloat,
@@ -55,6 +56,24 @@ def advanced_selector_node(node_id, selected_config, advanced_state=None):
     }
 
 
+def selectorx_state(configs, scopes, mute=None, bypass=None):
+    return {
+        "version": 1,
+        "initialized": True,
+        "configs": configs,
+        "scopes": scopes,
+        "advanced": {"mute": mute or {}, "bypass": bypass or {}},
+    }
+
+
+def selectorx_node(node_id, selected_config, state, console_output="no"):
+    return {
+        "id": node_id,
+        "type": "KVGC_ConfigSelectorX",
+        "widgets_values": [selected_config, console_output, json.dumps(state)],
+    }
+
+
 def configurator_node(node_id, config_name, config_modes):
     return {
         "id": node_id,
@@ -74,7 +93,7 @@ def resolved_digest(type_name, key, config, value):
 
 
 def test_all_nodes_registered():
-    assert len(NODE_CLASS_MAPPINGS) == 23
+    assert len(NODE_CLASS_MAPPINGS) == 24
     assert "KVGC_SetSampler" in NODE_CLASS_MAPPINGS
     assert "KVGC_GetSampler" in NODE_CLASS_MAPPINGS
     assert "KVGC_SetScheduler" in NODE_CLASS_MAPPINGS
@@ -84,6 +103,7 @@ def test_all_nodes_registered():
     assert "KVGC_GroupConfigurator" in NODE_CLASS_MAPPINGS
     assert "KVGC_ConfigSelector" in NODE_CLASS_MAPPINGS
     assert "KVGC_ConfigSelectorAdvanced" in NODE_CLASS_MAPPINGS
+    assert "KVGC_ConfigSelectorX" in NODE_CLASS_MAPPINGS
     assert "KVGC_GroupScopes" in NODE_CLASS_MAPPINGS
     assert "KVGC_UnloadModelsByType" in NODE_CLASS_MAPPINGS
     assert "KVGC_LoraX" in NODE_CLASS_MAPPINGS
@@ -325,6 +345,56 @@ def test_group_scopes_rejects_invalid_scope_names():
         raise AssertionError("Expected invalid scope to raise ValueError")
 
 
+def test_config_selectorx_accepts_versioned_state_and_console_choice():
+    state = selectorx_state(
+        [{"name": "Speed", "modes": {"Draft": "Active"}}],
+        {"Draft": "Group Configurator"},
+    )
+    encoded = json.dumps(state)
+    assert ConfigSelectorX().select("Speed", "yes", encoded) == ()
+    assert ConfigSelectorX().select("", "no", "{}") == ()
+
+
+def test_config_selectorx_rejects_invalid_state_shapes():
+    valid = selectorx_state(
+        [{"name": "Speed", "modes": {"Draft": "Active"}}],
+        {"Draft": "Group Configurator"},
+    )
+    cases = [
+        ({**valid, "version": 2}, "version must be 1"),
+        ({**valid, "version": True}, "version must be 1"),
+        (
+            {**valid, "configs": [{"name": 1, "modes": {"Draft": "Active"}}]},
+            "names must be strings",
+        ),
+        ({**valid, "configs": [*valid["configs"], valid["configs"][0]]}, "must be unique"),
+        (selectorx_state([{"name": "Speed", "modes": {"Draft": "Disable"}}], valid["scopes"]), "invalid mode"),
+        (selectorx_state(valid["configs"], {"Draft": "Hidden"}), "invalid scope"),
+        (selectorx_state(valid["configs"], valid["scopes"], mute={"Draft": "on"}), "must be booleans"),
+    ]
+    for state, message in cases:
+        try:
+            ConfigSelectorX().select("Speed", "no", json.dumps(state))
+        except ValueError as exc:
+            assert message in str(exc)
+        else:
+            raise AssertionError(f"Expected invalid SelectorX state to raise ValueError: {state}")
+
+    try:
+        ConfigSelectorX().select("Missing", "no", json.dumps(valid))
+    except ValueError as exc:
+        assert "must match a config" in str(exc)
+    else:
+        raise AssertionError("Expected an unknown selected config to raise ValueError")
+
+    try:
+        ConfigSelectorX().select("Speed", "maybe", json.dumps(valid))
+    except ValueError as exc:
+        assert "console_output" in str(exc)
+    else:
+        raise AssertionError("Expected invalid console output to raise ValueError")
+
+
 def test_get_relay_requires_materialized_or_connected_value():
     try:
         GetRelay().get_value("missing")
@@ -443,6 +513,124 @@ def test_advanced_selector_participates_in_selected_config_lookup():
         ],
     )
     assert GetInt().get_value("Steps", extra_pnginfo=data) == (20,)
+
+
+def test_selectorx_only_workflow_resolves_config_and_scoped_groups():
+    scopes = {
+        "ConfigGroup": "Group Configurator",
+        "MuteGroup": "Selector Mute",
+        "BypassGroup": "Selector Bypass",
+        "IgnoredGroup": "Ignore",
+    }
+    groups = [
+        group("ConfigGroup", [0, 0, 300, 140]),
+        group("MuteGroup", [0, 200, 300, 140]),
+        group("BypassGroup", [0, 400, 300, 140]),
+        group("IgnoredGroup", [0, 600, 300, 140]),
+    ]
+    values = [
+        set_node(10, "KVGC_SetInt", "Choice", 10, pos=[20, 20], size=[100, 60]),
+        set_node(20, "KVGC_SetInt", "Choice", 20, pos=[20, 220], size=[100, 60]),
+        set_node(30, "KVGC_SetInt", "Choice", 30, pos=[20, 420], size=[100, 60]),
+        set_node(40, "KVGC_SetInt", "Choice", 40, pos=[20, 620], size=[100, 60]),
+    ]
+
+    active_config = selectorx_state(
+        [{"name": "Profile", "modes": {"ConfigGroup": "Active"}}],
+        scopes,
+    )
+    assert GetInt().get_value(
+        "Choice",
+        extra_pnginfo=workflow(selectorx_node(1, "Profile", active_config), *values[:3], groups=groups),
+    ) == (10,)
+
+    mute_enabled = selectorx_state(
+        [{"name": "Profile", "modes": {"ConfigGroup": "Mute"}}],
+        scopes,
+        mute={"MuteGroup": True},
+    )
+    assert GetInt().get_value(
+        "Choice",
+        extra_pnginfo=workflow(selectorx_node(1, "Profile", mute_enabled), *values[:3], groups=groups),
+    ) == (20,)
+
+    bypass_enabled = selectorx_state(
+        [{"name": "Profile", "modes": {"ConfigGroup": "Mute"}}],
+        scopes,
+        bypass={"BypassGroup": True},
+    )
+    assert GetInt().get_value(
+        "Choice",
+        extra_pnginfo=workflow(selectorx_node(1, "Profile", bypass_enabled), *values[:3], groups=groups),
+    ) == (30,)
+
+    all_controlled_inactive = selectorx_state(
+        [{"name": "Profile", "modes": {"ConfigGroup": "Mute"}}],
+        scopes,
+    )
+    assert GetInt().get_value(
+        "Choice",
+        extra_pnginfo=workflow(
+            selectorx_node(1, "Profile", all_controlled_inactive),
+            *values,
+            groups=groups,
+        ),
+    ) == (40,)
+
+
+def test_populated_selectorx_takes_priority_over_legacy_nodes():
+    groups = [
+        group("XGroup", [0, 0, 300, 140]),
+        group("LegacyGroup", [0, 200, 300, 140]),
+    ]
+    state = selectorx_state(
+        [{"name": "X", "modes": {"XGroup": "Active", "LegacyGroup": "Mute"}}],
+        {"XGroup": "Group Configurator", "LegacyGroup": "Group Configurator"},
+    )
+    data = workflow(
+        selectorx_node(1, "X", state),
+        selector_node(100, "Legacy"),
+        configurator_node(101, "Legacy", {"XGroup": "Mute", "LegacyGroup": "Active"}),
+        set_node(10, "KVGC_SetInt", "Choice", 1, pos=[20, 20], size=[100, 60]),
+        set_node(20, "KVGC_SetInt", "Choice", 2, pos=[20, 220], size=[100, 60]),
+        groups=groups,
+    )
+    assert GetInt().get_value("Choice", extra_pnginfo=data) == (1,)
+
+
+def test_highest_id_populated_selectorx_wins_and_empty_x_falls_back_to_legacy():
+    groups = [
+        group("First", [0, 0, 300, 140]),
+        group("Second", [0, 200, 300, 140]),
+    ]
+    first = selectorx_state(
+        [{"name": "FirstConfig", "modes": {"First": "Active", "Second": "Mute"}}],
+        {"First": "Group Configurator", "Second": "Group Configurator"},
+    )
+    second = selectorx_state(
+        [{"name": "SecondConfig", "modes": {"First": "Mute", "Second": "Active"}}],
+        {"First": "Group Configurator", "Second": "Group Configurator"},
+    )
+    values = [
+        set_node(10, "KVGC_SetInt", "Choice", 1, pos=[20, 20], size=[100, 60]),
+        set_node(20, "KVGC_SetInt", "Choice", 2, pos=[20, 220], size=[100, 60]),
+    ]
+    data = workflow(
+        selectorx_node(5, "FirstConfig", first),
+        selectorx_node(9, "SecondConfig", second),
+        *values,
+        groups=groups,
+    )
+    assert GetInt().get_value("Choice", extra_pnginfo=data) == (2,)
+
+    fallback = workflow(
+        selectorx_node(999, "Uninitialized", {}),
+        selector_node(5, "Legacy"),
+        configurator_node(6, "Legacy", {"First": "Active", "Second": "Mute"}),
+        *values,
+        groups=groups,
+    )
+    assert GetInt().get_value("Choice", extra_pnginfo=fallback) == (1,)
 
 
 def test_selected_config_ignores_stale_workflow_modes():

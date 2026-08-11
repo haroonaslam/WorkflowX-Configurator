@@ -16,10 +16,9 @@ For the Image Compare Edit X expanded editor, see [Image Compare Edit X Editor G
 | `Set Sampler` / `Get Sampler` | `WorkflowX_Configurator` | Publish and read ComfyUI sampler choices by key. |
 | `Set Scheduler` / `Get Scheduler` | `WorkflowX_Configurator` | Publish and read ComfyUI scheduler choices by key. |
 | `Set Relay` / `Get Relay` | `WorkflowX_Configurator` | Route live graph values by key. |
-| `Group Configurator` | `WorkflowX_Configurator` | Define one named workflow profile and each group mode. |
-| `Config Selector` | `WorkflowX_Configurator` | Select one active profile. |
-| `Config Selector Advanced` | `WorkflowX_Configurator` | Select one profile plus scoped group mute/bypass toggles. |
-| `Group Scopes` | `WorkflowX_Configurator` | Decide which groups appear in configurators or advanced selector sections. |
+| `Config SelectorX` | `WorkflowX_Configurator` | Manage, select, and migrate configs and scopes from one self-contained node. |
+| `Group Configurator` / `Group Scopes` | `WorkflowX_Configurator` | Legacy config definition and scope nodes; retained for existing workflows. |
+| `Config Selector` / `Config Selector Advanced` | `WorkflowX_Configurator` | Legacy selector nodes; retained for existing workflows. |
 | `Unload Models By Type` | `WorkflowX_Configurator/VRAM` | Unload selected resident model classes from memory. |
 | `Image Compare Edit X` | `WorkflowX_Configurator/Image` | Compare two images and edit/save an in-node Image 3 blend. |
 | `Load ImageX` | `WorkflowX_Configurator/Image` | Load from input and nested input folders through a cached thumbnail grid. |
@@ -90,83 +89,35 @@ Relay nodes route actual graph values rather than serialized widget values.
 
 Use relays for checkpoint switching, LoRA chains, image/mask branches, and other values that cannot be represented as primitive widgets. Relays stay wireless by key; WorkflowX patches the queued prompt rather than adding visible links between relay nodes.
 
-## Group Configurator
+## Config SelectorX
 
-`Group Configurator` defines one named profile, such as `Speed`, `Quality`, or `Realism`.
+`Config SelectorX` (`KVGC_ConfigSelectorX`) stores ordered configs, group scopes, and advanced Mute/Bypass state inside one versioned workflow payload. It is authoritative whenever at least one populated SelectorX exists; among multiple populated SelectorX nodes, the highest node id wins. Removing all SelectorX nodes restores the legacy selector behavior.
 
-![Group Configurator node](images/Group%20Configurator.png)
+![Config SelectorX node](images/workflowx-config-selector-x.png)
 
-Inputs:
-
-| Name | Type | Notes |
-| --- | --- | --- |
-| `config_name` | `STRING` | Profile name shown in selector nodes. |
-| `config_json` | `STRING` | Internal JSON mapping group names to modes. Managed by the frontend. |
-
-Group modes:
-
-| Mode | Meaning |
-| --- | --- |
-| `Active` | Group nodes are normal and eligible for scoped Set/Get lookup. |
-| `Bypass` | Group nodes are bypassed and ignored for scoped lookup. |
-| `Mute` | Group nodes are muted and ignored for scoped lookup. |
-| `Ignore` | WorkflowX leaves the group state unchanged and treats values as unscoped/global. |
-
-Use `Refresh groups` after adding, deleting, or renaming ComfyUI groups.
-
-## Config Selector
-
-`Config Selector` chooses one active `Group Configurator` profile.
-
-![Config Selector node](images/config%20selector.png)
-
-Inputs:
+Internal inputs:
 
 | Name | Type | Notes |
 | --- | --- | --- |
-| `selected_config` | `STRING` | Internal selected profile name. Managed by the frontend toggle UI. |
-| `console_output` | `no` / `yes` | Enables queue-time lookup logging in the browser console. |
+| `selected_config` | `STRING` | Selected stored config. Managed by the node config rows. |
+| `console_output` | `no` / `yes` | Toggled by the node's Console action button. |
+| `selectorx_state` | `STRING` | Versioned JSON containing configs, scopes, and advanced toggle state. |
 
-When one profile is enabled, the others are turned off. The selected profile is applied immediately in the canvas and again during queue-time resolution.
+An empty SelectorX imports legacy canvas config nodes once. Duplicate config names resolve to the highest node id. Missing or duplicate legacy Group Scopes nodes use the legacy fallback and assign imported canvas groups to Config control. With no legacy configs, SelectorX creates `Config 1` and starts canvas groups in Ignore.
 
-## Config Selector Advanced
+The Scopes and Configs buttons open isolated draft editors. Save serializes changes and Cancel discards them; neither editor applies modes. Config rows on the node apply and reapply profiles. Mute and Bypass switches keep the advanced selector convention: on is Active, while off applies Mute or Bypass.
 
-`Config Selector Advanced` adds scoped group mute/bypass controls on top of normal profile selection.
+![Config SelectorX scopes editor](images/workflowx-config-selector-x-scopes.png)
 
-![Config Selector Advanced](images/workflowx-config-selector-advanced.png)
+![Config SelectorX configs editor](images/workflowx-config-selector-x-configs.png)
 
-Inputs:
+## Legacy Nodes And Migration
 
-| Name | Type | Notes |
-| --- | --- | --- |
-| `selected_config` | `STRING` | Internal selected profile name. |
-| `console_output` | `no` / `yes` | Enables browser console debug logs. |
-| `advanced_state` | `STRING` | Internal JSON for advanced mute and bypass switch states. |
+The legacy `Group Configurator`, `Group Scopes`, `Config Selector`, and `Config Selector Advanced` nodes remain registered and unchanged. Workflows using only those nodes continue to resolve through the legacy system.
 
-Advanced sections are controlled by `Group Scopes`. They are useful when you want one selected profile plus quick local toggles for optional groups.
+To migrate, add Config SelectorX while the legacy nodes are still present and let its empty state initialize once. SelectorX imports the effective configs, scopes, selected config, console setting, and advanced toggle state into its serialized payload. You can then save the workflow and remove the legacy configuration nodes. Use **Re-import from canvas** in the Configs editor only when you intentionally want to preview and replace the stored SelectorX draft.
 
-## Group Scopes
-
-`Group Scopes` decides where each canvas group should appear.
-
-![Group Scopes node](images/workflowx-group-scopes.png)
-
-Input:
-
-| Name | Type | Notes |
-| --- | --- | --- |
-| `scopes_json` | `STRING` | Internal JSON mapping group names to scope modes. |
-
-Scope modes:
-
-| Mode | Meaning |
-| --- | --- |
-| `Group Configurator` | Show the group in `Group Configurator`. |
-| `Selector Mute` | Show the group in advanced selector mute controls. |
-| `Selector Bypass` | Show the group in advanced selector bypass controls. |
-| `Ignore` | Hide the group from WorkflowX config/scoped selector UI. |
-
-If no `Group Scopes` node exists, all groups appear in `Group Configurator` and none appear in advanced selector sections. If duplicate `Group Scopes` nodes exist, WorkflowX falls back to default behavior until duplicates are removed.
+When populated SelectorX nodes exist, the highest node id is authoritative. Removing every SelectorX node returns authority to the legacy nodes.
 
 ## Unload Models By Type
 

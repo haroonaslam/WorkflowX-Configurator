@@ -1,16 +1,12 @@
 # README Image Assets
 
 - `workflowx-banner-v4.png` - README banner
-- `Screenshot 2026-05-17 001702.png` - full workflow overview
 - `set primitive.png` - primitive Set/Get example
 - `samper scheduler.png` - sampler and scheduler Set/Get example
 - `relay.png` - Set Relay / Get Relay example
-- `Group Configurator.png` - group profile UI
-- `config selector.png` - selector UI
-- `workflowx-config-selector-advanced.png` - Config Selector Advanced node
-- `workflowx-config-selector-advanced-scopes.png` - Config Selector Advanced with group scopes
-- `workflowx-group-scopes.png` - Group Scopes node
-- `workflowx-group-scopes-menu.png` - Group Scopes mode menu
+- `workflowx-config-selector-x.png` - Config SelectorX node surface
+- `workflowx-config-selector-x-scopes.png` - Config SelectorX scopes editor
+- `workflowx-config-selector-x-configs.png` - Config SelectorX configs editor
 - `workflowx-settings-overview.png` - WorkflowX settings page
 - `workflowx-settings-export-dialog.png` - WorkflowX export dialog
 - `workflowx-xflows-hierarchy-overview.png` - XFlows hierarchy overview

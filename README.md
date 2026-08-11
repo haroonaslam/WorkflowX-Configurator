@@ -4,7 +4,7 @@
 
 WorkflowX Configurator turns sprawling ComfyUI graphs into selectable workflow profiles: reuse the same key names in different groups, switch one config, and the right value or relay source is picked at queue time. Instead of duplicating samplers, rewiring LoRA chains, or fighting nodes that can only store one global value, WorkflowX lets fast drafts, quality renders, model variants, and LoRA experiments live side by side while one selector decides which path is active. It can be used for multiple scenarios where you want to have one workflow to easily switch values of any node by preconfigure once or to switch between different profiles instead of creating separate workflows.
 
-![WorkflowX Configurator overview](docs/images/Screenshot%202026-05-17%20001702.png)
+![Config SelectorX](docs/images/workflowx-config-selector-x.png)
 
 ## Quick Links
 
@@ -31,8 +31,8 @@ WorkflowX Configurator turns sprawling ComfyUI graphs into selectable workflow p
 
 - Defines workflow-local values with typed `Set` nodes.
 - Reads values anywhere else with matching typed `Get` nodes.
-- Lets each `Group Configurator` describe how every named ComfyUI group should behave.
-- Lets one `Config Selector` choose exactly one configuration at a time.
+- Uses one self-contained `Config SelectorX` to manage configs, group scopes, and quick Mute/Bypass controls.
+- Imports existing legacy canvas configuration once so established workflows can migrate without rebuilding their profiles.
 - Applies group modes immediately in the canvas.
 - Materializes Get values just before queueing, so repeated config switches do not require a browser refresh.
 - One variable name removes any if/else logic routing. Simply the active path feeds the variable.
@@ -143,64 +143,29 @@ For LoRA switching, place the LoRA loader inside a configured group, then connec
 
 Relay routing uses the same scope rules as typed values. The selected source is patched into the queued prompt only; visible canvas links are not changed.
 
-### Group Configurator
+### Config SelectorX
 
-`Group Configurator` defines one named profile, such as `Speed`, `Quality`, or `Realism`.
+`Config SelectorX` combines config selection, group scopes, and quick mute/bypass controls in one node. Config rows use ComfyUI's native toggle behavior: selecting a row applies that profile immediately, and clicking the selected row reapplies it. The padded action bar contains three separate controls:
 
-![Group Configurator nodes](docs/images/Group%20Configurator.png)
+- `Console`: toggle queue-time Set/Get and Relay diagnostics. Its active color shows when logging is enabled.
+- `Scopes`: assign each current canvas group to Config, Selector Mute, Selector Bypass, or Ignore.
+- `Configs`: add, duplicate, rename, delete, reorder, and edit profiles.
 
-It shows:
+The Scopes and Configs editors use isolated drafts. **Save** serializes the complete state into the workflow; **Cancel** discards every unsaved change. Editing does not change canvas modes until a config row is clicked or the workflow is queued. New canvas groups begin as `Ignore`, while new configs initialize Config-scoped groups as `Active`.
 
-- `config_name`: the profile name.
-- `Refresh groups`: rescan ComfyUI group frames after adding, deleting, or renaming groups.
-- one dropdown per configured group, with `Active`, `Bypass`, `Mute`, and `Ignore`.
+Group modes are `Active`, `Bypass`, `Mute`, and `Ignore`. Config modes apply only to Config-scoped groups. Selector Mute and Selector Bypass controls use the established convention: on means Active; off means Mute or Bypass. Scope-level Ignore groups are left untouched.
 
-Mode meanings:
+![Config SelectorX scopes editor](docs/images/workflowx-config-selector-x-scopes.png)
 
-- `Active`: nodes in the group are normal and eligible for config-scoped Set/Get values.
-- `Bypass`: nodes in the group are bypassed in the canvas and ignored for config-scoped Set/Get values.
-- `Mute`: nodes in the group are muted in the canvas and ignored for config-scoped Set/Get values.
-- `Ignore`: WorkflowX leaves the canvas state unchanged and treats values in the group as unscoped/global for lookup.
+![Config SelectorX configs editor](docs/images/workflowx-config-selector-x-configs.png)
 
-### Config Selector
+#### Migrating Existing Workflows
 
-`Config Selector` lists all `Group Configurator` names as toggles. Turning one on turns the others off and applies that config immediately.
+Add `Config SelectorX` before removing any legacy configuration nodes. On its first load with empty state, SelectorX imports `Group Configurator`, `Group Scopes`, `Config Selector`, and `Config Selector Advanced` data from the canvas. It imports once, stores the result in the workflow, and then remains fully functional after those canvas nodes are deleted.
 
-![Config Selector node](docs/images/config%20selector.png)
+Use **Re-import from canvas** in the Configs editor when you intentionally want to replace the stored draft from legacy nodes. SelectorX shows an import preview first, and the replacement is not committed until **Save** is clicked.
 
-It shows:
-
-- `Refresh configs`: rescan configurator nodes after adding, deleting, or renaming them.
-- `console_output`: choose `yes` to log queue-time Set/Get and Relay resolution details in the browser console.
-- one toggle per config name.
-
-### Config Selector Advanced
-
-`Config Selector Advanced` has the same config toggles as `Config Selector`, plus optional scoped group controls:
-
-![Config Selector Advanced](docs/images/workflowx-config-selector-advanced.png)
-
-- `Group Mute`: groups assigned to selector mute scope. Toggle off mutes the group, toggle on returns it to active.
-- `Group Bypass`: groups assigned to selector bypass scope. Toggle off bypasses the group, toggle on returns it to active.
-
-Advanced selector toggle states are saved with the workflow and applied when changed.
-
-![Config Selector Advanced scoped controls](docs/images/workflowx-config-selector-advanced-scopes.png)
-
-### Group Scopes
-
-`Group Scopes` decides where each canvas group appears. It shows one dropdown per group:
-
-![Group Scopes node](docs/images/workflowx-group-scopes.png)
-
-- `Group Configurator`: show the group in Group Configurator nodes.
-- `Selector Mute`: show the group in Config Selector Advanced's Group Mute section.
-- `Selector Bypass`: show the group in Config Selector Advanced's Group Bypass section.
-- `Ignore`: hide the group from both Group Configurator and Config Selector Advanced sections.
-
-![Group Scopes mode menu](docs/images/workflowx-group-scopes-menu.png)
-
-If no Group Scopes node is configured, WorkflowX keeps the original fallback: all groups appear in Group Configurator and none appear in the advanced selector sections. If more than one Group Scopes node exists, scope filtering is disabled and the fallback behavior is used until duplicates are removed.
+The legacy `Group Configurator`, `Group Scopes`, `Config Selector`, and `Config Selector Advanced` nodes remain supported and unchanged. Existing workflows do not need to migrate. If every SelectorX node is removed, WorkflowX returns to legacy resolution automatically.
 
 ### Unload Models By Type
 
@@ -282,7 +247,7 @@ This means you can intentionally place a global `Set Int Steps` outside config g
 
 ComfyUI canvas state and serialized workflow metadata can briefly disagree after switching configs. To avoid stale values, WorkflowX resolves every Get node immediately before queueing:
 
-1. The frontend reads the currently selected Config Selector or Config Selector Advanced toggle.
+1. The frontend reads the selected Config SelectorX config (or the selected legacy selector when no SelectorX is present).
 2. It evaluates Set/Get candidates from the live graph.
 3. It writes the resolved value into hidden fields on each Get node.
 4. The backend validates those hidden fields and returns the materialized value.
@@ -290,7 +255,7 @@ ComfyUI canvas state and serialized workflow metadata can briefly disagree after
 
 This is why you can run `Speed`, switch to `Quality`, then queue again without refreshing the browser.
 
-Set `console_output` to `yes` on `Config Selector` when debugging large workflows. Queue-time logs include the Get key, selected Set node id, group/global scope, resolved value for typed Get nodes, and selected Relay source node id for Relay nodes.
+Enable the `Console` button on Config SelectorX when debugging large workflows. Queue-time logs include the Get key, selected Set node id, group/global scope, resolved value for typed Get nodes, and selected Relay source node id for Relay nodes.
 
 ## Example Scenarios
 
@@ -315,12 +280,12 @@ Inside `RealConfig`:
 - `Set Sampler` key `Sampler`, value `dpmpp_2m`
 - `Set Scheduler` key `Scheduler`, value `karras`
 
-Create two Group Configurators:
+In Config SelectorX, assign both groups to the Config scope and create two configs:
 
 - `Speed`: `FasterConfig = Active`, `RealConfig = Mute`
 - `Quality`: `FasterConfig = Mute`, `RealConfig = Active`
 
-Use:
+Connect these getters where their values are needed:
 
 - `Get Int` key `Steps`
 - `Get Float` key `CFG`
@@ -333,7 +298,7 @@ Selecting `Speed` queues with `Steps = 4`, `CFG = 1.0`, `Sampler = euler`, and `
 
 Create a group around a LoRA loader, for example `Speedup Lora`.
 
-Then configure:
+In Config SelectorX, assign the group to the Config scope and configure:
 
 - `Speed`: `Speedup Lora = Active`
 - `Quality`: `Speedup Lora = Bypass`
@@ -618,14 +583,11 @@ For the full AFJ walkthrough, see the bundled [`AFJ user guide`](docs/afj-awesom
 
 Hard refresh the browser after restarting ComfyUI. The Python package can import before the frontend menu cache updates.
 
-### Group names or config names are stale
+### A new or renamed group is missing
 
-Use:
+Open `Scopes` on Config SelectorX. Current canvas groups are reconciled whenever the editor opens; new groups begin as `Ignore`. Choose a scope and click **Save**. Removed groups are pruned only when the draft is saved.
 
-- `Refresh groups` on `Group Configurator`
-- `Refresh configs` on `Config Selector`
-
-Use these after adding, deleting, or renaming groups/configurator nodes.
+Legacy workflows can still use `Refresh groups` on Group Configurator and `Refresh configs` on Config Selector.
 
 ### A Get node returns the wrong value
 
@@ -633,7 +595,7 @@ Check for:
 
 - a global Set node with the same key outside groups
 - duplicate active Set nodes with the same key and type
-- a selector toggle still pointing at the old config
+- the selected Config SelectorX row still pointing at the old config
 - a group name mismatch after renaming a group
 
 ### Duplicate key warnings
@@ -645,6 +607,20 @@ Multiple Set Int nodes found for key 'Steps'; using node id 123.
 ```
 
 The result is deterministic, but the workflow is easier to maintain if each key/type appears once per active scope.
+
+## Acknowledgements
+
+WorkflowX Configurator is built for the [ComfyUI](https://github.com/Comfy-Org/ComfyUI) ecosystem and benefits from the ideas, conventions, and open work shared across its custom-node community. The project as a whole, not only the nodes named below, reflects that wider ecosystem. Particular thanks go to:
+
+- [ComfyUI-Pixaroma](https://gitlab.com/pixaroma/comfyui-pixaroma) for UI inspiration and the adjustment behavior adapted for Image Compare Edit X.
+- [ComfyUI-Curve](https://github.com/aiaiaikkk/ComfyUI-Curve) for the curve-editor interaction model adapted for Image Compare Edit X.
+- [ComfyUI-Lora-Manager](https://github.com/willmiao/ComfyUI-Lora-Manager) for the metadata, preview, and model-library APIs with which LoraX interoperates, and for helping establish the visual LoRA-management patterns LoraX develops further.
+- [llama.cpp](https://github.com/ggml-org/llama.cpp), [Ollama](https://github.com/ollama/ollama), and the prompting guidance published across supported model ecosystems, which informed Unified Autoprompter X's local and provider-backed prompt workflow.
+- The original Anything Swap Bridge implementation and `AnythingCropForSwap` / `AnythingStitch` contract, which WorkflowX preserves while extending the workflow with model-agnostic editing, stronger geometry and mask handling, and native ComfyUI SAM3 support.
+- [ComfyUI NanoBanana Full API](https://github.com/haroonaslam/ComfyUI_NanoBanana_Full_API) for the original NanoBanana node that WorkflowX updates while preserving workflow compatibility.
+- The bundled AFJ project for its visual JSON prompting foundation, and GemMobi for the canonical model contracts used by the Kie and Atlas image API nodes.
+
+Some WorkflowX nodes preserve an established workflow contract while expanding, enhancing, or adapting its functionality for different use cases and a more unified experience. Others combine familiar interaction patterns with new implementations or interoperate with adjacent projects. These acknowledgements recognize those foundations; the resulting WorkflowX nodes may differ substantially in interface, scope, and behavior.
 
 ## Repository Notes
 

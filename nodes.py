@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 CATEGORY = "WorkflowX_Configurator"
 MODE_OPTIONS = ("Active", "Bypass", "Mute", "Ignore")
 SCOPE_OPTIONS = ("Group Configurator", "Selector Mute", "Selector Bypass", "Ignore")
+SELECTOR_X_TYPE = "KVGC_ConfigSelectorX"
 SELECTOR_TYPES = {"KVGC_ConfigSelector", "KVGC_ConfigSelectorAdvanced"}
 INACTIVE_WORKFLOW_MODES = {2, 4}
 UNLOAD_MODEL_OPTIONS = (
@@ -95,6 +96,82 @@ class _ConfigContext(NamedTuple):
     selected_config: str
     config_modes: dict[str, str]
     groups: list[dict[str, Any]]
+
+
+def _parse_selectorx_state(raw_state: str) -> dict[str, Any]:
+    try:
+        state = json.loads(raw_state or "{}")
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Config SelectorX selectorx_state is invalid JSON: {exc}") from exc
+
+    if not isinstance(state, dict):
+        raise ValueError("Config SelectorX selectorx_state must be a JSON object.")
+    if not state:
+        return {}
+    version = state.get("version")
+    if not isinstance(version, int) or isinstance(version, bool) or version != 1:
+        raise ValueError("Config SelectorX selectorx_state version must be 1.")
+    if state.get("initialized") is not True:
+        raise ValueError("Config SelectorX selectorx_state must be initialized.")
+
+    configs = state.get("configs")
+    if not isinstance(configs, list) or not configs:
+        raise ValueError("Config SelectorX selectorx_state configs must be a non-empty array.")
+
+    names: set[str] = set()
+    for config in configs:
+        if not isinstance(config, dict):
+            raise ValueError("Config SelectorX configs must be JSON objects.")
+        raw_name = config.get("name")
+        if not isinstance(raw_name, str):
+            raise ValueError("Config SelectorX config names must be strings.")
+        name = raw_name.strip()
+        if not name:
+            raise ValueError("Config SelectorX config names cannot be empty.")
+        if name in names:
+            raise ValueError(f"Config SelectorX config names must be unique: {name}")
+        names.add(name)
+
+        modes = config.get("modes")
+        if not isinstance(modes, dict):
+            raise ValueError("Config SelectorX config modes must be JSON objects.")
+        if any(not isinstance(group_name, str) for group_name in modes):
+            raise ValueError("Config SelectorX config modes must be keyed by group name.")
+        invalid_modes = {mode for mode in modes.values() if mode not in MODE_OPTIONS}
+        if invalid_modes:
+            raise ValueError(
+                "Config SelectorX config modes contain invalid mode(s): "
+                + ", ".join(sorted(map(str, invalid_modes)))
+            )
+
+    scopes = state.get("scopes")
+    if not isinstance(scopes, dict):
+        raise ValueError("Config SelectorX selectorx_state scopes must be a JSON object.")
+    if any(not isinstance(group_name, str) for group_name in scopes):
+        raise ValueError("Config SelectorX scopes must be keyed by group name.")
+    invalid_scopes = {scope for scope in scopes.values() if scope not in SCOPE_OPTIONS}
+    if invalid_scopes:
+        raise ValueError(
+            "Config SelectorX scopes contain invalid scope(s): "
+            + ", ".join(sorted(map(str, invalid_scopes)))
+        )
+
+    advanced = state.get("advanced")
+    if not isinstance(advanced, dict) or set(advanced) != {"mute", "bypass"}:
+        raise ValueError("Config SelectorX advanced state must contain mute and bypass objects.")
+    for section_name in ("mute", "bypass"):
+        section = advanced[section_name]
+        if not isinstance(section, dict):
+            raise ValueError("Config SelectorX advanced sections must be JSON objects.")
+        if any(
+            not isinstance(group_name, str) or not isinstance(value, bool)
+            for group_name, value in section.items()
+        ):
+            raise ValueError(
+                "Config SelectorX advanced values must be booleans keyed by group name."
+            )
+
+    return state
 
 
 class _TypedKeyValueBase:
@@ -290,8 +367,76 @@ class _TypedKeyValueBase:
         return sorted(configs, key=lambda item: item[0])[-1][1]
 
     @classmethod
+    def _selectorx_context(
+        cls,
+        nodes: list[dict[str, Any]],
+        groups: list[dict[str, Any]],
+    ) -> _ConfigContext | None:
+        candidates: list[tuple[int, str, dict[str, Any]]] = []
+        for node in nodes:
+            if node.get("type") != SELECTOR_X_TYPE:
+                continue
+
+            widgets_values = cls._widget_values(node)
+            if len(widgets_values) < 3:
+                continue
+
+            selected_config = str(widgets_values[0]).strip()
+            if not selected_config:
+                continue
+
+            try:
+                state = _parse_selectorx_state(str(widgets_values[2] or "{}"))
+            except ValueError:
+                continue
+            if not state:
+                continue
+
+            config = next(
+                (item for item in state["configs"] if item["name"] == selected_config),
+                None,
+            )
+            if config is None:
+                continue
+            candidates.append((cls._sort_id(node), selected_config, state))
+
+        if not candidates:
+            return None
+
+        _, selected_config, state = sorted(candidates, key=lambda item: item[0])[-1]
+        selected = next(item for item in state["configs"] if item["name"] == selected_config)
+        scopes = state["scopes"]
+        advanced = state["advanced"]
+        effective_modes: dict[str, str] = {}
+
+        for group_name, scope in scopes.items():
+            if scope == "Group Configurator":
+                effective_modes[group_name] = selected["modes"].get(group_name, "Active")
+            elif scope == "Selector Mute":
+                effective_modes[group_name] = (
+                    "Active" if advanced["mute"].get(group_name) is True else "Mute"
+                )
+            elif scope == "Selector Bypass":
+                effective_modes[group_name] = (
+                    "Active" if advanced["bypass"].get(group_name) is True else "Bypass"
+                )
+            else:
+                effective_modes[group_name] = "Ignore"
+
+        return _ConfigContext(
+            selected_config=selected_config,
+            config_modes=effective_modes,
+            groups=groups,
+        )
+
+    @classmethod
     def _config_context(cls, extra_pnginfo: dict[str, Any] | None) -> _ConfigContext | None:
         nodes = cls._workflow_nodes(extra_pnginfo)
+        groups = cls._workflow_groups(extra_pnginfo)
+        selectorx_context = cls._selectorx_context(nodes, groups)
+        if selectorx_context is not None:
+            return selectorx_context
+
         selected_config = cls._selected_config_name(nodes)
         if not selected_config:
             return None
@@ -303,7 +448,7 @@ class _TypedKeyValueBase:
         return _ConfigContext(
             selected_config=selected_config,
             config_modes=config_modes,
-            groups=cls._workflow_groups(extra_pnginfo),
+            groups=groups,
         )
 
     @classmethod
@@ -1379,6 +1524,49 @@ class ConfigSelectorAdvanced:
         return ()
 
 
+class ConfigSelectorX:
+    CATEGORY = CATEGORY
+    FUNCTION = "select"
+    RETURN_TYPES = ()
+
+    @classmethod
+    def INPUT_TYPES(cls) -> dict[str, dict[str, Any]]:
+        return {
+            "required": {
+                "selected_config": ("STRING", {"default": "", "placeholder": "config name"}),
+                "console_output": (["no", "yes"], {"default": "no"}),
+            },
+            "optional": {
+                "selectorx_state": (
+                    "STRING",
+                    {
+                        "default": "{}",
+                        "tooltip": "Managed by the frontend extension. Stores Config SelectorX configs, scopes, and selector toggles.",
+                    },
+                )
+            },
+        }
+
+    def select(
+        self,
+        selected_config: str,
+        console_output: str = "no",
+        selectorx_state: str = "{}",
+    ) -> tuple[()]:
+        if str(console_output) not in {"no", "yes"}:
+            raise ValueError("Config SelectorX console_output must be 'no' or 'yes'.")
+
+        state = _parse_selectorx_state(selectorx_state)
+        if state:
+            selected = str(selected_config).strip()
+            names = {config["name"] for config in state["configs"]}
+            if selected not in names:
+                raise ValueError(
+                    "Config SelectorX selected_config must match a config in selectorx_state."
+                )
+        return ()
+
+
 class GroupScopes:
     CATEGORY = CATEGORY
     FUNCTION = "configure"
@@ -1579,6 +1767,7 @@ NODE_CLASS_MAPPINGS = {
     "KVGC_GroupConfigurator": GroupConfigurator,
     "KVGC_ConfigSelector": ConfigSelector,
     "KVGC_ConfigSelectorAdvanced": ConfigSelectorAdvanced,
+    "KVGC_ConfigSelectorX": ConfigSelectorX,
     "KVGC_GroupScopes": GroupScopes,
     "KVGC_UnloadModelsByType": UnloadModelsByType,
     "KVGC_LoraX": LoraX,
@@ -1605,6 +1794,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "KVGC_GroupConfigurator": "Group Configurator",
     "KVGC_ConfigSelector": "Config Selector",
     "KVGC_ConfigSelectorAdvanced": "Config Selector Advanced",
+    "KVGC_ConfigSelectorX": "Config SelectorX",
     "KVGC_GroupScopes": "Group Scopes",
     "KVGC_UnloadModelsByType": "Unload Models By Type",
     "KVGC_LoraX": "LoraX",

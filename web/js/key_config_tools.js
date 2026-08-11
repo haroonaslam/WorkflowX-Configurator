@@ -1,5 +1,11 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
+import {
+  buildImportedSelectorXState,
+  effectiveSelectorXModes,
+  parseSelectorXState,
+} from "./config_selector_x_state.mjs";
+import { createSelectorXController } from "./config_selector_x_ui.js";
 
 const EXTENSION_NAME = "key_config_tools.group_configurator";
 const DEBUG_LOG_ROUTE = "/workflowx_configurator/debug_log";
@@ -7,6 +13,7 @@ const DEBUG_LOG_ROUTE = "/workflowx_configurator/debug_log";
 const CONFIGURATOR_TYPE = "KVGC_GroupConfigurator";
 const SELECTOR_TYPE = "KVGC_ConfigSelector";
 const ADVANCED_SELECTOR_TYPE = "KVGC_ConfigSelectorAdvanced";
+const SELECTOR_X_TYPE = "KVGC_ConfigSelectorX";
 const GROUP_SCOPES_TYPE = "KVGC_GroupScopes";
 const SET_RELAY_TYPE = "KVGC_SetRelay";
 const GET_RELAY_TYPE = "KVGC_GetRelay";
@@ -117,11 +124,19 @@ function isConfigurator(node) {
 }
 
 function isSelector(node) {
-  return nodeType(node) === SELECTOR_TYPE || nodeType(node) === ADVANCED_SELECTOR_TYPE;
+  return (
+    nodeType(node) === SELECTOR_TYPE ||
+    nodeType(node) === ADVANCED_SELECTOR_TYPE ||
+    nodeType(node) === SELECTOR_X_TYPE
+  );
 }
 
 function isAdvancedSelector(node) {
   return nodeType(node) === ADVANCED_SELECTOR_TYPE;
+}
+
+function isSelectorX(node) {
+  return nodeType(node) === SELECTOR_X_TYPE;
 }
 
 function isGroupScopes(node) {
@@ -198,6 +213,85 @@ function writeJsonWidget(node, name, value) {
     widget.__workflowXInternalWrite = false;
   }
 }
+
+function readSelectorXState(node) {
+  return parseSelectorXState(String(getWidgetValue(node, "selectorx_state", "{}") || "{}"));
+}
+
+function legacySelectorNodes() {
+  return allNodes().filter((node) =>
+    [SELECTOR_TYPE, ADVANCED_SELECTOR_TYPE].includes(nodeType(node)),
+  );
+}
+
+function highestIdNode(nodes) {
+  return [...nodes].sort((a, b) => Number(a.id ?? 0) - Number(b.id ?? 0)).at(-1) ?? null;
+}
+
+function collectLegacyImport() {
+  const configNodes = allNodes().filter(isConfigurator);
+  const configNames = configNodes
+    .map((node) => String(getWidgetValue(node, "config_name", "")).trim())
+    .filter(Boolean);
+  const duplicateConfigCount = configNames.length - new Set(configNames).size;
+  const scopeNodes = groupScopesNodes();
+  const selector = highestIdNode(
+    legacySelectorNodes().filter((node) => selectedConfigName(node)),
+  );
+  const advancedSelector = highestIdNode(legacySelectorNodes().filter(isAdvancedSelector));
+
+  const configs = configNodes.map((node) => ({
+    id: Number(node.id ?? 0),
+    name: String(getWidgetValue(node, "config_name", "")).trim(),
+    modes: readConfigModes(node),
+  }));
+  const scopes = scopeNodes.length === 1 ? readScopeChoices(scopeNodes[0]) : null;
+  const advanced = advancedSelector
+    ? readAdvancedState(advancedSelector)
+    : { mute: {}, bypass: {} };
+  const state = buildImportedSelectorXState({
+    groupNames: uniqueGroupTitles(),
+    configs,
+    scopes,
+    advanced,
+  });
+  const names = state.configs.map((config) => config.name);
+  const requestedSelection = selectedConfigName(selector);
+
+  return {
+    state,
+    selectedConfig: names.includes(requestedSelection) ? requestedSelection : names[0] ?? "",
+    consoleOutput: String(getWidgetValue(selector, "console_output", "no")) === "yes" ? "yes" : "no",
+    summary: {
+      configs: state.configs.length,
+      groups: uniqueGroupTitles().length,
+      duplicateConfigs: duplicateConfigCount,
+      scopeNodes: scopeNodes.length,
+      hasLegacyConfigs: configs.some((config) => config.name),
+    },
+  };
+}
+
+const selectorXController = createSelectorXController({
+  groupNames: uniqueGroupTitles,
+  getWidgetValue,
+  setWidgetValueSilently,
+  writeJsonWidget,
+  selectedConfigName,
+  collectLegacyImport,
+  applySelectedConfig: applySelectedConfigAndAdvancedOverrides,
+  applyModeToGroup,
+  isAuthoritative: (node) => selectedSelectorNode() === node,
+  nodeMousePosition: (node) => {
+    const mouse = app.canvas?.graph_mouse;
+    if (!mouse) return null;
+    return [mouse[0] - Number(node.pos?.[0] ?? 0), mouse[1] - Number(node.pos?.[1] ?? 0)];
+  },
+  markCanvasDirty,
+  addTextRow,
+  recomputeNodeHeight: recomputeNodeHeightPreservingWidth,
+  hideBackingWidgets: hideSelectorBackingWidgets,
+});
 
 function configsByName() {
   const configs = new Map();
@@ -287,7 +381,19 @@ function applyModeToGroup(groupName, modeName) {
   return changed;
 }
 
-function applyConfig(configName) {
+function applyConfig(configName, selector = selectedSelectorNode()) {
+  if (isSelectorX(selector)) {
+    const state = readSelectorXState(selector);
+    if (!state || !state.configs.some((config) => config.name === configName)) return false;
+    for (const [groupName, modeName] of Object.entries(
+      effectiveSelectorXModes(state, configName),
+    )) {
+      applyModeToGroup(groupName, modeName);
+    }
+    markCanvasDirty();
+    return true;
+  }
+
   const config = configsByName().get(String(configName || "").trim());
   if (!config) return false;
 
@@ -304,7 +410,7 @@ function applySelectedConfigAndAdvancedOverrides() {
   const selectedConfig = selectedConfigName(selector);
   if (!selectedConfig) return false;
 
-  const applied = applyConfig(selectedConfig);
+  const applied = applyConfig(selectedConfig, selector);
   if (isAdvancedSelector(selector)) {
     applyAdvancedSelectorState(selector);
   }
@@ -337,16 +443,40 @@ function digestResolvedValue(typeName, key, configName, value) {
 }
 
 function selectedSelectorNode() {
-  const selectors = allNodes()
-    .filter(isSelector)
+  const selectorXNodes = allNodes()
+    .filter(isSelectorX)
+    .map((node) => ({ id: Number(node.id ?? 0), node, value: selectedConfigName(node) }))
+    .filter((entry) => {
+      const state = readSelectorXState(entry.node);
+      return state?.configs.some((config) => config.name === entry.value);
+    });
+  selectorXNodes.sort((a, b) => a.id - b.id);
+  if (selectorXNodes.length) return selectorXNodes.at(-1).node;
+
+  const selectors = legacySelectorNodes()
     .map((node) => ({ id: Number(node.id ?? 0), node, value: selectedConfigName(node) }))
     .filter((entry) => entry.value);
   selectors.sort((a, b) => a.id - b.id);
   return selectors.at(-1)?.node ?? null;
 }
 
-function selectedConfigFromSelectors() {
-  return selectedConfigName(selectedSelectorNode());
+function selectedConfigContext() {
+  const selector = selectedSelectorNode();
+  const selectedConfig = selectedConfigName(selector);
+  if (!selectedConfig) return { selectedConfig: "", modes: null };
+
+  if (isSelectorX(selector)) {
+    const state = readSelectorXState(selector);
+    return {
+      selectedConfig,
+      modes: state ? effectiveSelectorXModes(state, selectedConfig) : null,
+    };
+  }
+
+  return {
+    selectedConfig,
+    modes: configsByName().get(selectedConfig)?.modes ?? null,
+  };
 }
 
 function consoleOutputEnabled() {
@@ -429,9 +559,7 @@ function resolveGetNodeValue(getNode) {
   const key = String(getWidgetValue(getNode, "key", "") || "").trim();
   if (!setType || !key) return null;
 
-  const selectedConfig = selectedConfigFromSelectors();
-  const config = selectedConfig ? configsByName().get(selectedConfig) : null;
-  const modes = config?.modes ?? null;
+  const { selectedConfig, modes } = selectedConfigContext();
 
   const candidates = [];
   for (const node of allNodes()) {
@@ -516,9 +644,7 @@ function resolveRelaySource(getNode, promptOutput) {
   const key = relayKey(getNode);
   if (!key || !promptOutput) return null;
 
-  const selectedConfig = selectedConfigFromSelectors();
-  const config = selectedConfig ? configsByName().get(selectedConfig) : null;
-  const modes = config?.modes ?? null;
+  const { modes } = selectedConfigContext();
 
   const candidates = [];
   for (const node of allNodes()) {
@@ -667,6 +793,10 @@ function roundedRectPath(ctx, x, y, width, height, radius) {
 }
 
 function refreshSelectorNode(node) {
+  if (isSelectorX(node)) {
+    selectorXController.refresh(node);
+    return;
+  }
   hideSelectorBackingWidgets(node);
   ensureRefreshButton(node, "refresh_configs");
   syncSelectorToggles(node);
@@ -699,12 +829,15 @@ function selectedConfigName(node) {
   return String(getWidgetValue(node, "selected_config", "") || "").trim();
 }
 
-function configNames() {
+function configNames(node = null) {
+  if (isSelectorX(node)) {
+    return readSelectorXState(node)?.configs.map((config) => config.name) ?? [];
+  }
   return [...configsByName().keys()].sort((a, b) => a.localeCompare(b));
 }
 
 function selectConfig(node, configName, apply = true) {
-  const names = configNames();
+  const names = configNames(node);
   if (!names.includes(configName)) return false;
 
   setWidgetValueSilently(node, "selected_config", configName);
@@ -726,7 +859,7 @@ function selectConfig(node, configName, apply = true) {
 }
 
 function syncSelectorToggles(node) {
-  const names = configNames();
+  const names = configNames(node);
   let selected = selectedConfigName(node);
 
   if (!names.includes(selected)) {
@@ -1095,6 +1228,19 @@ function hideSelectorBackingWidgets(node) {
     advancedState.draw = () => {};
   }
 
+  if (isSelectorX(node)) {
+    for (const name of ["selected_config", "console_output", "selectorx_state"]) {
+      const widget = findWidget(node, name);
+      if (!widget) continue;
+      widget.__workflowXHidden = true;
+      widget.type = "hidden";
+      widget.options ??= {};
+      widget.options.serialize = true;
+      widget.computeSize = () => [0, -4];
+      widget.draw = () => {};
+    }
+  }
+
   const enabled = findWidget(node, "enabled");
   if (enabled) {
     node.widgets = (node.widgets ?? []).filter((widget) => widget !== enabled);
@@ -1160,7 +1306,11 @@ app.registerExtension({
   async beforeRegisterNodeDef(nodeTypeDef, nodeData) {
     installGraphToPromptPatch();
 
-    if (nodeData.name === SELECTOR_TYPE || nodeData.name === ADVANCED_SELECTOR_TYPE) {
+    if (
+      nodeData.name === SELECTOR_TYPE ||
+      nodeData.name === ADVANCED_SELECTOR_TYPE ||
+      nodeData.name === SELECTOR_X_TYPE
+    ) {
       const originalOnNodeCreated = nodeTypeDef.prototype.onNodeCreated;
       nodeTypeDef.prototype.onNodeCreated = function () {
         originalOnNodeCreated?.apply(this, arguments);
