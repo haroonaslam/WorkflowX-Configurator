@@ -44,7 +44,7 @@ class AnythingStitch:
         "Which pixels changed, at source resolution. Feed a refiner pass.",
     )
     FUNCTION = "execute"
-    CATEGORY = "WorkflowX_Configurator/Image/Anything Swap"
+    CATEGORY = "WorkflowX/Anything Swap"
     DESCRIPTION = (
         "Composite an edited crop back into the original. Pixels outside the "
         "mask are returned bit-identical."

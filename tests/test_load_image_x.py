@@ -351,7 +351,7 @@ def test_load_image_registration_and_validation(tmp_path, monkeypatch):
     assert runtime.LoadImageX.VALIDATE_INPUTS("valid.png") is True
     assert runtime.LoadImageX.VALIDATE_INPUTS("../valid.png") != True
     assert runtime.NODE_DISPLAY_NAME_MAPPINGS["WorkflowX_LoadImageX"] == "Load ImageX"
-    assert runtime.LoadImageX.CATEGORY == "WorkflowX_Configurator/Image"
+    assert runtime.LoadImageX.CATEGORY == "WorkflowX/Image Loader"
 
 
 def test_route_registration_includes_batch_delete():

@@ -4,7 +4,7 @@
 
 ## Node Contract
 
-The node is registered as `WorkflowX_ImageProcessorX`, displayed as `Image ProcessorX`, and found under `WorkflowX_Configurator/Image`.
+The node is registered as `WorkflowX_ImageProcessorX`, displayed as `Image ProcessorX`, and found under `WorkflowX/Image Compare`.
 
 Inputs:
 

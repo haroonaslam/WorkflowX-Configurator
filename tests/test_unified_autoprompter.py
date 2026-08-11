@@ -991,7 +991,7 @@ def test_unified_autoprompter_node_is_registered_and_builds_outputs():
     klass = node.NODE_CLASS_MAPPINGS["UnifiedAutoprompterX"]
     assert node.NODE_DISPLAY_NAME_MAPPINGS["UnifiedAutoprompterX"] == "Unified Autoprompter X"
     assert klass.RETURN_NAMES == ("prompt", "positive", "negative")
-    assert klass.CATEGORY == "WorkflowX_Configurator/Prompting"
+    assert klass.CATEGORY == "WorkflowX/Prompting"
     input_types = klass.INPUT_TYPES()
     assert input_types["required"]["enable_bbox_json_input"][0] == "BOOLEAN"
     assert input_types["required"]["enable_text_input"][0] == "BOOLEAN"

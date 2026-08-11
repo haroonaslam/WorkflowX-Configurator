@@ -123,7 +123,7 @@ class NanoBananaFullAPITests(unittest.TestCase):
         )
         self.assertEqual(
             self.node.CATEGORY,
-            "WorkflowX_Configurator/Image/NanoBanana",
+            "WorkflowX/API",
         )
         self.assertEqual(self.node.RETURN_TYPES, ("IMAGE", "STRING"))
 

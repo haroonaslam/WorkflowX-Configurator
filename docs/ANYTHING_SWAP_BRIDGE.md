@@ -1,6 +1,6 @@
 # Anything Swap Bridge
 
-WorkflowX bundles two paired nodes under `WorkflowX_Configurator/Image/Anything Swap`:
+WorkflowX bundles two paired nodes under `WorkflowX/Anything Swap`:
 
 - `Anything Crop (for Swap)` segments or masks an object and prepares a crop.
 - `Anything Stitch` composites the edited crop back into the original image.

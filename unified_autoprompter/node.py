@@ -51,7 +51,7 @@ class _FlexibleOptionalInputs(dict):
 
 
 class UnifiedAutoprompterX:
-    CATEGORY = "WorkflowX_Configurator/Prompting"
+    CATEGORY = "WorkflowX/Prompting"
     FUNCTION = "build"
     RETURN_TYPES = ("STRING", "STRING", "STRING")
     RETURN_NAMES = ("prompt", "positive", "negative")

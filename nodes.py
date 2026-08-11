@@ -11,7 +11,9 @@ from typing import Any, ClassVar, NamedTuple
 logger = logging.getLogger(__name__)
 
 
-CATEGORY = "WorkflowX_Configurator"
+CATEGORY = "WorkflowX"
+GET_SET_CATEGORY = f"{CATEGORY}/Get Set Go"
+DEPRECATED_CATEGORY = f"{CATEGORY}/Deprecated"
 MODE_OPTIONS = ("Active", "Bypass", "Mute", "Ignore")
 SCOPE_OPTIONS = ("Group Configurator", "Selector Mute", "Selector Bypass", "Ignore")
 SELECTOR_X_TYPE = "KVGC_ConfigSelectorX"
@@ -673,7 +675,7 @@ class _TypedKeyValueBase:
 
 
 class _SetBase(_TypedKeyValueBase):
-    CATEGORY = CATEGORY
+    CATEGORY = GET_SET_CATEGORY
     FUNCTION = "set_value"
     RETURN_TYPES = ()
 
@@ -693,7 +695,7 @@ class _SetBase(_TypedKeyValueBase):
 
 
 class _GetBase(_TypedKeyValueBase):
-    CATEGORY = CATEGORY
+    CATEGORY = GET_SET_CATEGORY
     FUNCTION = "get_value"
 
     @classmethod
@@ -901,7 +903,7 @@ class GetScheduler(_SchedulerValueMixin, _GetBase):
 
 
 class SetRelay:
-    CATEGORY = CATEGORY
+    CATEGORY = GET_SET_CATEGORY
     FUNCTION = "set_value"
     RETURN_TYPES = (ANY_TYPE,)
     RETURN_NAMES = ("value",)
@@ -922,7 +924,7 @@ class SetRelay:
 
 
 class GetRelay:
-    CATEGORY = CATEGORY
+    CATEGORY = GET_SET_CATEGORY
     FUNCTION = "get_value"
     RETURN_TYPES = (ANY_TYPE,)
     RETURN_NAMES = ("value",)
@@ -1396,7 +1398,7 @@ class LoraX:
 
 
 class GroupConfigurator:
-    CATEGORY = CATEGORY
+    CATEGORY = DEPRECATED_CATEGORY
     FUNCTION = "configure"
     RETURN_TYPES = ()
 
@@ -1442,7 +1444,7 @@ class GroupConfigurator:
 
 
 class ConfigSelector:
-    CATEGORY = CATEGORY
+    CATEGORY = DEPRECATED_CATEGORY
     FUNCTION = "select"
     RETURN_TYPES = ()
 
@@ -1462,7 +1464,7 @@ class ConfigSelector:
 
 
 class ConfigSelectorAdvanced:
-    CATEGORY = CATEGORY
+    CATEGORY = DEPRECATED_CATEGORY
     FUNCTION = "select"
     RETURN_TYPES = ()
 
@@ -1525,7 +1527,7 @@ class ConfigSelectorAdvanced:
 
 
 class ConfigSelectorX:
-    CATEGORY = CATEGORY
+    CATEGORY = f"{CATEGORY}/Workflow Config"
     FUNCTION = "select"
     RETURN_TYPES = ()
 
@@ -1568,7 +1570,7 @@ class ConfigSelectorX:
 
 
 class GroupScopes:
-    CATEGORY = CATEGORY
+    CATEGORY = DEPRECATED_CATEGORY
     FUNCTION = "configure"
     RETURN_TYPES = ()
 
@@ -1615,7 +1617,7 @@ class ImageCompareEditX:
         "from the editor without adding downstream graph outputs."
     )
 
-    CATEGORY = f"{CATEGORY}/Image"
+    CATEGORY = f"{CATEGORY}/Image Compare"
     FUNCTION = "compare_images"
     RETURN_TYPES = ()
     OUTPUT_NODE = True

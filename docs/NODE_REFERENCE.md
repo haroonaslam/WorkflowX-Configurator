@@ -1,6 +1,6 @@
 # WorkflowX Node Reference
 
-This reference covers every ComfyUI node registered by WorkflowX Configurator. The main package appears under `WorkflowX_Configurator`; bundled AFJ nodes appear under `AFJ`.
+This reference covers every ComfyUI node registered by WorkflowX Configurator. The main package appears under `WorkflowX`; bundled AFJ nodes appear under `AFJ`.
 
 For the Image Compare Edit X expanded editor, see [Image Compare Edit X Editor Guide](IMAGE_COMPARE_EDIT_X_EDITOR.md). For downstream image processing and workflow control, see [Image ProcessorX Guide](IMAGE_PROCESSOR_X.md). For crop/edit/stitch workflows, see [Anything Swap Bridge Guide](ANYTHING_SWAP_BRIDGE.md). For Google Gemini image generation, see [NanoBanana Full API Guide](NANOBANANA_FULL_API.md). For Kie and Atlas generation, see [Kie and Atlas Image API Nodes](KIE_ATLAS_API_NODES.md). For Autoprompter backend setup and profile editing, see [Unified Autoprompter X Guide](UNIFIED_AUTOPROMPTER_X.md).
 
@@ -8,28 +8,28 @@ For the Image Compare Edit X expanded editor, see [Image Compare Edit X Editor G
 
 | Node | Category | Purpose |
 | --- | --- | --- |
-| `Set Int` / `Get Int` | `WorkflowX_Configurator` | Publish and read integer values by key. |
-| `Set Float` / `Get Float` | `WorkflowX_Configurator` | Publish and read float values by key. |
-| `Set String` / `Get String` | `WorkflowX_Configurator` | Publish and read single-line strings by key. |
-| `Set Text` / `Get Text` | `WorkflowX_Configurator` | Publish and read multiline text by key. |
-| `Set Boolean` / `Get Boolean` | `WorkflowX_Configurator` | Publish and read boolean values by key. |
-| `Set Sampler` / `Get Sampler` | `WorkflowX_Configurator` | Publish and read ComfyUI sampler choices by key. |
-| `Set Scheduler` / `Get Scheduler` | `WorkflowX_Configurator` | Publish and read ComfyUI scheduler choices by key. |
-| `Set Relay` / `Get Relay` | `WorkflowX_Configurator` | Route live graph values by key. |
-| `Config SelectorX` | `WorkflowX_Configurator` | Manage, select, and migrate configs and scopes from one self-contained node. |
-| `Group Configurator` / `Group Scopes` | `WorkflowX_Configurator` | Legacy config definition and scope nodes; retained for existing workflows. |
-| `Config Selector` / `Config Selector Advanced` | `WorkflowX_Configurator` | Legacy selector nodes; retained for existing workflows. |
-| `Unload Models By Type` | `WorkflowX_Configurator/VRAM` | Unload selected resident model classes from memory. |
-| `Image Compare Edit X` | `WorkflowX_Configurator/Image` | Compare two images and edit/save an in-node Image 3 blend. |
-| `Image ProcessorX` | `WorkflowX_Configurator/Image` | Process one or two images and pass O1, O2, or rendered O3 downstream, immediately or after an interactive pause. |
-| `Load ImageX` | `WorkflowX_Configurator/Image` | Load from input and nested input folders through a cached thumbnail grid. |
-| `Load ImageX Adv` | `WorkflowX_Configurator/Image` | Browse, crop, resize, snap, resample, or pad an input image in one node. |
-| `Anything Crop (for Swap)` | `WorkflowX_Configurator/Image/Anything Swap` | Segment or mask an object, crop it, and create a stitch payload. |
-| `Anything Stitch` | `WorkflowX_Configurator/Image/Anything Swap` | Composite an edited crop back into the untouched source. |
-| `NanoBanana Full API` | `WorkflowX_Configurator/Image/NanoBanana` | Generate or edit images through current Google Gemini image models. |
-| `Kie Image API X` | `WorkflowX_Configurator/Image/API` | Generate or edit one image through model-aware Kie routes with resumable retrieval. |
-| `Atlas Image API X` | `WorkflowX_Configurator/Image/API` | Generate or edit one image through model-aware Atlas routes with resumable retrieval. |
-| `Unified Autoprompter X` | `WorkflowX_Configurator/Prompting` | Build model-specific prompts from the WorkflowX autoprompting UI. |
+| `Set Int` / `Get Int` | `WorkflowX/Get Set Go` | Publish and read integer values by key. |
+| `Set Float` / `Get Float` | `WorkflowX/Get Set Go` | Publish and read float values by key. |
+| `Set String` / `Get String` | `WorkflowX/Get Set Go` | Publish and read single-line strings by key. |
+| `Set Text` / `Get Text` | `WorkflowX/Get Set Go` | Publish and read multiline text by key. |
+| `Set Boolean` / `Get Boolean` | `WorkflowX/Get Set Go` | Publish and read boolean values by key. |
+| `Set Sampler` / `Get Sampler` | `WorkflowX/Get Set Go` | Publish and read ComfyUI sampler choices by key. |
+| `Set Scheduler` / `Get Scheduler` | `WorkflowX/Get Set Go` | Publish and read ComfyUI scheduler choices by key. |
+| `Set Relay` / `Get Relay` | `WorkflowX/Get Set Go` | Route live graph values by key. |
+| `Config SelectorX` | `WorkflowX/Workflow Config` | Manage, select, and migrate configs and scopes from one self-contained node. |
+| `Group Configurator` / `Group Scopes` | `WorkflowX/Deprecated` | Legacy config definition and scope nodes; retained for existing workflows. |
+| `Config Selector` / `Config Selector Advanced` | `WorkflowX/Deprecated` | Legacy selector nodes; retained for existing workflows. |
+| `Unload Models By Type` | `WorkflowX/VRAM` | Unload selected resident model classes from memory. |
+| `Image Compare Edit X` | `WorkflowX/Image Compare` | Compare two images and edit/save an in-node Image 3 blend. |
+| `Image ProcessorX` | `WorkflowX/Image Compare` | Process one or two images and pass O1, O2, or rendered O3 downstream, immediately or after an interactive pause. |
+| `Load ImageX` | `WorkflowX/Image Loader` | Load from input and nested input folders through a cached thumbnail grid. |
+| `Load ImageX Adv` | `WorkflowX/Image Loader` | Browse, crop, resize, snap, resample, or pad an input image in one node. |
+| `Anything Crop (for Swap)` | `WorkflowX/Anything Swap` | Segment or mask an object, crop it, and create a stitch payload. |
+| `Anything Stitch` | `WorkflowX/Anything Swap` | Composite an edited crop back into the untouched source. |
+| `NanoBanana Full API` | `WorkflowX/API` | Generate or edit images through current Google Gemini image models. |
+| `Kie Image API X` | `WorkflowX/API` | Generate or edit one image through model-aware Kie routes with resumable retrieval. |
+| `Atlas Image API X` | `WorkflowX/API` | Generate or edit one image through model-aware Atlas routes with resumable retrieval. |
+| `Unified Autoprompter X` | `WorkflowX/Prompting` | Build model-specific prompts from the WorkflowX autoprompting UI. |
 | `AFJ - Visual Builder` | `AFJ` | Build structured prompt JSON visually. |
 | `AFJ - Template Randomizer` | `AFJ` | Randomize fields from saved AFJ templates at runtime. |
 | `AFJ - Prompt Template Importer` | `AFJ` | Convert final prompt JSON into an AFJ template payload. |

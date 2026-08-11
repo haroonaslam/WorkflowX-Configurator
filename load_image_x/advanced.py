@@ -406,7 +406,7 @@ class LoadImageXAdv:
             }
         }
 
-    CATEGORY = "WorkflowX_Configurator/Image"
+    CATEGORY = "WorkflowX/Image Loader"
     RETURN_TYPES = ("IMAGE", "MASK", "MASK", "INT", "INT")
     RETURN_NAMES = ("image", "mask", "inverted_mask", "width", "height")
     OUTPUT_TOOLTIPS = (

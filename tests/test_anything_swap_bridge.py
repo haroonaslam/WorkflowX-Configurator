@@ -59,7 +59,7 @@ class AnythingSwapBridgeTests(unittest.TestCase):
     def test_categories_and_identity_roundtrip(self):
         self.assertEqual(
             AnythingCropForSwap.CATEGORY,
-            "WorkflowX_Configurator/Image/Anything Swap",
+            "WorkflowX/Anything Swap",
         )
         self.assertEqual(AnythingStitch.CATEGORY, AnythingCropForSwap.CATEGORY)
 

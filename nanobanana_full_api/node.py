@@ -141,7 +141,7 @@ class NanoBananaAPINode_V2:
     RETURN_TYPES = ("IMAGE", "STRING")
     RETURN_NAMES = ("image_batch", "text_output")
     FUNCTION = "generate_image_batch"
-    CATEGORY = "WorkflowX_Configurator/Image/NanoBanana"
+    CATEGORY = "WorkflowX/API"
     DESCRIPTION = (
         "Generate or edit images with Gemini 3.1 Flash Image or Gemini 3 Pro Image "
         "at 1K, 2K, or 4K resolution."

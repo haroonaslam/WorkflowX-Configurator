@@ -5,7 +5,7 @@
 The node lives under:
 
 ```text
-WorkflowX_Configurator/Prompting
+WorkflowX/Prompting
 ```
 
 ## What It Does

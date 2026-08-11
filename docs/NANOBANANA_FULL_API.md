@@ -1,6 +1,6 @@
 # NanoBanana Full API
 
-`NanoBanana Full API` is registered under `WorkflowX_Configurator/Image/NanoBanana`. It keeps the workflow ID `NanoBanana_Gemini_2_5_Flash_V2` while updating the original node to Google's current Gemini image endpoints.
+`NanoBanana Full API` is registered under `WorkflowX/API`. It keeps the workflow ID `NanoBanana_Gemini_2_5_Flash_V2` while updating the original node to Google's current Gemini image endpoints.
 
 The WorkflowX implementation is derived from [`haroonaslam/ComfyUI_NanoBanana_Full_API` commit `a1a21b9`](https://github.com/haroonaslam/ComfyUI_NanoBanana_Full_API/commit/a1a21b936229fc6d37421d8c78d8622498378c9e).
 

@@ -56,7 +56,7 @@ def _union(provider: str, key: str, fallback: str) -> list[str]:
 class RemoteImageAPINode:
     provider = ""
     client_class = KieClient
-    CATEGORY = "WorkflowX_Configurator/Image/API"
+    CATEGORY = "WorkflowX/API"
     FUNCTION = "generate_image"
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("image",)

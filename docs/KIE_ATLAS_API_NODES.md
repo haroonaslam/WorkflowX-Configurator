@@ -1,6 +1,6 @@
 # Kie and Atlas Image API Nodes
 
-`Kie Image API X` and `Atlas Image API X` provide a single-generation ComfyUI interface to the image models supported by GemMobi's Kie and Atlas engines. Both nodes live under `WorkflowX_Configurator/Image/API` and return one ComfyUI `IMAGE`.
+`Kie Image API X` and `Atlas Image API X` provide a single-generation ComfyUI interface to the image models supported by GemMobi's Kie and Atlas engines. Both nodes live under `WorkflowX/API` and return one ComfyUI `IMAGE`.
 
 ## Credentials
 

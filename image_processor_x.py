@@ -16,7 +16,7 @@ from typing import Any
 
 NODE_TYPE = "WorkflowX_ImageProcessorX"
 DISPLAY_NAME = "Image ProcessorX"
-CATEGORY = "WorkflowX_Configurator/Image"
+CATEGORY = "WorkflowX/Image Compare"
 EVENT_NAME = "workflowx.image_processor_x.pause"
 ROUTE_ROOT = "/workflowx_configurator/image_processor_x"
 

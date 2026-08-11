@@ -109,6 +109,44 @@ def test_all_nodes_registered():
     assert "KVGC_LoraX" in NODE_CLASS_MAPPINGS
 
 
+def test_node_menu_hierarchy_preserves_serialized_types():
+    get_set_types = {
+        "KVGC_SetInt",
+        "KVGC_GetInt",
+        "KVGC_SetFloat",
+        "KVGC_GetFloat",
+        "KVGC_SetString",
+        "KVGC_GetString",
+        "KVGC_SetText",
+        "KVGC_GetText",
+        "KVGC_SetBoolean",
+        "KVGC_GetBoolean",
+        "KVGC_SetSampler",
+        "KVGC_GetSampler",
+        "KVGC_SetScheduler",
+        "KVGC_GetScheduler",
+        "KVGC_SetRelay",
+        "KVGC_GetRelay",
+    }
+    deprecated_types = {
+        "KVGC_GroupConfigurator",
+        "KVGC_GroupScopes",
+        "KVGC_ConfigSelector",
+        "KVGC_ConfigSelectorAdvanced",
+    }
+
+    assert all(
+        NODE_CLASS_MAPPINGS[node_type].CATEGORY == "WorkflowX/Get Set Go"
+        for node_type in get_set_types
+    )
+    assert all(
+        NODE_CLASS_MAPPINGS[node_type].CATEGORY == "WorkflowX/Deprecated"
+        for node_type in deprecated_types
+    )
+    assert NODE_CLASS_MAPPINGS["KVGC_ConfigSelectorX"].CATEGORY == "WorkflowX/Workflow Config"
+    assert NODE_CLASS_MAPPINGS["KVGC_ImageCompareEditX"].CATEGORY == "WorkflowX/Image Compare"
+
+
 def test_relay_nodes_pass_through_materialized_values():
     payload = {"kind": "MODEL"}
     assert SetRelay().set_value("model", payload) == (payload,)

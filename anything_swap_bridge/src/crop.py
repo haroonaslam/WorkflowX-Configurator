@@ -79,7 +79,7 @@ class AnythingCropForSwap:
         "False when nothing was segmented. Branch on this to skip work.",
     )
     FUNCTION = "execute"
-    CATEGORY = "WorkflowX_Configurator/Image/Anything Swap"
+    CATEGORY = "WorkflowX/Anything Swap"
     DESCRIPTION = (
         "Segment an object, crop tightly around it, and emit a payload that "
         "Anything Stitch uses to put the result back exactly."

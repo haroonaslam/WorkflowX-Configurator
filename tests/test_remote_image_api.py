@@ -337,7 +337,7 @@ class RemoteImageContractTests(unittest.TestCase):
         for cls in (nodes.KieImageAPINode, nodes.AtlasImageAPINode):
             inputs = cls.INPUT_TYPES()
             self.assertEqual(cls.RETURN_TYPES, ("IMAGE",))
-            self.assertEqual(cls.CATEGORY, "WorkflowX_Configurator/Image/API")
+            self.assertEqual(cls.CATEGORY, "WorkflowX/API")
             self.assertIn("image_1", inputs["optional"])
             self.assertIn("image_14", inputs["optional"])
             self.assertEqual(inputs["hidden"]["unique_id"], "UNIQUE_ID")

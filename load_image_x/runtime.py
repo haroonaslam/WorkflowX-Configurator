@@ -320,7 +320,7 @@ class LoadImageX:
             }
         }
 
-    CATEGORY = "WorkflowX_Configurator/Image"
+    CATEGORY = "WorkflowX/Image Loader"
     RETURN_TYPES = ("IMAGE", "MASK")
     RETURN_NAMES = ("image", "mask")
     FUNCTION = "load_image"

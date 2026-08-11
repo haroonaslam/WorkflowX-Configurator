@@ -105,28 +105,28 @@ def test_combined_package_exports_workflowx_and_afj_nodes():
     assert module.NODE_DISPLAY_NAME_MAPPINGS["AnythingCropForSwap"] == "Anything Crop (for Swap)"
     assert module.NODE_DISPLAY_NAME_MAPPINGS["AnythingStitch"] == "Anything Stitch"
     assert module.NODE_DISPLAY_NAME_MAPPINGS["NanoBanana_Gemini_2_5_Flash_V2"] == "NanoBanana Full API"
-    assert module.NODE_CLASS_MAPPINGS["AnythingCropForSwap"].CATEGORY == "WorkflowX_Configurator/Image/Anything Swap"
-    assert module.NODE_CLASS_MAPPINGS["AnythingStitch"].CATEGORY == "WorkflowX_Configurator/Image/Anything Swap"
-    assert module.NODE_CLASS_MAPPINGS["NanoBanana_Gemini_2_5_Flash_V2"].CATEGORY == "WorkflowX_Configurator/Image/NanoBanana"
+    assert module.NODE_CLASS_MAPPINGS["AnythingCropForSwap"].CATEGORY == "WorkflowX/Anything Swap"
+    assert module.NODE_CLASS_MAPPINGS["AnythingStitch"].CATEGORY == "WorkflowX/Anything Swap"
+    assert module.NODE_CLASS_MAPPINGS["NanoBanana_Gemini_2_5_Flash_V2"].CATEGORY == "WorkflowX/API"
     assert "WorkflowX_KieImageAPI" in module.NODE_CLASS_MAPPINGS
     assert "WorkflowX_AtlasImageAPI" in module.NODE_CLASS_MAPPINGS
     assert module.NODE_DISPLAY_NAME_MAPPINGS["WorkflowX_KieImageAPI"] == "Kie Image API X"
     assert module.NODE_DISPLAY_NAME_MAPPINGS["WorkflowX_AtlasImageAPI"] == "Atlas Image API X"
-    assert module.NODE_CLASS_MAPPINGS["WorkflowX_KieImageAPI"].CATEGORY == "WorkflowX_Configurator/Image/API"
-    assert module.NODE_CLASS_MAPPINGS["WorkflowX_AtlasImageAPI"].CATEGORY == "WorkflowX_Configurator/Image/API"
+    assert module.NODE_CLASS_MAPPINGS["WorkflowX_KieImageAPI"].CATEGORY == "WorkflowX/API"
+    assert module.NODE_CLASS_MAPPINGS["WorkflowX_AtlasImageAPI"].CATEGORY == "WorkflowX/API"
     assert "WorkflowX_LoadImageX" in module.NODE_CLASS_MAPPINGS
     assert module.NODE_DISPLAY_NAME_MAPPINGS["WorkflowX_LoadImageX"] == "Load ImageX"
-    assert module.NODE_CLASS_MAPPINGS["WorkflowX_LoadImageX"].CATEGORY == "WorkflowX_Configurator/Image"
+    assert module.NODE_CLASS_MAPPINGS["WorkflowX_LoadImageX"].CATEGORY == "WorkflowX/Image Loader"
     assert "WorkflowX_LoadImageXAdv" in module.NODE_CLASS_MAPPINGS
     assert module.NODE_DISPLAY_NAME_MAPPINGS["WorkflowX_LoadImageXAdv"] == "Load ImageX Adv"
     assert module.NODE_CLASS_MAPPINGS["WorkflowX_LoadImageXAdv"].RETURN_TYPES == ("IMAGE", "MASK", "MASK", "INT", "INT")
     assert "WorkflowX_SaveVideoX" in module.NODE_CLASS_MAPPINGS
     assert module.NODE_DISPLAY_NAME_MAPPINGS["WorkflowX_SaveVideoX"] == "Save Video X"
-    assert module.NODE_CLASS_MAPPINGS["WorkflowX_SaveVideoX"].CATEGORY == "WorkflowX_Configurator/Video"
+    assert module.NODE_CLASS_MAPPINGS["WorkflowX_SaveVideoX"].CATEGORY == "WorkflowX/Video"
     assert "WorkflowX_ImageProcessorX" in module.NODE_CLASS_MAPPINGS
     assert module.NODE_DISPLAY_NAME_MAPPINGS["WorkflowX_ImageProcessorX"] == "Image ProcessorX"
     assert module.NODE_CLASS_MAPPINGS["WorkflowX_ImageProcessorX"].RETURN_TYPES == ("IMAGE",)
-    assert module.NODE_CLASS_MAPPINGS["WorkflowX_ImageProcessorX"].CATEGORY == "WorkflowX_Configurator/Image"
+    assert module.NODE_CLASS_MAPPINGS["WorkflowX_ImageProcessorX"].CATEGORY == "WorkflowX/Image Compare"
     assert module.WEB_DIRECTORY == "./web/js"
 
 

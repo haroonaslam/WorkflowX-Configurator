@@ -677,7 +677,7 @@ class SaveVideoX:
     RETURN_TYPES = ("VHS_FILENAMES",)
     RETURN_NAMES = ("Filenames",)
     OUTPUT_NODE = True
-    CATEGORY = "WorkflowX_Configurator/Video"
+    CATEGORY = "WorkflowX/Video"
     FUNCTION = "combine_video"
 
     def combine_video(

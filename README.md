@@ -41,7 +41,7 @@ WorkflowX Configurator turns sprawling ComfyUI graphs into selectable workflow p
 The package appears in ComfyUI's add-node menu under:
 
 ```text
-WorkflowX_Configurator
+WorkflowX
 ```
 
 ## Bundled Tools
@@ -148,7 +148,7 @@ Relay routing uses the same scope rules as typed values. The selected source is 
 
 ### Config SelectorX
 
-`Config SelectorX` combines config selection, group scopes, and quick mute/bypass controls in one node. Config rows use ComfyUI's native toggle behavior: selecting a row applies that profile immediately, and clicking the selected row reapplies it. The padded action bar contains three separate controls:
+`Config SelectorX` lives under `WorkflowX/Workflow Config` and combines config selection, group scopes, and quick mute/bypass controls in one node. Config rows use ComfyUI's native toggle behavior: selecting a row applies that profile immediately, and clicking the selected row reapplies it. The padded action bar contains three separate controls:
 
 - `Console`: toggle queue-time Set/Get and Relay diagnostics. Its active color shows when logging is enabled.
 - `Scopes`: assign each current canvas group to Config, Selector Mute, Selector Bypass, or Ignore.
@@ -172,7 +172,7 @@ The legacy `Group Configurator`, `Group Scopes`, `Config Selector`, and `Config 
 
 ### Unload Models By Type
 
-`Unload Models By Type` is a VRAM utility node under `WorkflowX_Configurator/VRAM`. It unloads resident ComfyUI model families while passing through common graph values so it can be placed inline.
+`Unload Models By Type` is a VRAM utility node under `WorkflowX/VRAM`. It unloads resident ComfyUI model families while passing through common graph values so it can be placed inline.
 
 Use it when a workflow stage no longer needs a heavy model and you want to free memory before the next stage begins. For example, it can unload text encoders after prompt encoding, or unload diffusion models before a text-encoding phase.
 
@@ -180,7 +180,7 @@ The node exposes passthrough sockets for `trigger`, `MODEL`, `CLIP`, `VAE`, and 
 
 ### Load ImageX
 
-`Load ImageX` lives under `WorkflowX_Configurator/Image` and returns `IMAGE` plus an alpha-derived `MASK`. It keeps ComfyUI's native upload, dropdown, and node preview while adding a large **Browse Thumbnails** modal. The modal recursively covers the `input` root and all nested input folders, with All/root/folder navigation, search, counts, refresh, and a 128 px grid.
+`Load ImageX` lives under `WorkflowX/Image Loader` and returns `IMAGE` plus an alpha-derived `MASK`. It keeps ComfyUI's native upload, dropdown, and node preview while adding a large **Browse Thumbnails** modal. The modal recursively covers the `input` root and all nested input folders, with All/root/folder navigation, search, counts, refresh, and a 128 px grid.
 
 Only visible grid items request thumbnails. Generated thumbnails are cached in the ComfyUI user cache and use file-versioned browser URLs, so unchanged images reopen without being decoded again. Replacing an image changes its version automatically; use **Refresh** to rescan newly added or removed files immediately.
 
@@ -194,7 +194,7 @@ The hidden native image widget preserves ComfyUI image context actions, Mask Edi
 
 ### Image Compare Edit X
 
-`Image Compare Edit X` is an output node under `WorkflowX_Configurator/Image`. It accepts `image1` and `image2`, shows a professional compare UI, and creates an in-node Image 3 edit without adding Image 3 as a downstream graph output.
+`Image Compare Edit X` is an output node under `WorkflowX/Image Compare`. It accepts `image1` and `image2`, shows a professional compare UI, and creates an in-node Image 3 edit without adding Image 3 as a downstream graph output.
 
 The compact node view supports single-image viewing, split compare, overlay, difference, save, download, and copy actions. The expanded editor adds source layering, opacity, blend masks, adjustment layers, adjustment brush masks, curves, before/current preview, fast/quality preview, and Image 3 save/copy controls.
 
@@ -204,7 +204,7 @@ For the full editing workflow, see the [Image Compare Edit X editor guide](docs/
 
 ### Image ProcessorX
 
-`Image ProcessorX` is a processing node under `WorkflowX_Configurator/Image`. It accepts one required image and an optional second image, then returns exactly one `IMAGE` selected from the original O1, optional original O2, or the Python-rendered O3 result.
+`Image ProcessorX` is a processing node under `WorkflowX/Image Compare`. It accepts one required image and an optional second image, then returns exactly one `IMAGE` selected from the original O1, optional original O2, or the Python-rendered O3 result.
 
 In **Continue** mode the queued state is processed immediately. In **Pause** mode the same queued execution waits without re-running upstream nodes. The compact node reports the pending state and enables **Resume** and **Cancel**; open the editor when you want to change the composition or adjustments. Resume submits the latest editor state and output selection.
 
@@ -216,7 +216,7 @@ For state behavior, batching, Pause/Resume, and validation details, see the [Ima
 
 ### Anything Crop (for Swap) / Anything Stitch
 
-These paired nodes live under `WorkflowX_Configurator/Image/Anything Swap`. The crop node can segment an object internally with native ComfyUI SAM3 or accept a connected mask, then emits the crop, crop mask, prompt text, and an opaque `SWAP_STITCH` payload. Put any local model, LoRA workflow, or remote API between the crop and stitch nodes. `Anything Stitch` uses the payload to resize, colour-match, feather, and composite the edited crop back into the untouched source.
+These paired nodes live under `WorkflowX/Anything Swap`. The crop node can segment an object internally with native ComfyUI SAM3 or accept a connected mask, then emits the crop, crop mask, prompt text, and an opaque `SWAP_STITCH` payload. Put any local model, LoRA workflow, or remote API between the crop and stitch nodes. `Anything Stitch` uses the payload to resize, colour-match, feather, and composite the edited crop back into the untouched source.
 
 The original node IDs and `SWAP_STITCH` contract are preserved for workflow compatibility. Internal SAM3 requires a recent ComfyUI build and a SAM3 checkpoint; mask-driven operation does not.
 
@@ -224,7 +224,7 @@ See the [Anything Swap Bridge guide](docs/ANYTHING_SWAP_BRIDGE.md) for wiring, c
 
 ### NanoBanana Full API
 
-`NanoBanana Full API` lives under `WorkflowX_Configurator/Image/NanoBanana`. It supports text-to-image, up to five labeled reference images, mask-guided editing, candidate batching, a system prompt, aspect ratios, 1K/2K/4K resolution, configurable timeout, thought summaries, Flash thinking levels, seed, temperature, top-p, and per-category safety overrides.
+`NanoBanana Full API` lives under `WorkflowX/API`. It supports text-to-image, up to five labeled reference images, mask-guided editing, candidate batching, a system prompt, aspect ratios, 1K/2K/4K resolution, configurable timeout, thought summaries, Flash thinking levels, seed, temperature, top-p, and per-category safety overrides.
 
 The node supports only `gemini-3.1-flash-image` and `gemini-3-pro-image`. Enter a Google Gemini API key in the password field, or leave it blank to use `GEMINI_API_KEY` and then `GOOGLE_API_KEY` from the environment.
 
@@ -232,7 +232,7 @@ See the [NanoBanana Full API guide](docs/NANOBANANA_FULL_API.md) for the exact A
 
 ### Kie Image API X / Atlas Image API X
 
-These nodes live under `WorkflowX_Configurator/Image/API` and provide one-run text-to-image or image-to-image generation through a rich dynamic panel. WorkflowX's packaged copy of GemMobi's canonical contracts controls each model's aspect ratios, named resolution tiers or explicit dimensions, output quality/type, route-specific flags, defaults, payload shape, and reference limit. Image sockets grow automatically from `image_1` to a maximum of 14, while each model's lower limit is enforced before upload.
+These nodes live under `WorkflowX/API` and provide one-run text-to-image or image-to-image generation through a rich dynamic panel. WorkflowX's packaged copy of GemMobi's canonical contracts controls each model's aspect ratios, named resolution tiers or explicit dimensions, output quality/type, route-specific flags, defaults, payload shape, and reference limit. Image sockets grow automatically from `image_1` to a maximum of 14, while each model's lower limit is enforced before upload.
 
 The panel streams upload, submission, polling, timeout, download, and completion updates into an in-node session log. Remote task IDs are saved before polling. If a run times out, **Force Retrieve** resumes that same paid task without another generation submission. **Stop & Retrieve Later** safely parks an accepted task; **Stop & Continue** returns a black placeholder and abandons local tracking. Provider-side work cannot be cancelled through the documented Kie/Atlas contracts.
 
@@ -240,7 +240,7 @@ See the [Kie and Atlas Image API Nodes guide](docs/KIE_ATLAS_API_NODES.md) for c
 
 ### Unified Autoprompter X
 
-`Unified Autoprompter X` is a prompting node under `WorkflowX_Configurator/Prompting`. It is designed to build model-targeted prompt output from the WorkflowX autoprompting UI.
+`Unified Autoprompter X` is a prompting node under `WorkflowX/Prompting`. It is designed to build model-targeted prompt output from the WorkflowX autoprompting UI.
 
 The node returns:
 
@@ -648,5 +648,5 @@ Some WorkflowX nodes preserve an established workflow contract while expanding, 
 ## Repository Notes
 
 - GitHub repo: `WorkflowX-Configurator`
-- ComfyUI category: `WorkflowX_Configurator`
+- ComfyUI category: `WorkflowX`
 - License: no license file included
