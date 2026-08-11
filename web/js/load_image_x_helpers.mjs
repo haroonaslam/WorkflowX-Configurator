@@ -5,6 +5,14 @@ export function splitRelativePath(value) {
   return { folder: normalized.slice(0, index), name: normalized.slice(index + 1) };
 }
 
+export function splitAnnotatedPath(value) {
+  const normalized = String(value || "").replace(/\\/g, "/").trim();
+  const match = normalized.match(/^(.*?)\s*\[(input|output|temp)\]\s*$/i);
+  return match
+    ? { path: match[1].trim(), type: match[2].toLowerCase() }
+    : { path: normalized, type: "input" };
+}
+
 export function groupCatalog(items) {
   const groups = new Map();
   for (const item of items || []) {
@@ -40,8 +48,9 @@ export function thumbnailURL(item) {
 }
 
 export function viewURL(item) {
-  const { folder, name } = splitRelativePath(item.path);
-  return `/view?filename=${encodeURIComponent(name)}&type=input&subfolder=${encodeURIComponent(folder)}&v=${encodeURIComponent(item.version || "")}`;
+  const annotated = splitAnnotatedPath(item.path);
+  const { folder, name } = splitRelativePath(annotated.path);
+  return `/view?filename=${encodeURIComponent(name)}&type=${encodeURIComponent(annotated.type)}&subfolder=${encodeURIComponent(folder)}&v=${encodeURIComponent(item.version || "")}`;
 }
 
 export function isSquareDimensions(width, height, tolerance = 1) {

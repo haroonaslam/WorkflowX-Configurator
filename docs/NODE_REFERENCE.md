@@ -2,7 +2,7 @@
 
 This reference covers every ComfyUI node registered by WorkflowX Configurator. The main package appears under `WorkflowX_Configurator`; bundled AFJ nodes appear under `AFJ`.
 
-For the Image Compare Edit X expanded editor, see [Image Compare Edit X Editor Guide](IMAGE_COMPARE_EDIT_X_EDITOR.md). For crop/edit/stitch workflows, see [Anything Swap Bridge Guide](ANYTHING_SWAP_BRIDGE.md). For Google Gemini image generation, see [NanoBanana Full API Guide](NANOBANANA_FULL_API.md). For Kie and Atlas generation, see [Kie and Atlas Image API Nodes](KIE_ATLAS_API_NODES.md). For Autoprompter backend setup and profile editing, see [Unified Autoprompter X Guide](UNIFIED_AUTOPROMPTER_X.md).
+For the Image Compare Edit X expanded editor, see [Image Compare Edit X Editor Guide](IMAGE_COMPARE_EDIT_X_EDITOR.md). For downstream image processing and workflow control, see [Image ProcessorX Guide](IMAGE_PROCESSOR_X.md). For crop/edit/stitch workflows, see [Anything Swap Bridge Guide](ANYTHING_SWAP_BRIDGE.md). For Google Gemini image generation, see [NanoBanana Full API Guide](NANOBANANA_FULL_API.md). For Kie and Atlas generation, see [Kie and Atlas Image API Nodes](KIE_ATLAS_API_NODES.md). For Autoprompter backend setup and profile editing, see [Unified Autoprompter X Guide](UNIFIED_AUTOPROMPTER_X.md).
 
 ## Registered Nodes
 
@@ -21,7 +21,9 @@ For the Image Compare Edit X expanded editor, see [Image Compare Edit X Editor G
 | `Config Selector` / `Config Selector Advanced` | `WorkflowX_Configurator` | Legacy selector nodes; retained for existing workflows. |
 | `Unload Models By Type` | `WorkflowX_Configurator/VRAM` | Unload selected resident model classes from memory. |
 | `Image Compare Edit X` | `WorkflowX_Configurator/Image` | Compare two images and edit/save an in-node Image 3 blend. |
+| `Image ProcessorX` | `WorkflowX_Configurator/Image` | Process one or two images and pass O1, O2, or rendered O3 downstream, immediately or after an interactive pause. |
 | `Load ImageX` | `WorkflowX_Configurator/Image` | Load from input and nested input folders through a cached thumbnail grid. |
+| `Load ImageX Adv` | `WorkflowX_Configurator/Image` | Browse, crop, resize, snap, resample, or pad an input image in one node. |
 | `Anything Crop (for Swap)` | `WorkflowX_Configurator/Image/Anything Swap` | Segment or mask an object, crop it, and create a stitch payload. |
 | `Anything Stitch` | `WorkflowX_Configurator/Image/Anything Swap` | Composite an edited crop back into the untouched source. |
 | `NanoBanana Full API` | `WorkflowX_Configurator/Image/NanoBanana` | Generate or edit images through current Google Gemini image models. |
@@ -164,6 +166,16 @@ Use it inline before a heavy stage when you want to release a model family befor
 
 The **Browse Thumbnails** modal provides All/root/folder navigation, path-aware search, refresh, lazy 80-item batches, and 128 px thumbnails. Enable **Batch mode** to add selection checkboxes and permanently delete selected images after confirmation. Thumbnails are cached under the ComfyUI user directory, keyed by path, size, modification time, and cache format. Browse and deletion requests are restricted to supported image files whose resolved paths remain inside `input`; output, temp, arbitrary paths, traversal, symlinks, and junctions are rejected.
 
+## Load ImageX Adv
+
+`Load ImageX Adv` (`WorkflowX_LoadImageXAdv`) shares the `Load ImageX` catalog and thumbnail cache. The selected file and processing state are serialized through hidden widgets; the visible node has no input sockets. Its outputs, in order, are `image` (`IMAGE`), `mask` (`MASK`), `inverted_mask` (`MASK`), `width` (`INT`), and `height` (`INT`). Width and height report the final processed dimensions, and `inverted_mask` is exactly `1 - mask` after crop, resize, padding, and snap.
+
+The processing order is EXIF orientation, alpha-mask extraction, optional manual crop, selected resize mode, output snap, then tensor conversion. Available resize modes are Off, Max MP, Longest side, Scale by x, Fit inside, Crop to fill, Match ratio, and Pad. Resampling supports Auto, Nearest, Bilinear, Bicubic, and Lanczos. Padded pixels are marked in the output mask.
+
+Crop mode supports drawing a new rectangle, moving it, resizing from corners, and clearing it by clicking outside. Crop Snap constrains only crop width and height; Output Snap independently constrains final dimensions. Both offer Off, 8, 16, 32, and 64. Turning Crop off bypasses but preserves the rectangle, while selecting a different image clears the rectangle and keeps the remaining controls.
+
+Only the selected mode's controls are inserted into the node, and Crop Snap is removed from layout while Crop is off. The preview absorbs additional node height. The hidden native `image_upload` widget keeps ComfyUI's Open Image, Save Image, Clipspace, drag/drop, and Mask Editor actions available without showing a second preview. Mask Editor and Clipspace replacements preserve the normalized crop when dimensions match and clear it when they differ. Execution accepts containment-checked `[input]`, `[output]`, and `[temp]` annotations; browsing and deletion remain input-only.
+
 ## Image Compare Edit X
 
 `Image Compare Edit X` compares two `IMAGE` inputs and provides an in-node Image 3 editor. Image 3 is browser-side editor state; it is not a graph output.
@@ -190,6 +202,34 @@ Core behavior:
 - `Copy 3` copies Image 3 to the clipboard.
 
 See [Image Compare Edit X Editor Guide](IMAGE_COMPARE_EDIT_X_EDITOR.md) for the full editing workflow.
+
+## Image ProcessorX
+
+`Image ProcessorX` (`WorkflowX_ImageProcessorX`) is an independent processing node. Unlike Image Compare Edit X, it has a downstream `IMAGE` output and renders O3 authoritatively in Python.
+
+Inputs:
+
+| Name | Type | Notes |
+| --- | --- | --- |
+| `image1` | `IMAGE` | Required O1 source. |
+| `image2` | optional `IMAGE` | Optional O2 source and two-image composition layer. |
+| `operation_mode` | `Continue` / `Pause` | Continue processes immediately; Pause waits for an explicit Resume or Cancel action. |
+| `output_image` | `O1` / `O2` / `O3` | Selects the single downstream image. O2 requires `image2`. |
+| `processor_state` | internal `STRING` | Versioned editor state (`schemaVersion: 1`) managed by the frontend. |
+
+Output:
+
+| Name | Type | Notes |
+| --- | --- | --- |
+| `image` | `IMAGE` | Exact O1/O2 pass-through or rendered O3. |
+
+O1 and O2 preserve their original tensors and batches. O3 applies the saved composition, masks, adjustment layers, and curves to every batch item. Equal batch sizes are paired; a one-item input broadcasts against the other batch; all other batch mismatches fail validation. In one-image mode, O3 starts from O1 and O2-only controls are unavailable.
+
+Pause mode deliberately bypasses execution caching. The queued node remains pending indefinitely, survives frontend refresh through pending-session status lookup, and resumes with the latest output selection and editor state. Cancel releases the pending execution with an explicit cancellation error.
+
+The frontend automatically persists the complete editor recipe across replacement images and workflow reloads, including blend and adjustment-brush masks. The expanded editor includes a full Reset action and named user-library presets; presets contain processing, layer, mask, curve, comparison, and editor settings but exclude base images and workflow routing.
+
+See [Image ProcessorX Guide](IMAGE_PROCESSOR_X.md) for the editor workflow, state contract, routes, and troubleshooting.
 
 ## Anything Crop (for Swap)
 

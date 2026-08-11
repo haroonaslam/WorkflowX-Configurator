@@ -87,9 +87,11 @@ def _load_package():
 
 def test_combined_package_exports_workflowx_and_afj_nodes():
     module = _load_package()
-    assert len(module.NODE_CLASS_MAPPINGS) == 33
+    assert len(module.NODE_CLASS_MAPPINGS) == 37
     assert "KVGC_GroupConfigurator" in module.NODE_CLASS_MAPPINGS
     assert "KVGC_ConfigSelectorAdvanced" in module.NODE_CLASS_MAPPINGS
+    assert "KVGC_ConfigSelectorX" in module.NODE_CLASS_MAPPINGS
+    assert module.NODE_DISPLAY_NAME_MAPPINGS["KVGC_ConfigSelectorX"] == "Config SelectorX"
     assert "KVGC_UnloadModelsByType" in module.NODE_CLASS_MAPPINGS
     assert "KVGC_LoraX" in module.NODE_CLASS_MAPPINGS
     assert "FluxVisualJsonBuilder" in module.NODE_CLASS_MAPPINGS
@@ -115,7 +117,55 @@ def test_combined_package_exports_workflowx_and_afj_nodes():
     assert "WorkflowX_LoadImageX" in module.NODE_CLASS_MAPPINGS
     assert module.NODE_DISPLAY_NAME_MAPPINGS["WorkflowX_LoadImageX"] == "Load ImageX"
     assert module.NODE_CLASS_MAPPINGS["WorkflowX_LoadImageX"].CATEGORY == "WorkflowX_Configurator/Image"
+    assert "WorkflowX_LoadImageXAdv" in module.NODE_CLASS_MAPPINGS
+    assert module.NODE_DISPLAY_NAME_MAPPINGS["WorkflowX_LoadImageXAdv"] == "Load ImageX Adv"
+    assert module.NODE_CLASS_MAPPINGS["WorkflowX_LoadImageXAdv"].RETURN_TYPES == ("IMAGE", "MASK", "MASK", "INT", "INT")
+    assert "WorkflowX_SaveVideoX" in module.NODE_CLASS_MAPPINGS
+    assert module.NODE_DISPLAY_NAME_MAPPINGS["WorkflowX_SaveVideoX"] == "Save Video X"
+    assert module.NODE_CLASS_MAPPINGS["WorkflowX_SaveVideoX"].CATEGORY == "WorkflowX_Configurator/Video"
+    assert "WorkflowX_ImageProcessorX" in module.NODE_CLASS_MAPPINGS
+    assert module.NODE_DISPLAY_NAME_MAPPINGS["WorkflowX_ImageProcessorX"] == "Image ProcessorX"
+    assert module.NODE_CLASS_MAPPINGS["WorkflowX_ImageProcessorX"].RETURN_TYPES == ("IMAGE",)
+    assert module.NODE_CLASS_MAPPINGS["WorkflowX_ImageProcessorX"].CATEGORY == "WorkflowX_Configurator/Image"
     assert module.WEB_DIRECTORY == "./web/js"
+
+
+def test_save_video_x_exposes_predictable_crf_controls():
+    module = _load_package()
+    inputs = module.NODE_CLASS_MAPPINGS["WorkflowX_SaveVideoX"].INPUT_TYPES()
+    required = inputs["required"]
+
+    assert required["format"][0] == ["video/av1-webm", "video/h264-mp4", "video/h265-mp4"]
+    assert required["format"][1]["default"] == "video/h264-mp4"
+    assert required["crf_quality"][0] == (
+        "Draft (CRF 30)",
+        "Standard (CRF 23)",
+        "Good (CRF 20)",
+        "High (CRF 18)",
+        "Very High (CRF 16)",
+        "Ultra (CRF 14)",
+        "Near Lossless (CRF 12)",
+        "Archival (CRF 10)",
+        "Master (CRF 8)",
+        "Lossless",
+    )
+    assert required["pixel_format"][0] == ("yuv420p (8-bit)", "yuv420p10le (10-bit)")
+    assert required["color_range"][0] == ("Auto (format default)", "Full / pc", "Limited / tv")
+    assert required["audio_bitrate"][0] == (
+        "Source/default",
+        "96k",
+        "128k",
+        "160k",
+        "192k",
+        "256k",
+        "320k",
+    )
+    assert "crf" not in required
+    assert "bitrate" not in required
+    assert "pix_fmt" not in required
+    assert "loop_count" not in required
+    assert "pingpong" not in required
+    assert "meta_batch" not in inputs["optional"]
 
 
 def test_lorax_route_helpers_build_canonical_entries_and_token_search():

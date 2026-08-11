@@ -41,6 +41,15 @@ from .load_image_x import (
     NODE_DISPLAY_NAME_MAPPINGS as LOAD_IMAGE_X_NODE_DISPLAY_NAME_MAPPINGS,
     register_routes as _register_load_image_x_routes_on_app,
 )
+from .save_video_x import (
+    NODE_CLASS_MAPPINGS as SAVE_VIDEO_X_NODE_CLASS_MAPPINGS,
+    NODE_DISPLAY_NAME_MAPPINGS as SAVE_VIDEO_X_NODE_DISPLAY_NAME_MAPPINGS,
+)
+from .image_processor_x import (
+    NODE_CLASS_MAPPINGS as IMAGE_PROCESSOR_X_NODE_CLASS_MAPPINGS,
+    NODE_DISPLAY_NAME_MAPPINGS as IMAGE_PROCESSOR_X_NODE_DISPLAY_NAME_MAPPINGS,
+    register_routes as _register_image_processor_x_routes_on_app,
+)
 
 WEB_DIRECTORY = "./web/js"
 DEBUG_LOG_ROUTE = "/workflowx_configurator/debug_log"
@@ -58,6 +67,8 @@ NODE_CLASS_MAPPINGS = {
     **NANOBANANA_NODE_CLASS_MAPPINGS,
     **REMOTE_IMAGE_API_NODE_CLASS_MAPPINGS,
     **LOAD_IMAGE_X_NODE_CLASS_MAPPINGS,
+    **SAVE_VIDEO_X_NODE_CLASS_MAPPINGS,
+    **IMAGE_PROCESSOR_X_NODE_CLASS_MAPPINGS,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -69,6 +80,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     **NANOBANANA_NODE_DISPLAY_NAME_MAPPINGS,
     **REMOTE_IMAGE_API_NODE_DISPLAY_NAME_MAPPINGS,
     **LOAD_IMAGE_X_NODE_DISPLAY_NAME_MAPPINGS,
+    **SAVE_VIDEO_X_NODE_DISPLAY_NAME_MAPPINGS,
+    **IMAGE_PROCESSOR_X_NODE_DISPLAY_NAME_MAPPINGS,
 }
 
 
@@ -415,5 +428,24 @@ def _register_load_image_x_routes() -> None:
 
 
 _register_load_image_x_routes()
+
+
+def _register_image_processor_x_routes() -> None:
+    try:
+        from server import PromptServer
+    except Exception as exc:
+        logger.warning("[Image ProcessorX] Could not import PromptServer: %s", exc)
+        return
+    prompt_server = getattr(PromptServer, "instance", None)
+    app = getattr(prompt_server, "app", None)
+    if prompt_server is None:
+        return
+    try:
+        _register_image_processor_x_routes_on_app(app)
+    except Exception as exc:
+        logger.warning("[Image ProcessorX] Could not register routes: %s", exc)
+
+
+_register_image_processor_x_routes()
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]

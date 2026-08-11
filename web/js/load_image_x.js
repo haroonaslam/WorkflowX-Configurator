@@ -18,7 +18,7 @@ const catalogCache = { items: null, etag: "", promise: null };
 const previewContextPatches = new WeakMap();
 let cssInstalled = false;
 
-function installCSS() {
+export function installLoadImageXBrowserCSS() {
   if (cssInstalled) return;
   cssInstalled = true;
   const style = document.createElement("style");
@@ -218,19 +218,21 @@ function ensureNativeCanvasPreviewPatched(node, attempt = 0) {
   }
 }
 
-function selectImage(node, imageWidget, item) {
+function selectImage(node, imageWidget, item, options = {}) {
   const values = imageWidget.options?.values || [];
   if (!values.includes(item.path)) {
     values.push(item.path);
     values.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
   }
+  options.beforeSelect?.(item);
   imageWidget.value = item.path;
   imageWidget.callback?.(item.path);
-  loadNodePreview(node, item);
+  options.onSelect?.(item);
+  if (options.loadNativePreview !== false) loadNodePreview(node, item);
   node.graph?.setDirtyCanvas?.(true, true);
 }
 
-function openPicker(node, imageWidget) {
+export function openLoadImageXPicker(node, imageWidget, options = {}) {
   document.querySelector(".workflowx-lix-overlay")?._workflowxClose?.();
 
   const overlay = document.createElement("div");
@@ -434,7 +436,7 @@ function openPicker(node, imageWidget) {
         setBatchSelection(item.path, !selectedPaths.has(item.path), cell, checkbox);
         return;
       }
-      selectImage(node, imageWidget, item);
+      selectImage(node, imageWidget, item, options);
       close();
     });
     if (imageObserver) imageObserver.observe(image);
@@ -538,12 +540,13 @@ function openPicker(node, imageWidget) {
 
       if (removedCurrent) {
         if (items.length) {
-          selectImage(node, imageWidget, items[0]);
+          selectImage(node, imageWidget, items[0], options);
         } else {
           node._workflowxLixPreviewRequest = (node._workflowxLixPreviewRequest | 0) + 1;
           imageWidget.value = "";
           imageWidget.callback?.("");
-          node.imgs = [];
+          if (options.loadNativePreview !== false) node.imgs = [];
+          options.onEmpty?.();
           node.setDirtyCanvas?.(true, true);
           node.graph?.setDirtyCanvas?.(true, true);
         }
@@ -602,14 +605,14 @@ app.registerExtension({
       const result = originalCreated?.apply(this, arguments);
       if (this._workflowxLoadImageXSetup) return result;
       this._workflowxLoadImageXSetup = true;
-      installCSS();
+      installLoadImageXBrowserCSS();
       queueMicrotask(() => {
         const imageWidget = this.widgets?.find((widget) => widget.name === "image");
         if (!imageWidget) return;
         const button = document.createElement("button");
         button.className = "workflowx-lix-button";
         button.textContent = "▧ Browse Thumbnails";
-        button.addEventListener("click", () => openPicker(this, imageWidget));
+        button.addEventListener("click", () => openLoadImageXPicker(this, imageWidget));
         this.addDOMWidget("workflowx_load_image_x_browse", "button", button, {
           getMinHeight: () => BROWSE_WIDGET_HEIGHT,
           getMaxHeight: () => BROWSE_WIDGET_HEIGHT,

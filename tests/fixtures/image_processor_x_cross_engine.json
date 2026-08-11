@@ -1,0 +1,47 @@
+{
+  "description": "Deterministic browser/Python Image ProcessorX adjustment and cubic-curve parity fixture.",
+  "width": 3,
+  "height": 3,
+  "amount": 0.73,
+  "seed": 4517,
+  "rgba": [
+    20, 70, 180, 255, 210, 105, 35, 255, 75, 165, 115, 255,
+    230, 198, 92, 255, 40, 128, 214, 255, 158, 56, 143, 255,
+    107, 31, 59, 255, 176, 224, 148, 255, 61, 97, 242, 255
+  ],
+  "adjustments": {
+    "brightness": 17,
+    "contrast": 23,
+    "exposure": -8,
+    "highlights": -14,
+    "shadows": 19,
+    "whites": 11,
+    "blacks": -9,
+    "saturation": 21,
+    "vibrance": 18,
+    "temperature": -12,
+    "tint": 7,
+    "hue": 31,
+    "sharpness": 16,
+    "clarity": 13,
+    "grain": 27,
+    "vignette": 22,
+    "fade": 9
+  },
+  "curve": {
+    "interpolation": "cubic",
+    "strength": 84,
+    "channels": {
+      "RGB": [[0, 4], [80, 92], [165, 182], [255, 249]],
+      "R": [[0, 0], [128, 149], [255, 255]],
+      "G": [[0, 2], [128, 112], [255, 255]],
+      "B": [[0, 7], [255, 244]]
+    }
+  },
+  "expectedRgba": [
+    97, 53, 229, 255, 211, 141, 16, 255, 67, 191, 176, 255,
+    214, 238, 82, 255, 114, 129, 237, 255, 227, 44, 125, 255,
+    150, 23, 35, 255, 176, 244, 187, 255, 162, 79, 242, 255
+  ],
+  "pixelTolerance": 1
+}

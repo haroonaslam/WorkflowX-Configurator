@@ -41,15 +41,23 @@ runtime = _load_runtime_module()
 class FakeFolderPaths:
     IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
 
-    def __init__(self, input_dir, user_dir=None):
+    def __init__(self, input_dir, user_dir=None, output_dir=None, temp_dir=None):
         self.input_dir = pathlib.Path(input_dir)
         self.user_dir = pathlib.Path(user_dir or input_dir / "user")
+        self.output_dir = pathlib.Path(output_dir or input_dir / "output")
+        self.temp_dir = pathlib.Path(temp_dir or input_dir / "temp")
 
     def get_input_directory(self):
         return str(self.input_dir)
 
     def get_user_directory(self):
         return str(self.user_dir)
+
+    def get_output_directory(self):
+        return str(self.output_dir)
+
+    def get_temp_directory(self):
+        return str(self.temp_dir)
 
     def filter_files_content_types(self, files, content_types):
         assert content_types == ["image"]
@@ -122,6 +130,27 @@ def test_catalog_rejects_traversal_and_symlink_escape(tmp_path):
     assert items == []
     with pytest.raises(ValueError):
         runtime.resolve_input_path("linked.png", fake)
+
+
+def test_execution_resolver_accepts_contained_comfy_annotations(tmp_path):
+    input_dir = tmp_path / "input"
+    output_dir = tmp_path / "output"
+    temp_dir = tmp_path / "temp"
+    for root in (input_dir, output_dir, temp_dir):
+        _save_rgb(root / "nested" / "image.png")
+    fake = FakeFolderPaths(input_dir, output_dir=output_dir, temp_dir=temp_dir)
+
+    assert runtime.resolve_annotated_image_path("nested/image.png", fake)[1] == (input_dir / "nested/image.png").resolve()
+    assert runtime.resolve_annotated_image_path("nested/image.png [input]", fake)[1] == (input_dir / "nested/image.png").resolve()
+    assert runtime.resolve_annotated_image_path("nested/image.png [output]", fake)[1] == (output_dir / "nested/image.png").resolve()
+    assert runtime.resolve_annotated_image_path("nested/image.png [temp]", fake)[1] == (temp_dir / "nested/image.png").resolve()
+
+
+def test_execution_resolver_rejects_annotation_traversal(tmp_path):
+    fake = FakeFolderPaths(tmp_path / "input", output_dir=tmp_path / "output", temp_dir=tmp_path / "temp")
+    for value in ("../escape.png [input]", "../escape.png [output]", "folder/../../escape.png [temp]", "C:/escape.png [output]"):
+        with pytest.raises(ValueError):
+            runtime.resolve_annotated_image_path(value, fake)
 
 
 def test_load_image_outputs_rgb_alpha_exif_and_multiframe(tmp_path, monkeypatch):

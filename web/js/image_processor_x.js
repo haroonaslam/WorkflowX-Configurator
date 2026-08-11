@@ -1,9 +1,17 @@
 import { app } from "../../scripts/app.js";
+import { api } from "../../scripts/api.js";
 
-const NODE_TYPE = "KVGC_ImageCompareEditX";
-const STATE_KEY = "workflowxImageCompareEditX";
-const SAVE_ROUTE = "/workflowx_configurator/image_compare_edit_x/save";
-const PREPARE_ROUTE = "/workflowx_configurator/image_compare_edit_x/prepare";
+const NODE_TYPE = "WorkflowX_ImageProcessorX";
+const STATE_KEY = "workflowxImageProcessorX";
+const PRESET_SCHEMA_VERSION = 1;
+const PRESET_USERDATA_DIR = "workflowx/image_processor_x/presets";
+const PRESET_LOCAL_STORAGE_KEY = "workflowx.image_processor_x.presets.v1";
+const SAVE_ROUTE = "/workflowx_configurator/image_processor_x/save";
+const PREPARE_ROUTE = "/workflowx_configurator/image_processor_x/prepare";
+const CONTINUE_ROUTE = "/workflowx_configurator/image_processor_x/continue";
+const CANCEL_ROUTE = "/workflowx_configurator/image_processor_x/cancel";
+const STATUS_ROUTE = "/workflowx_configurator/image_processor_x/status";
+const PAUSE_EVENT = "workflowx.image_processor_x.pause";
 
 const BRAND = "#3b82f6";
 const BUTTON_ACTIVE = "#3b82f6";
@@ -16,6 +24,7 @@ const MUTED = "#9aa3ad";
 const PAD = 8;
 const GAP = 4;
 const ROW_H = 20;
+const PORT_STRIP_H = ROW_H * 2 + GAP;
 const CONTROL_X = 104;
 const MIN_W = 540;
 const MIN_H = 300;
@@ -39,7 +48,7 @@ const SPLIT_MODES = [
 ];
 
 // Adjustment math and preset values are adapted from ComfyUI-Pixaroma's
-// MIT-licensed composer fx_engine.mjs so Image Compare Edit X remains
+// MIT-licensed composer fx_engine.mjs so Image ProcessorX remains
 // WorkflowX-owned while matching the familiar Pixaroma adjustment behavior.
 const NEUTRAL = {
   brightness: 0,
@@ -113,10 +122,11 @@ const CURVE_COLORS = {
 const MASK_COLORS = ["#f6b44b", "#5fa8ff", "#d96dff", "#ffcf4a", "#ff6f61"];
 
 const DEFAULTS = {
-  pair: "1-2",
-  mode: "show2",
-  sourceA: "2",
-  sourceB: "1",
+  schemaVersion: 1,
+  pair: "1-3",
+  mode: "show1",
+  sourceA: "1",
+  sourceB: "3",
   viewMode: "single",
   splitMode: "leftRight",
   layerOrder: "2over1",
@@ -151,6 +161,7 @@ const DEFAULTS = {
   editorPanY: 0,
   performanceMode: "fast",
   beforePreview: false,
+  hasImage2: false,
   layoutVersion: 3,
 };
 
@@ -733,16 +744,175 @@ function applyLayerAdjustmentsToImageData(id, width, height, layer, seed = 4517)
   return id;
 }
 
-function getState(node) {
-  if (node.__wfxIce) return node.__wfxIce;
-  const saved = node.properties?.[STATE_KEY] || {};
+function findWidget(node, name) {
+  return node.widgets?.find((widget) => widget.name === name) || null;
+}
+
+function readProcessorWidget(node) {
+  const raw = findWidget(node, "processor_state")?.value;
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+  } catch (_err) {
+    return null;
+  }
+}
+
+function readSavedEditorState(node) {
+  const widgetState = readProcessorWidget(node);
+  const propertyState = node.properties?.[STATE_KEY];
+  const propertyObject = propertyState && typeof propertyState === "object" && !Array.isArray(propertyState) ? propertyState : null;
+  const widgetHasState = widgetState && Object.keys(widgetState).some((key) => key !== "schemaVersion");
+  const propertyHasState = propertyObject && Object.keys(propertyObject).some((key) => key !== "schemaVersion");
+  if (widgetHasState || !propertyHasState) return widgetState || propertyObject || {};
+  return propertyObject;
+}
+
+function operationMode(node) {
+  return findWidget(node, "operation_mode")?.value === "Pause" ? "Pause" : "Continue";
+}
+
+function selectedOutput(node) {
+  const value = findWidget(node, "output_image")?.value;
+  return value === "O2" || value === "O3" ? value : "O1";
+}
+
+function normalizeSerializedEditorState(saved = {}) {
   const state = {
     ...cloneDefaults(),
-    ...saved,
-    brush: { ...DEFAULTS.brush, ...(saved.brush || {}) },
-    adjustments: mergeAdjustments(saved.adjustments),
-    adjustmentLayers: normalizeAdjustmentLayers(saved, DEFAULTS),
-    images: Array.isArray(saved.images) ? saved.images.slice(0, 2) : [],
+    ...(saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {}),
+    brush: { ...DEFAULTS.brush, ...(saved?.brush || {}) },
+    adjustments: mergeAdjustments(saved?.adjustments),
+    adjustmentLayers: normalizeAdjustmentLayers(saved || {}, DEFAULTS),
+    images: Array.isArray(saved?.images) ? saved.images.slice(0, 2) : [],
+  };
+  state.schemaVersion = 1;
+  migrateCompactState(state, saved || {});
+  state.layerOrder = state.layerOrder === "1over2" ? "1over2" : "2over1";
+  state.topOpacity = clamp01(safeNumber(state.topOpacity, DEFAULTS.topOpacity));
+  state.splitX = clamp01(safeNumber(state.splitX, DEFAULTS.splitX));
+  state.splitY = clamp01(safeNumber(state.splitY, DEFAULTS.splitY));
+  state.tool = ["brush", "eraser", "pan"].includes(state.tool) ? state.tool : DEFAULTS.tool;
+  state.brushTarget = state.brushTarget === "adjustment" ? "adjustment" : "blend";
+  state.maskPreviewEnabled = saved?.maskPreviewEnabled == null ? saved?.showMask !== false : saved.maskPreviewEnabled !== false;
+  state.showMask = state.maskPreviewEnabled;
+  state.maskPreviewMode = state.maskPreviewMode === "all" ? "all" : "selected";
+  state.blendMaskVisible = state.blendMaskVisible !== false;
+  state.brush = {
+    size: clamp(safeNumber(state.brush.size, DEFAULTS.brush.size), 1, 300),
+    hardness: clamp01(safeNumber(state.brush.hardness, DEFAULTS.brush.hardness)),
+    softness: clamp01(safeNumber(state.brush.softness, DEFAULTS.brush.softness)),
+    feather: clamp01(safeNumber(state.brush.feather, DEFAULTS.brush.feather)),
+    opacity: clamp01(safeNumber(state.brush.opacity, DEFAULTS.brush.opacity)),
+    flow: clamp(safeNumber(state.brush.flow, DEFAULTS.brush.flow), 0.01, 1),
+  };
+  state.maskData = typeof state.maskData === "string" ? state.maskData : "";
+  state.selectedAdjustmentLayerId =
+    state.adjustmentLayers.find((layer) => layer.id === saved?.selectedAdjustmentLayerId)?.id ||
+    state.adjustmentLayers[0]?.id ||
+    "";
+  for (const layer of state.adjustmentLayers) layer.maskVisible = layer.maskVisible !== false;
+  state.editorZoom = clamp(safeNumber(state.editorZoom, DEFAULTS.editorZoom), 0.1, 12);
+  state.editorPanX = safeNumber(state.editorPanX, DEFAULTS.editorPanX);
+  state.editorPanY = safeNumber(state.editorPanY, DEFAULTS.editorPanY);
+  state.performanceMode = state.performanceMode === "quality" ? "quality" : "fast";
+  state.beforePreview = state.beforePreview === true;
+  state.hasImage2 = saved?.hasImage2 === true || state.images.length > 1;
+  state.layoutVersion = safeNumber(state.layoutVersion, 0);
+  syncLegacyAdjustmentState(state);
+  return state;
+}
+
+function captureLiveMaskData(s) {
+  if (s.maskCanvas) s.maskData = s.maskCanvas.toDataURL("image/png");
+  for (const layer of s.adjustmentLayers || []) {
+    if (layer.maskCanvas) layer.maskData = layer.maskCanvas.toDataURL("image/png");
+  }
+  syncLegacyAdjustmentState(s);
+}
+
+function serializeEditorState(s, options = {}) {
+  const includeImages = options.includeImages !== false;
+  const captureMasks = options.captureMasks !== false;
+  syncLegacyState(s);
+  if (captureMasks) captureLiveMaskData(s);
+  else syncLegacyAdjustmentState(s);
+  const selectedLayer = selectedAdjustmentLayer(s);
+  const payload = {
+    schemaVersion: 1,
+    pair: s.pair,
+    mode: s.mode,
+    sourceA: s.sourceA,
+    sourceB: s.sourceB,
+    viewMode: s.viewMode,
+    splitMode: s.splitMode,
+    layerOrder: s.layerOrder,
+    topOpacity: s.topOpacity,
+    splitX: s.splitX,
+    splitY: s.splitY,
+    tool: s.tool,
+    brushTarget: s.brushTarget,
+    showMask: s.maskPreviewEnabled !== false,
+    maskPreviewEnabled: s.maskPreviewEnabled !== false,
+    maskPreviewMode: s.maskPreviewMode === "all" ? "all" : "selected",
+    blendMaskVisible: s.blendMaskVisible !== false,
+    brush: { ...s.brush },
+    adjustments: mergeAdjustments(s.adjustments),
+    adjustmentPreset: s.adjustmentPreset,
+    adjustmentAmount: s.adjustmentAmount,
+    adjustmentMode: s.adjustmentMode === "brush" ? "brush" : "global",
+    adjustmentLayers: (s.adjustmentLayers || []).map((layer) => serializeAdjustmentLayer(layer, false)),
+    selectedAdjustmentLayerId: selectedLayer?.id || "",
+    maskData: s.maskData || "",
+    adjustmentBrushData: s.adjustmentBrushData || "",
+    editorZoom: s.editorZoom,
+    editorPanX: s.editorPanX,
+    editorPanY: s.editorPanY,
+    performanceMode: s.performanceMode === "quality" ? "quality" : "fast",
+    beforePreview: s.beforePreview === true,
+    layoutVersion: 3,
+  };
+  if (includeImages) {
+    payload.images = Array.isArray(s.images) ? s.images.slice(0, 2) : [];
+    payload.hasImage2 = s.hasImage2 === true;
+  }
+  return payload;
+}
+
+function restoreSerializedEditorState(s, saved) {
+  const restored = normalizeSerializedEditorState(saved);
+  for (const key of [
+    "schemaVersion", "pair", "mode", "sourceA", "sourceB", "viewMode", "splitMode", "layerOrder", "topOpacity",
+    "splitX", "splitY", "tool", "brushTarget", "showMask", "maskPreviewEnabled", "maskPreviewMode", "blendMaskVisible",
+    "brush", "adjustments", "adjustmentPreset", "adjustmentAmount", "adjustmentMode", "adjustmentLayers",
+    "selectedAdjustmentLayerId", "maskData", "adjustmentBrushData", "editorZoom", "editorPanX", "editorPanY",
+    "performanceMode", "beforePreview", "layoutVersion",
+  ]) s[key] = restored[key];
+  s.maskCanvas = null;
+  s.maskKey = "";
+  for (const layer of s.adjustmentLayers) {
+    layer.maskCanvas = null;
+    layer.maskKey = "";
+  }
+  syncLegacyState(s);
+  syncLegacyAdjustmentState(s);
+  invalidateRenderCache(s);
+}
+
+function setNativeWidget(node, name, value) {
+  const widget = findWidget(node, name);
+  if (!widget) return;
+  widget.value = value;
+  widget.callback?.(value);
+}
+
+function getState(node) {
+  if (node.__wfxIpx) return node.__wfxIpx;
+  const saved = readSavedEditorState(node);
+  const persisted = normalizeSerializedEditorState(saved);
+  const state = {
+    ...persisted,
     img1: null,
     img2: null,
     maskCanvas: null,
@@ -768,67 +938,22 @@ function getState(node) {
     toast: "",
     toastTimer: null,
     editor: null,
-    layoutVersion: saved.layoutVersion || 0,
+    pendingRequest: null,
+    pauseStatus: "idle",
+    hasImage2: persisted.hasImage2,
+    layoutVersion: persisted.layoutVersion,
   };
-  migrateCompactState(state, saved);
-  state.brushTarget = state.brushTarget === "adjustment" ? "adjustment" : "blend";
-  state.selectedAdjustmentLayerId =
-    state.adjustmentLayers.find((layer) => layer.id === saved.selectedAdjustmentLayerId)?.id ||
-    state.adjustmentLayers[0]?.id ||
-    "";
-  state.performanceMode = state.performanceMode === "quality" ? "quality" : "fast";
-  state.maskPreviewEnabled = saved.maskPreviewEnabled == null ? saved.showMask !== false : saved.maskPreviewEnabled !== false;
-  state.showMask = state.maskPreviewEnabled;
-  state.maskPreviewMode = state.maskPreviewMode === "all" ? "all" : "selected";
-  state.blendMaskVisible = state.blendMaskVisible !== false;
-  for (const layer of state.adjustmentLayers) layer.maskVisible = layer.maskVisible !== false;
-  syncLegacyAdjustmentState(state);
-  node.__wfxIce = state;
-  return node.__wfxIce;
+  node.__wfxIpx = state;
+  return node.__wfxIpx;
 }
 
-function persist(node, includeMask = false) {
+function persist(node, captureMasks = true) {
   const s = getState(node);
-  syncLegacyState(s);
-  syncLegacyAdjustmentState(s);
-  const adjustmentLayers = s.adjustmentLayers.map((layer) => serializeAdjustmentLayer(layer, includeMask));
-  const selectedLayer = selectedAdjustmentLayer(s);
-  const selectedSerializedLayer = selectedLayer ? adjustmentLayers.find((layer) => layer.id === selectedLayer.id) : null;
-  if (selectedSerializedLayer) s.adjustmentBrushData = selectedSerializedLayer.maskData || "";
+  const payload = serializeEditorState(s, { includeImages: true, captureMasks });
   node.properties = node.properties || {};
-  node.properties[STATE_KEY] = {
-    pair: s.pair,
-    mode: s.mode,
-    sourceA: s.sourceA,
-    sourceB: s.sourceB,
-    viewMode: s.viewMode,
-    splitMode: s.splitMode,
-    layerOrder: s.layerOrder,
-    topOpacity: s.topOpacity,
-    splitX: s.splitX,
-    splitY: s.splitY,
-    tool: s.tool,
-    brushTarget: s.brushTarget,
-    showMask: s.maskPreviewEnabled !== false,
-    maskPreviewEnabled: s.maskPreviewEnabled !== false,
-    maskPreviewMode: s.maskPreviewMode === "all" ? "all" : "selected",
-    blendMaskVisible: s.blendMaskVisible !== false,
-    brush: { ...s.brush },
-    adjustments: mergeAdjustments(s.adjustments),
-    adjustmentPreset: s.adjustmentPreset,
-    adjustmentAmount: s.adjustmentAmount,
-    adjustmentMode: s.adjustmentMode === "brush" ? "brush" : "global",
-    adjustmentLayers,
-    selectedAdjustmentLayerId: selectedLayer?.id || "",
-    maskData: includeMask && s.maskCanvas ? s.maskCanvas.toDataURL("image/png") : s.maskData || "",
-    adjustmentBrushData: s.adjustmentBrushData || "",
-    images: s.images || [],
-    editorZoom: s.editorZoom,
-    editorPanX: s.editorPanX,
-    editorPanY: s.editorPanY,
-    performanceMode: s.performanceMode === "quality" ? "quality" : "fast",
-    layoutVersion: 3,
-  };
+  node.properties[STATE_KEY] = payload;
+  const processorWidget = findWidget(node, "processor_state");
+  if (processorWidget) processorWidget.value = JSON.stringify(payload);
 }
 
 function dirty(node) {
@@ -1083,6 +1208,17 @@ function previewScaleFor(size, options = {}) {
 }
 
 function composeBaseComposite(s, options = {}) {
+  if (s.img1 && !s.img2) {
+    const size = { w: imageW(s.img1), h: imageH(s.img1) };
+    const scale = previewScaleFor(size, options);
+    const scaleKey = options.preview ? "preview" : "full";
+    const cacheKey = `baseComposite:single:${scaleKey}`;
+    const cached = cachedCanvas(s, cacheKey);
+    if (cached) return cached;
+    const out = workingCanvas(s, cacheKey, Math.max(1, Math.round(size.w * scale)), Math.max(1, Math.round(size.h * scale)));
+    out.getContext("2d", { willReadFrequently: true }).drawImage(s.img1, 0, 0, out.width, out.height);
+    return storeCachedCanvas(s, cacheKey, out);
+  }
   const { top, under } = layers(s);
   const size = outputSize(s);
   const scale = previewScaleFor(size, options);
@@ -1189,12 +1325,12 @@ function buttonRowWidth(items) {
   return items.reduce((total, item) => total + (item.width || 72), 0) + GAP * Math.max(0, items.length - 1);
 }
 
-function rowButtons(ctx, node, y, items, activeTest, x = PAD, width = node.size[0] - PAD * 2) {
+function rowButtons(ctx, node, y, items, activeTest, x = PAD, width = node.size[0] - PAD * 2, fillAvailable = false) {
   const s = getState(node);
   const available = Math.max(1, width - GAP * (items.length - 1));
   const hasWidths = items.some((item) => item.width);
   const naturalTotal = hasWidths ? items.reduce((total, item) => total + (item.width || 72), 0) : available;
-  const scale = hasWidths ? Math.min(1, available / Math.max(1, naturalTotal)) : 1;
+  const scale = hasWidths ? (fillAvailable ? available / Math.max(1, naturalTotal) : Math.min(1, available / Math.max(1, naturalTotal))) : 1;
   const defaultW = Math.floor(available / items.length);
   let bx = x;
   for (const item of items) {
@@ -1256,7 +1392,7 @@ function drawSourceRow(ctx, node, y) {
   const controlW = Math.max(1, node.size[0] - CONTROL_X - PAD);
   const editorW = 64;
   const swapW = 28;
-  const selectW = Math.max(1, Math.min(148, Math.floor((controlW - editorW - swapW - GAP * 3) / 2)));
+  const selectW = Math.max(1, Math.floor((controlW - editorW - swapW - GAP * 3) / 2));
   let x = CONTROL_X;
   drawDropdown(ctx, node, y, "sourceA", "A", x, selectW);
   x += selectW + GAP;
@@ -1289,18 +1425,17 @@ function drawModeRow(ctx, node, y) {
     label,
     action: "viewMode",
     value,
-    width: value === "difference" ? 96 : value === "overlay" ? 82 : 72,
     tooltip: modeTips[value],
   }));
   if (s.viewMode !== "split") {
-    rowButtons(ctx, node, y, modeItems, (item) => s.viewMode === item.value, CONTROL_X, Math.min(controlW, buttonRowWidth(modeItems)));
+    rowButtons(ctx, node, y, modeItems, (item) => s.viewMode === item.value, CONTROL_X, controlW);
     return;
   }
 
   const compactModeItems = modeItems.map((item) => ({
     ...item,
     label: item.value === "difference" ? "Diff" : item.label,
-    width: item.value === "difference" ? 52 : item.value === "overlay" ? 66 : item.value === "single" ? 62 : 56,
+    width: 60,
   }));
   const splitItems = SPLIT_MODES.map(([value], index) => ({
     label: ["L/R", "R/L", "T/B"][index],
@@ -1309,9 +1444,11 @@ function drawModeRow(ctx, node, y) {
     width: 42,
     tooltip: splitTips[value],
   }));
-  const splitW = buttonRowWidth(splitItems);
-  const modeW = Math.min(buttonRowWidth(compactModeItems), Math.max(1, controlW - splitW - GAP));
-  rowButtons(ctx, node, y, compactModeItems, (item) => s.viewMode === item.value, CONTROL_X, modeW);
+  const naturalModeW = buttonRowWidth(compactModeItems);
+  const naturalSplitW = buttonRowWidth(splitItems);
+  const modeW = Math.max(1, Math.floor((controlW - GAP) * naturalModeW / Math.max(1, naturalModeW + naturalSplitW)));
+  const splitW = Math.max(1, controlW - modeW - GAP);
+  rowButtons(ctx, node, y, compactModeItems, (item) => s.viewMode === item.value, CONTROL_X, modeW, true);
   rowButtons(
     ctx,
     node,
@@ -1319,7 +1456,8 @@ function drawModeRow(ctx, node, y) {
     splitItems,
     (item) => s.splitMode === item.value,
     CONTROL_X + modeW + GAP,
-    Math.min(splitW, Math.max(1, controlW - modeW - GAP)),
+    splitW,
+    true,
   );
 }
 
@@ -1347,19 +1485,20 @@ function drawOpenDropdown(ctx, node) {
       ctx.fillStyle = "rgba(59,130,246,.24)";
       ctx.fill();
     }
-    ctx.fillStyle = active ? "#fff" : "#dce2e8";
+    const unavailable = value === "2" && !s.hasImage2;
+    ctx.fillStyle = unavailable ? "#69717a" : active ? "#fff" : "#dce2e8";
     ctx.font = "11px Segoe UI, Arial, sans-serif";
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
-    ctx.fillText(label, rect.x + 9, rect.y + rect.h / 2);
-    addRect(s, "selectSource", rect, { field, value }, `Use ${label} as ${field === "sourceA" ? "Source A" : "Source B"}.`);
+    ctx.fillText(unavailable ? `${label} (unavailable)` : label, rect.x + 9, rect.y + rect.h / 2);
+    if (!unavailable) addRect(s, "selectSource", rect, { field, value }, `Use ${label} as ${field === "sourceA" ? "Source A" : "Source B"}.`);
   });
   ctx.restore();
 }
 
 function toolbarHeight(s) {
-  const rows = s.viewMode === "overlay" ? 4 : 3;
-  return PAD + rows * ROW_H + (rows - 1) * GAP + GAP;
+  const rows = s.viewMode === "overlay" ? 5 : 4;
+  return PAD + PORT_STRIP_H + rows * ROW_H + (rows - 1) * GAP + GAP;
 }
 
 function imageBox(node) {
@@ -1527,11 +1666,11 @@ function drawTooltip(ctx, node) {
   ctx.restore();
 }
 
-function drawDimChip(ctx, x, y, number, text, warn = false) {
+function drawDimChip(ctx, x, y, number, text, warn = false, width = null) {
   if (!text) return;
   ctx.save();
   ctx.font = "11px Segoe UI, Arial, sans-serif";
-  const w = Math.max(88, ctx.measureText(text).width + 35);
+  const w = width || Math.max(88, ctx.measureText(text).width + 35);
   roundRect(ctx, x, y, w, 20, 6);
   ctx.fillStyle = "rgba(10,12,14,.50)";
   ctx.strokeStyle = warn ? "#8d5f30" : "#2d343b";
@@ -1592,15 +1731,12 @@ function drawStageMeta(ctx, s, box, al, bl) {
         [al, sizeText(sourceSize(s, al))],
         [bl, sizeText(sourceSize(s, bl))],
       ];
-  let x = box.x + box.w - 8;
-  for (let i = chips.length - 1; i >= 0; i -= 1) {
-    const [key, text] = chips[i];
-    if (!text) continue;
-    const w = dimChipWidth(ctx, text);
-    x -= w;
-    drawDimChip(ctx, x, box.y + 8, key, text, warn);
-    x -= GAP;
-  }
+  const visibleChips = chips.filter(([, text]) => text);
+  const chipW = visibleChips.reduce((width, [, text]) => Math.max(width, dimChipWidth(ctx, text)), 0);
+  const chipX = box.x + box.w - 8 - chipW;
+  visibleChips.forEach(([key, text], index) => {
+    drawDimChip(ctx, chipX, box.y + 8 + index * (ROW_H + GAP), key, text, warn, chipW);
+  });
   ctx.restore();
 }
 
@@ -1642,6 +1778,123 @@ function drawOpacityControl(ctx, node, y) {
   addRect(s, "opacitySlider", { x: trackX - 8, y: y - 2, w: trackW + 16, h: ROW_H + 4 }, null, "Adjust overlay opacity.");
 }
 
+async function postWorkflowAction(node, route, body = {}) {
+  const response = await api.fetchApi(route, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  let data = {};
+  try {
+    data = await response.json();
+  } catch (_err) {
+    data = {};
+  }
+  if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+  return data;
+}
+
+async function continuePausedWorkflow(node) {
+  const s = getState(node);
+  if (!s.pendingRequest) return flash(node, "Not paused");
+  persist(node, true);
+  try {
+    await postWorkflowAction(node, CONTINUE_ROUTE, {
+      request_id: s.pendingRequest.request_id,
+      node_id: String(node.id),
+      output_image: selectedOutput(node),
+      processor_state: findWidget(node, "processor_state")?.value || '{"schemaVersion":1}',
+    });
+    s.pauseStatus = "continuing";
+    s.pendingRequest = null;
+    flash(node, "Continuing workflow");
+  } catch (err) {
+    console.warn("[WorkflowX] Image ProcessorX continue failed:", err);
+    flash(node, err?.message || "Continue failed");
+  }
+  dirty(node);
+}
+
+async function cancelPausedWorkflow(node) {
+  const s = getState(node);
+  if (!s.pendingRequest) return flash(node, "Not paused");
+  try {
+    await postWorkflowAction(node, CANCEL_ROUTE, {
+      request_id: s.pendingRequest.request_id,
+      node_id: String(node.id),
+    });
+    s.pauseStatus = "cancelled";
+    s.pendingRequest = null;
+    flash(node, "Workflow cancelled");
+  } catch (err) {
+    console.warn("[WorkflowX] Image ProcessorX cancel failed:", err);
+    flash(node, err?.message || "Cancel failed");
+  }
+  dirty(node);
+}
+
+function applyPausePayload(node, payload) {
+  const s = getState(node);
+  persist(node, true);
+  s.pendingRequest = payload;
+  s.pauseStatus = "paused";
+  s.hasImage2 = payload.has_image2 === true;
+  s.images = Array.isArray(payload.images) ? payload.images.slice(0, 2) : [];
+  s.img1 = null;
+  s.img2 = null;
+  if (s.images[0]) loadImage(node, s.images[0], 1);
+  if (s.images[1]) loadImage(node, s.images[1], 2);
+  persist(node, false);
+  flash(node, "Paused - edit or continue");
+  dirty(node);
+}
+
+async function restorePendingSession(node) {
+  if (node.id == null) return;
+  try {
+    const response = await api.fetchApi(`${STATUS_ROUTE}?node_id=${encodeURIComponent(String(node.id))}`);
+    if (!response.ok) return;
+    const data = await response.json();
+    const pending = Array.isArray(data.pending) ? data.pending[0] : null;
+    if (pending) applyPausePayload(node, pending);
+  } catch (_err) {
+    // A status miss is normal when the node is idle or ComfyUI is still starting.
+  }
+}
+
+function drawWorkflowRow(ctx, node, y) {
+  const s = getState(node);
+  const controlW = Math.max(1, node.size[0] - CONTROL_X - PAD);
+  ctx.save();
+  ctx.fillStyle = s.pauseStatus === "paused" ? AMBER : "#aab2bb";
+  ctx.font = "11px Segoe UI, Arial, sans-serif";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillText(s.pauseStatus === "paused" ? "Paused" : "Workflow", PAD, y + ROW_H / 2);
+  ctx.restore();
+  const pending = !!s.pendingRequest;
+  const currentOutput = selectedOutput(node);
+  const items = [
+    { label: "Continue", action: "operationMode", value: "Continue", width: 58, tooltip: "Process the selected output without pausing." },
+    { label: "Pause", action: "operationMode", value: "Pause", width: 58, tooltip: "Pause this node until Continue or Cancel is pressed." },
+    { label: "O1", action: "outputImage", value: "O1", width: 34, tooltip: "Pass the original image1 tensor." },
+    { label: currentOutput === "O2" && !s.hasImage2 ? "O2!" : "O2", action: "outputImage", value: "O2", width: 34, disabled: !s.hasImage2 && currentOutput !== "O2", tooltip: "Pass image2. Requires image2 to be connected." },
+    { label: "O3", action: "outputImage", value: "O3", width: 34, tooltip: "Pass the Python-rendered processed image." },
+    { label: "Resume", action: "continueWorkflow", width: 58, disabled: !pending, tooltip: "Submit the latest editor state and resume the paused workflow." },
+    { label: "Cancel", action: "cancelWorkflow", width: 58, disabled: !pending, tooltip: "Cancel the paused Image ProcessorX execution." },
+  ];
+  rowButtons(
+    ctx,
+    node,
+    y,
+    items,
+    (item) => (item.action === "operationMode" && operationMode(node) === item.value) || (item.action === "outputImage" && currentOutput === item.value),
+    CONTROL_X,
+    controlW,
+    true,
+  );
+}
+
 function drawNode(ctx, node) {
   const s = getState(node);
   s.rects = [];
@@ -1654,26 +1907,32 @@ function drawNode(ctx, node) {
   ctx.fillRect(0, 0, width, node.size[1]);
 
   const controlW = Math.max(1, width - CONTROL_X - PAD);
+  const toolbarY = PAD + PORT_STRIP_H;
 
-  drawSourceRow(ctx, node, PAD);
-  drawModeRow(ctx, node, PAD + ROW_H + GAP);
+  drawWorkflowRow(ctx, node, toolbarY);
+  drawSourceRow(ctx, node, toolbarY + ROW_H + GAP);
+  drawModeRow(ctx, node, toolbarY + (ROW_H + GAP) * 2);
 
+  const saveItems = [
+    { label: `Save D${which}`, action: "saveD", tooltip: `Download Image ${which} through the browser save dialog.` },
+    { label: `Save O${which}`, action: "saveO", tooltip: `Save Image ${which} to the ComfyUI output folder with workflow metadata.` },
+    { label: `Copy ${which}`, action: "copy", tooltip: `Copy Image ${which} to the clipboard.` },
+  ];
+  const modeColumnW = Math.max(1, Math.floor((controlW - GAP * 3) / 4));
+  const saveRowW = modeColumnW * saveItems.length + GAP * (saveItems.length - 1);
+  const saveRowX = CONTROL_X + Math.floor((controlW - saveRowW) / 2);
   rowButtons(
     ctx,
     node,
-    PAD + (ROW_H + GAP) * 2,
-    [
-      { label: `Save D${which}`, action: "saveD", tooltip: `Download Image ${which} through the browser save dialog.` },
-      { label: `Save O${which}`, action: "saveO", tooltip: `Save Image ${which} to the ComfyUI output folder with workflow metadata.` },
-      { label: `Copy ${which}`, action: "copy", tooltip: `Copy Image ${which} to the clipboard.` },
-    ],
+    toolbarY + (ROW_H + GAP) * 3,
+    saveItems,
     () => false,
-    CONTROL_X,
-    controlW,
+    saveRowX,
+    saveRowW,
   );
 
   if (s.viewMode === "overlay") {
-    drawOpacityControl(ctx, node, PAD + (ROW_H + GAP) * 3);
+    drawOpacityControl(ctx, node, toolbarY + (ROW_H + GAP) * 4);
   }
 
   drawCompare(ctx, node, imageBox(node));
@@ -1695,7 +1954,7 @@ function drawNodeFallback(ctx, node, err) {
   ctx.font = "12px Segoe UI, Arial, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText("Image Compare Edit X draw error - hard refresh after update", width / 2, height / 2 - 8);
+  ctx.fillText("Image ProcessorX draw error - hard refresh after update", width / 2, height / 2 - 8);
   ctx.fillStyle = "#9aa3ad";
   ctx.fillText(String(err?.message || err || "unknown error").slice(0, 120), width / 2, height / 2 + 14);
   ctx.restore();
@@ -1741,20 +2000,21 @@ async function copyImage(node, which) {
     await navigator.clipboard.write([new ClipboardItem({ "image/png": dataUrlToBlob(url) })]);
     flash(node, `Copied ${which}`);
   } catch (err) {
-    console.warn("[WorkflowX] Image Compare Edit X copy failed:", err);
+    console.warn("[WorkflowX] Image ProcessorX copy failed:", err);
     flash(node, "Copy failed");
   }
 }
 
 async function saveImage(node, which, toDisk) {
   try {
+    persist(node, true);
     const image_b64 = await dataUrlFor(node, which);
     if (!image_b64) return flash(node, "Run first");
     const { workflow, prompt } = await graphMeta();
     const resp = await fetch(toDisk ? PREPARE_ROUTE : SAVE_ROUTE, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ image_b64, filename_prefix: `ImageCompareEditX_${which}`, workflow, prompt }),
+      body: JSON.stringify({ image_b64, filename_prefix: `ImageProcessorX_${which}`, workflow, prompt }),
     });
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) return flash(node, "Save failed");
@@ -1763,7 +2023,7 @@ async function saveImage(node, which, toDisk) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = data.suggested_filename || `ImageCompareEditX_${which}.png`;
+      a.download = data.suggested_filename || `ImageProcessorX_${which}.png`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -1771,23 +2031,131 @@ async function saveImage(node, which, toDisk) {
     }
     flash(node, toDisk ? `Saved D${which}` : `Saved O${which}`);
   } catch (err) {
-    console.warn("[WorkflowX] Image Compare Edit X save failed:", err);
+    console.warn("[WorkflowX] Image ProcessorX save failed:", err);
     flash(node, "Save failed");
   }
 }
 
-function editorSnapshot(s) {
-  const layer = selectedAdjustmentLayer(s);
+function safePresetName(value) {
+  return String(value || "")
+    .replace(/[\\/:*?"<>|]+/g, "_")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 80);
+}
+
+function presetUserDataFile(name) {
+  return `${PRESET_USERDATA_DIR}/${safePresetName(name)}.json`;
+}
+
+function readLocalPresetMap() {
+  try {
+    const parsed = JSON.parse(window.localStorage?.getItem(PRESET_LOCAL_STORAGE_KEY) || "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch (_err) {
+    return {};
+  }
+}
+
+function writeLocalPresetMap(presets) {
+  window.localStorage?.setItem(PRESET_LOCAL_STORAGE_KEY, JSON.stringify(presets || {}));
+}
+
+function parseEditorPreset(value) {
+  let parsed = value;
+  if (typeof parsed === "string") parsed = JSON.parse(parsed);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Preset must be a JSON object");
+  if (parsed.presetSchemaVersion !== PRESET_SCHEMA_VERSION) throw new Error(`Unsupported preset version ${parsed.presetSchemaVersion ?? "missing"}`);
+  if (!parsed.editorState || typeof parsed.editorState !== "object" || Array.isArray(parsed.editorState)) throw new Error("Preset editor state is missing");
   return {
-    layerOrder: s.layerOrder,
-    topOpacity: s.topOpacity,
-    maskPreviewEnabled: s.maskPreviewEnabled !== false,
-    maskPreviewMode: s.maskPreviewMode === "all" ? "all" : "selected",
-    blendMaskVisible: s.blendMaskVisible !== false,
-    maskData: s.maskCanvas ? s.maskCanvas.toDataURL("image/png") : s.maskData || "",
-    adjustmentLayers: s.adjustmentLayers.map((layer) => serializeAdjustmentLayer(layer)),
-    selectedAdjustmentLayerId: layer?.id || "",
+    presetSchemaVersion: PRESET_SCHEMA_VERSION,
+    name: safePresetName(parsed.name),
+    savedAt: typeof parsed.savedAt === "string" ? parsed.savedAt : "",
+    editorState: serializeEditorState(normalizeSerializedEditorState(parsed.editorState), { includeImages: false, captureMasks: false }),
   };
+}
+
+function createEditorPreset(name, s) {
+  return {
+    presetSchemaVersion: PRESET_SCHEMA_VERSION,
+    name: safePresetName(name),
+    savedAt: new Date().toISOString(),
+    editorState: serializeEditorState(s, { includeImages: false, captureMasks: true }),
+  };
+}
+
+async function listEditorPresetNames() {
+  try {
+    if (!app.api?.listUserDataFullInfo) throw new Error("userdata unavailable");
+    const items = await app.api.listUserDataFullInfo(PRESET_USERDATA_DIR);
+    if (!Array.isArray(items)) throw new Error("userdata listing unavailable");
+    const userNames = items
+      .map((item) => String(item?.path || "").split(/[\\/]/).pop() || "")
+      .filter((file) => /\.json$/i.test(file))
+      .map((file) => file.replace(/\.json$/i, ""))
+      .filter(Boolean);
+    return [...new Set([...userNames, ...Object.keys(readLocalPresetMap())])].sort((a, b) => a.localeCompare(b));
+  } catch (_err) {
+    return Object.keys(readLocalPresetMap()).sort((a, b) => a.localeCompare(b));
+  }
+}
+
+async function loadEditorPreset(name) {
+  const safeName = safePresetName(name);
+  if (!safeName) throw new Error("Select a preset first");
+  try {
+    if (!app.api?.getUserData) throw new Error("userdata unavailable");
+    const response = await app.api.getUserData(presetUserDataFile(safeName));
+    if (!response || response.status !== 200) throw new Error("Preset not found");
+    return parseEditorPreset(await response.text());
+  } catch (userdataError) {
+    const fallback = readLocalPresetMap()[safeName];
+    if (!fallback) throw userdataError;
+    return parseEditorPreset(fallback);
+  }
+}
+
+async function saveEditorPreset(name, s) {
+  const safeName = safePresetName(name);
+  if (!safeName) throw new Error("Preset name is required");
+  const preset = createEditorPreset(safeName, s);
+  const text = JSON.stringify(preset, null, 2);
+  try {
+    if (!app.api?.storeUserData) throw new Error("userdata unavailable");
+    await app.api.storeUserData(presetUserDataFile(safeName), text, {
+      overwrite: true,
+      stringify: false,
+      throwOnError: true,
+    });
+    const fallback = readLocalPresetMap();
+    if (fallback[safeName]) {
+      delete fallback[safeName];
+      writeLocalPresetMap(fallback);
+    }
+  } catch (_err) {
+    const fallback = readLocalPresetMap();
+    fallback[safeName] = preset;
+    writeLocalPresetMap(fallback);
+  }
+  return preset;
+}
+
+async function deleteEditorPreset(name) {
+  const safeName = safePresetName(name);
+  if (!safeName) throw new Error("Select a preset first");
+  try {
+    if (!app.api?.deleteUserData) throw new Error("userdata unavailable");
+    await app.api.deleteUserData(presetUserDataFile(safeName));
+  } catch (_err) {
+    // The browser fallback is removed below even if userdata is unavailable.
+  }
+  const fallback = readLocalPresetMap();
+  delete fallback[safeName];
+  writeLocalPresetMap(fallback);
+}
+
+function editorSnapshot(s) {
+  return serializeEditorState(s, { includeImages: false, captureMasks: true });
 }
 
 function pushUndo(s) {
@@ -1798,21 +2166,7 @@ function pushUndo(s) {
 
 function restoreEditorSnapshot(node, snapshot, after) {
   const s = getState(node);
-  s.layerOrder = snapshot?.layerOrder || s.layerOrder;
-  s.topOpacity = clamp01(safeNumber(snapshot?.topOpacity, s.topOpacity));
-  s.maskPreviewEnabled = snapshot?.maskPreviewEnabled !== false;
-  s.showMask = s.maskPreviewEnabled;
-  s.maskPreviewMode = snapshot?.maskPreviewMode === "all" ? "all" : "selected";
-  s.blendMaskVisible = snapshot?.blendMaskVisible !== false;
-  s.maskData = snapshot?.maskData || "";
-  s.maskCanvas = null;
-  s.maskKey = "";
-  s.adjustmentLayers = normalizeAdjustmentLayers({ adjustmentLayers: snapshot?.adjustmentLayers || [] }, s);
-  s.selectedAdjustmentLayerId =
-    s.adjustmentLayers.find((layer) => layer.id === snapshot?.selectedAdjustmentLayerId)?.id ||
-    s.adjustmentLayers[0]?.id ||
-    "";
-  syncLegacyAdjustmentState(s);
+  restoreSerializedEditorState(s, snapshot || {});
   persist(node, true);
   dirty(node);
   after?.();
@@ -1922,7 +2276,16 @@ function setHoverTip(node, hitRect) {
 
 function handleNodeAction(node, action, value, pos = null) {
   const s = getState(node);
-  if (action === "viewMode") {
+  if (action === "operationMode") {
+    setNativeWidget(node, "operation_mode", value);
+  } else if (action === "outputImage") {
+    setNativeWidget(node, "output_image", value);
+    if (value === "O2" && !s.hasImage2) flash(node, "O2 requires image2");
+  } else if (action === "continueWorkflow") {
+    continuePausedWorkflow(node);
+  } else if (action === "cancelWorkflow") {
+    cancelPausedWorkflow(node);
+  } else if (action === "viewMode") {
     s.viewMode = value;
     s.openDropdown = "";
   } else if (action === "splitMode") {
@@ -1976,69 +2339,75 @@ function updateSplitFromNode(node, pos) {
 }
 
 function injectEditorStyles() {
-  if (document.getElementById("wfx-ice-styles")) return;
+  if (document.getElementById("wfx-ipx-styles")) return;
   const style = document.createElement("style");
-  style.id = "wfx-ice-styles";
+  style.id = "wfx-ipx-styles";
   style.textContent = `
-    .wfx-ice-overlay{position:fixed;inset:0;z-index:99999;background:#101214;color:${TEXT};font:12px "Segoe UI",Arial,sans-serif;display:grid;grid-template-rows:42px 1fr;letter-spacing:0}
-    .wfx-ice-topbar{height:42px;display:flex;align-items:center;gap:8px;padding:0 10px;border-bottom:1px solid #24282d;background:#121416;box-sizing:border-box}
-    .wfx-ice-brand{display:flex;align-items:center;gap:8px;font-weight:700;font-size:14px;color:#fff;white-space:nowrap}
-    .wfx-ice-dot{width:9px;height:9px;border-radius:999px;background:${BRAND};box-shadow:0 0 0 3px rgba(59,130,246,.16)}
-    .wfx-ice-status{color:${MUTED};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:100px}
-    .wfx-ice-spacer{flex:1}
-    .wfx-ice-shell{display:grid;grid-template-columns:320px minmax(320px,1fr) 304px;min-height:0}
-    .wfx-ice-side{background:${PANEL};border-right:1px solid #262b30;overflow:auto;padding:8px;box-sizing:border-box}
-    .wfx-ice-right{border-right:0;border-left:1px solid #262b30}
-    .wfx-ice-stage{position:relative;min-width:0;min-height:0;background:#111315;overflow:hidden}
-    .wfx-ice-canvas{width:100%;height:100%;display:block;cursor:none}
-    .wfx-ice-panel{border:1px solid #30363d;background:#17191c;margin-bottom:8px}
-    .wfx-ice-panel h3{display:flex;align-items:center;justify-content:space-between;margin:0;padding:7px 8px;border-bottom:1px solid #2b3036;color:${BRAND};font-size:11px;line-height:1;text-transform:uppercase;font-weight:700}
-    .wfx-ice-panel-body{padding:8px}
-    .wfx-ice-row{display:flex;align-items:center;gap:6px;margin-bottom:7px}
-    .wfx-ice-row:last-child{margin-bottom:0}
-    .wfx-ice-label{width:82px;color:#c5ccd3;white-space:nowrap}
-    .wfx-ice-grow{flex:1;min-width:0}
-    .wfx-ice-value{width:36px;text-align:right;color:#cbd2d9;font-variant-numeric:tabular-nums}
-    .wfx-ice-btn,.wfx-ice-chip{height:24px;border:1px solid #3a4148;background:#202429;color:#dce2e8;border-radius:4px;padding:0 9px;font:600 11px "Segoe UI",Arial,sans-serif;cursor:pointer;box-sizing:border-box}
-    .wfx-ice-btn:hover,.wfx-ice-chip:hover{background:#293039;border-color:#4a545f}
-    .wfx-ice-btn.active,.wfx-ice-chip.active{background:${BUTTON_ACTIVE};border-color:${BUTTON_ACTIVE};color:#fff}
-    .wfx-ice-btn.primary{background:${BUTTON_ACTIVE};border-color:${BUTTON_ACTIVE};color:#fff}
-    .wfx-ice-btn.danger{background:#4d241d;border-color:#753426;color:#ffcabd}
-    .wfx-ice-btn:disabled{opacity:.45;cursor:not-allowed}
-    .wfx-ice-seg{display:grid;grid-template-columns:1fr 1fr;gap:5px;width:100%}
-    .wfx-ice-seg.three{grid-template-columns:1fr 1fr 1fr}
-    .wfx-ice-seg.four{grid-template-columns:1fr 1fr 1fr 1fr}
-    .wfx-ice-presets{display:grid;grid-template-columns:repeat(5,1fr);gap:5px;margin-bottom:8px}
-    .wfx-ice-presets .wfx-ice-chip{height:22px;padding:0 4px;font-size:10px}
-    .wfx-ice-slider{flex:1;min-width:0;accent-color:${BRAND}}
-    .wfx-ice-number{width:38px;height:20px;background:#111315;border:1px solid #333a41;color:#e8edf2;border-radius:3px;font:11px "Segoe UI",Arial,sans-serif;text-align:right;padding:0 4px;box-sizing:border-box}
-    .wfx-ice-select{flex:1;height:24px;background:#111315;border:1px solid #333a41;color:#e8edf2;border-radius:4px;font:11px "Segoe UI",Arial,sans-serif;padding:0 7px;box-sizing:border-box}
-    .wfx-ice-actions{display:grid;grid-template-columns:1fr 1fr;gap:6px}
-    .wfx-ice-actions.three{grid-template-columns:1fr 1fr 1fr}
-    .wfx-ice-layer-list{display:grid;gap:5px;margin-bottom:8px}
-    .wfx-ice-layer{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:6px;min-height:28px;padding:5px 7px;border:1px solid #30363d;background:#111315;border-radius:4px;box-sizing:border-box}
-    .wfx-ice-layer.selected{border-color:${BRAND};box-shadow:0 0 0 1px rgba(59,130,246,.28) inset}
-    .wfx-ice-layer strong{font-size:11px;color:#edf1f5}
-    .wfx-ice-layer span{font-size:10px;color:${MUTED};white-space:nowrap}
-    .wfx-ice-layer.adjustments{border-color:#27466f;background:#131b27}
-    .wfx-ice-layer.blend-mask{border-color:#21513f;background:#111d19}
-    .wfx-ice-layer.top{border-color:#694032;background:#211815}
-    .wfx-ice-layer-pick{display:grid;gap:1px;min-width:0;text-align:left;cursor:pointer}
-    .wfx-ice-layer-actions{display:flex;align-items:center;gap:3px}
-    .wfx-ice-icon-btn{width:22px;height:20px;border:1px solid #343b42;background:#202429;color:#dce2e8;border-radius:3px;padding:0;font:700 10px "Segoe UI",Arial,sans-serif;cursor:pointer}
-    .wfx-ice-icon-btn:hover{background:#293039;border-color:#4a545f}
-    .wfx-ice-icon-btn.active{background:${BUTTON_ACTIVE};border-color:${BUTTON_ACTIVE};color:#fff}
-    .wfx-ice-icon-btn.mask{border-color:#343b42}
-    .wfx-ice-icon-btn.mask.active{background:${BUTTON_ACTIVE};border-color:${BUTTON_ACTIVE};color:#fff}
-    .wfx-ice-icon-btn:disabled{opacity:.38;cursor:not-allowed}
-    .wfx-ice-meta{font-size:11px;color:${MUTED};line-height:1.55}
-    .wfx-ice-curve-wrap{display:grid;gap:7px}
-    .wfx-ice-curve-tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:5px}
-    .wfx-ice-curve-canvas{width:100%;min-width:0;aspect-ratio:1;background:#101214;border:1px solid #30363d;border-radius:4px;display:block;cursor:crosshair;touch-action:none;box-sizing:border-box}
-    .wfx-ice-curve-help{color:${MUTED};font-size:10px;line-height:1.35}
-    .wfx-ice-curve-points{width:100%;height:24px;background:#111315;border:1px solid #333a41;color:#cbd2d9;border-radius:4px;font:10px "Consolas","Segoe UI",monospace;padding:0 6px;box-sizing:border-box}
-    .wfx-ice-warn{color:#ffb36b}
-    @media(max-width:1050px){.wfx-ice-shell{grid-template-columns:280px minmax(240px,1fr) 260px}.wfx-ice-label{width:68px}.wfx-ice-presets{grid-template-columns:repeat(3,1fr)}}
+    .wfx-ipx-overlay{position:fixed;inset:0;z-index:99999;background:#101214;color:${TEXT};font:12px "Segoe UI",Arial,sans-serif;display:grid;grid-template-rows:42px 1fr;letter-spacing:0}
+    .wfx-ipx-topbar{height:42px;display:flex;align-items:center;gap:8px;padding:0 10px;border-bottom:1px solid #24282d;background:#121416;box-sizing:border-box;position:relative}
+    .wfx-ipx-brand{display:flex;align-items:center;gap:8px;font-weight:700;font-size:14px;color:#fff;white-space:nowrap}
+    .wfx-ipx-dot{width:9px;height:9px;border-radius:999px;background:${BRAND};box-shadow:0 0 0 3px rgba(59,130,246,.16)}
+    .wfx-ipx-status{color:${MUTED};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:100px}
+    .wfx-ipx-spacer{flex:1}
+    .wfx-ipx-preset-host{position:relative;display:flex;align-items:center}
+    .wfx-ipx-preset-popover{position:absolute;right:0;top:32px;width:300px;padding:10px;border:1px solid #343b42;border-radius:7px;background:#171a1e;box-shadow:0 14px 36px rgba(0,0,0,.5);z-index:4;box-sizing:border-box}
+    .wfx-ipx-preset-popover[hidden]{display:none}
+    .wfx-ipx-preset-popover .wfx-ipx-select{width:100%;margin-bottom:8px}
+    .wfx-ipx-preset-title{font-weight:700;color:#fff;margin-bottom:7px}
+    .wfx-ipx-preset-note{color:${MUTED};font-size:10px;line-height:1.35;margin-top:8px}
+    .wfx-ipx-shell{display:grid;grid-template-columns:320px minmax(320px,1fr) 304px;min-height:0}
+    .wfx-ipx-side{background:${PANEL};border-right:1px solid #262b30;overflow:auto;padding:8px;box-sizing:border-box}
+    .wfx-ipx-right{border-right:0;border-left:1px solid #262b30}
+    .wfx-ipx-stage{position:relative;min-width:0;min-height:0;background:#111315;overflow:hidden}
+    .wfx-ipx-canvas{width:100%;height:100%;display:block;cursor:none}
+    .wfx-ipx-panel{border:1px solid #30363d;background:#17191c;margin-bottom:8px}
+    .wfx-ipx-panel h3{display:flex;align-items:center;justify-content:space-between;margin:0;padding:7px 8px;border-bottom:1px solid #2b3036;color:${BRAND};font-size:11px;line-height:1;text-transform:uppercase;font-weight:700}
+    .wfx-ipx-panel-body{padding:8px}
+    .wfx-ipx-row{display:flex;align-items:center;gap:6px;margin-bottom:7px}
+    .wfx-ipx-row:last-child{margin-bottom:0}
+    .wfx-ipx-label{width:82px;color:#c5ccd3;white-space:nowrap}
+    .wfx-ipx-grow{flex:1;min-width:0}
+    .wfx-ipx-value{width:36px;text-align:right;color:#cbd2d9;font-variant-numeric:tabular-nums}
+    .wfx-ipx-btn,.wfx-ipx-chip{height:24px;border:1px solid #3a4148;background:#202429;color:#dce2e8;border-radius:4px;padding:0 9px;font:600 11px "Segoe UI",Arial,sans-serif;cursor:pointer;box-sizing:border-box}
+    .wfx-ipx-btn:hover,.wfx-ipx-chip:hover{background:#293039;border-color:#4a545f}
+    .wfx-ipx-btn.active,.wfx-ipx-chip.active{background:${BUTTON_ACTIVE};border-color:${BUTTON_ACTIVE};color:#fff}
+    .wfx-ipx-btn.primary{background:${BUTTON_ACTIVE};border-color:${BUTTON_ACTIVE};color:#fff}
+    .wfx-ipx-btn.danger{background:#4d241d;border-color:#753426;color:#ffcabd}
+    .wfx-ipx-btn:disabled{opacity:.45;cursor:not-allowed}
+    .wfx-ipx-seg{display:grid;grid-template-columns:1fr 1fr;gap:5px;width:100%}
+    .wfx-ipx-seg.three{grid-template-columns:1fr 1fr 1fr}
+    .wfx-ipx-seg.four{grid-template-columns:1fr 1fr 1fr 1fr}
+    .wfx-ipx-presets{display:grid;grid-template-columns:repeat(5,1fr);gap:5px;margin-bottom:8px}
+    .wfx-ipx-presets .wfx-ipx-chip{height:22px;padding:0 4px;font-size:10px}
+    .wfx-ipx-slider{flex:1;min-width:0;accent-color:${BRAND}}
+    .wfx-ipx-number{width:38px;height:20px;background:#111315;border:1px solid #333a41;color:#e8edf2;border-radius:3px;font:11px "Segoe UI",Arial,sans-serif;text-align:right;padding:0 4px;box-sizing:border-box}
+    .wfx-ipx-select{flex:1;height:24px;background:#111315;border:1px solid #333a41;color:#e8edf2;border-radius:4px;font:11px "Segoe UI",Arial,sans-serif;padding:0 7px;box-sizing:border-box}
+    .wfx-ipx-actions{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+    .wfx-ipx-actions.three{grid-template-columns:1fr 1fr 1fr}
+    .wfx-ipx-layer-list{display:grid;gap:5px;margin-bottom:8px}
+    .wfx-ipx-layer{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:6px;min-height:28px;padding:5px 7px;border:1px solid #30363d;background:#111315;border-radius:4px;box-sizing:border-box}
+    .wfx-ipx-layer.selected{border-color:${BRAND};box-shadow:0 0 0 1px rgba(59,130,246,.28) inset}
+    .wfx-ipx-layer strong{font-size:11px;color:#edf1f5}
+    .wfx-ipx-layer span{font-size:10px;color:${MUTED};white-space:nowrap}
+    .wfx-ipx-layer.adjustments{border-color:#27466f;background:#131b27}
+    .wfx-ipx-layer.blend-mask{border-color:#21513f;background:#111d19}
+    .wfx-ipx-layer.top{border-color:#694032;background:#211815}
+    .wfx-ipx-layer-pick{display:grid;gap:1px;min-width:0;text-align:left;cursor:pointer}
+    .wfx-ipx-layer-actions{display:flex;align-items:center;gap:3px}
+    .wfx-ipx-icon-btn{width:22px;height:20px;border:1px solid #343b42;background:#202429;color:#dce2e8;border-radius:3px;padding:0;font:700 10px "Segoe UI",Arial,sans-serif;cursor:pointer}
+    .wfx-ipx-icon-btn:hover{background:#293039;border-color:#4a545f}
+    .wfx-ipx-icon-btn.active{background:${BUTTON_ACTIVE};border-color:${BUTTON_ACTIVE};color:#fff}
+    .wfx-ipx-icon-btn.mask{border-color:#343b42}
+    .wfx-ipx-icon-btn.mask.active{background:${BUTTON_ACTIVE};border-color:${BUTTON_ACTIVE};color:#fff}
+    .wfx-ipx-icon-btn:disabled{opacity:.38;cursor:not-allowed}
+    .wfx-ipx-meta{font-size:11px;color:${MUTED};line-height:1.55}
+    .wfx-ipx-curve-wrap{display:grid;gap:7px}
+    .wfx-ipx-curve-tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:5px}
+    .wfx-ipx-curve-canvas{width:100%;min-width:0;aspect-ratio:1;background:#101214;border:1px solid #30363d;border-radius:4px;display:block;cursor:crosshair;touch-action:none;box-sizing:border-box}
+    .wfx-ipx-curve-help{color:${MUTED};font-size:10px;line-height:1.35}
+    .wfx-ipx-curve-points{width:100%;height:24px;background:#111315;border:1px solid #333a41;color:#cbd2d9;border-radius:4px;font:10px "Consolas","Segoe UI",monospace;padding:0 6px;box-sizing:border-box}
+    .wfx-ipx-warn{color:#ffb36b}
+    @media(max-width:1050px){.wfx-ipx-shell{grid-template-columns:280px minmax(240px,1fr) 260px}.wfx-ipx-label{width:68px}.wfx-ipx-presets{grid-template-columns:repeat(3,1fr)}}
   `;
   document.head.appendChild(style);
 }
@@ -2051,7 +2420,7 @@ function el(tag, className = "", text = "") {
 }
 
 function makeButton(label, onClick, options = {}) {
-  const btn = el("button", `wfx-ice-btn${options.primary ? " primary" : ""}${options.danger ? " danger" : ""}`, label);
+  const btn = el("button", `wfx-ipx-btn${options.primary ? " primary" : ""}${options.danger ? " danger" : ""}`, label);
   btn.type = "button";
   btn.onclick = onClick;
   if (options.title) btn.title = options.title;
@@ -2059,9 +2428,9 @@ function makeButton(label, onClick, options = {}) {
 }
 
 function makePanel(title) {
-  const panel = el("section", "wfx-ice-panel");
+  const panel = el("section", "wfx-ipx-panel");
   const heading = el("h3", "", title);
-  const body = el("div", "wfx-ice-panel-body");
+  const body = el("div", "wfx-ipx-panel-body");
   panel.append(heading, body);
   return { panel, body, heading };
 }
@@ -2093,17 +2462,17 @@ function openEditor(node) {
   if (s.editor?.root?.isConnected) return;
   injectEditorStyles();
 
-  const root = el("div", "wfx-ice-overlay");
-  const topbar = el("div", "wfx-ice-topbar");
-  const brand = el("div", "wfx-ice-brand");
-  brand.append(el("span", "wfx-ice-dot"), document.createTextNode("Image Compare Edit X"));
-  const status = el("div", "wfx-ice-status", "Ready");
-  const zoomLabel = el("div", "wfx-ice-status", "100%");
-  const body = el("div", "wfx-ice-shell");
-  const left = el("aside", "wfx-ice-side");
-  const stage = el("main", "wfx-ice-stage");
-  const right = el("aside", "wfx-ice-side wfx-ice-right");
-  const canvas = el("canvas", "wfx-ice-canvas");
+  const root = el("div", "wfx-ipx-overlay");
+  const topbar = el("div", "wfx-ipx-topbar");
+  const brand = el("div", "wfx-ipx-brand");
+  brand.append(el("span", "wfx-ipx-dot"), document.createTextNode("Image ProcessorX"));
+  const status = el("div", "wfx-ipx-status", "Ready");
+  const zoomLabel = el("div", "wfx-ipx-status", "100%");
+  const body = el("div", "wfx-ipx-shell");
+  const left = el("aside", "wfx-ipx-side");
+  const stage = el("main", "wfx-ipx-stage");
+  const right = el("aside", "wfx-ipx-side wfx-ipx-right");
+  const canvas = el("canvas", "wfx-ipx-canvas");
 
   let raf = 0;
   let transform = { x: 0, y: 0, scale: 1 };
@@ -2161,6 +2530,123 @@ function openEditor(node) {
     s.previewDraft = false;
   }, false, { draft: false }));
   qualityButton.dataset.performanceValue = "quality";
+  const outputSelect = el("select", "wfx-ipx-select");
+  outputSelect.title = "Select which image is sent downstream when this node continues.";
+  for (const value of ["O1", "O2", "O3"]) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = value;
+    outputSelect.appendChild(option);
+  }
+  outputSelect.onchange = () => {
+    setNativeWidget(node, "output_image", outputSelect.value);
+    persist(node, true);
+    syncControls();
+    dirty(node);
+  };
+  const resumeButton = makeButton("Resume", () => continuePausedWorkflow(node), {
+    primary: true,
+    title: "Submit the latest editor state and selected output to the paused workflow.",
+  });
+  const cancelWorkflowButton = makeButton("Cancel Run", () => cancelPausedWorkflow(node), {
+    danger: true,
+    title: "Cancel this pending Image ProcessorX execution.",
+  });
+
+  const presetHost = el("div", "wfx-ipx-preset-host");
+  const presetPopover = el("div", "wfx-ipx-preset-popover");
+  presetPopover.hidden = true;
+  const presetSelect = el("select", "wfx-ipx-select");
+  const presetNote = el("div", "wfx-ipx-preset-note", "Presets contain the complete editor recipe and masks, but never the connected images or workflow routing.");
+  const presetActions = el("div", "wfx-ipx-actions three");
+
+  const refreshPresetList = async (preferred = "") => {
+    const names = await listEditorPresetNames();
+    presetSelect.replaceChildren();
+    if (!names.length) {
+      const empty = document.createElement("option");
+      empty.value = "";
+      empty.textContent = "No saved presets";
+      presetSelect.appendChild(empty);
+    } else {
+      for (const name of names) {
+        const option = document.createElement("option");
+        option.value = name;
+        option.textContent = name;
+        presetSelect.appendChild(option);
+      }
+      presetSelect.value = names.includes(preferred) ? preferred : names[0];
+    }
+    return names;
+  };
+
+  const loadPresetAction = async () => {
+    try {
+      const preset = await loadEditorPreset(presetSelect.value);
+      pushUndo(s);
+      restoreSerializedEditorState(s, preset.editorState);
+      persist(node, true);
+      syncControls();
+      invalidateAndRender(false);
+      presetPopover.hidden = true;
+      setStatus(`Preset loaded: ${preset.name || presetSelect.value}`);
+    } catch (err) {
+      setStatus(`Preset load failed: ${err?.message || err}`);
+    }
+  };
+
+  const savePresetAction = async () => {
+    const requested = window.prompt("Preset name", presetSelect.value || "");
+    if (requested == null) return;
+    const name = safePresetName(requested);
+    if (!name) return setStatus("Preset name is required");
+    try {
+      const names = await listEditorPresetNames();
+      const existing = names.find((candidate) => candidate.toLocaleLowerCase() === name.toLocaleLowerCase());
+      if (existing && !window.confirm(`Overwrite preset \"${existing}\"?`)) return;
+      persist(node, true);
+      const preset = await saveEditorPreset(existing || name, s);
+      await refreshPresetList(preset.name);
+      setStatus(`Preset saved: ${preset.name}`);
+    } catch (err) {
+      setStatus(`Preset save failed: ${err?.message || err}`);
+    }
+  };
+
+  const deletePresetAction = async () => {
+    const name = presetSelect.value;
+    if (!name) return setStatus("Select a preset first");
+    if (!window.confirm(`Delete preset \"${name}\"?`)) return;
+    try {
+      await deleteEditorPreset(name);
+      await refreshPresetList();
+      setStatus(`Preset deleted: ${name}`);
+    } catch (err) {
+      setStatus(`Preset delete failed: ${err?.message || err}`);
+    }
+  };
+
+  presetActions.append(
+    makeButton("Load", loadPresetAction, { primary: true }),
+    makeButton("Save As", savePresetAction),
+    makeButton("Delete", deletePresetAction, { danger: true }),
+  );
+  presetPopover.append(el("div", "wfx-ipx-preset-title", "Editor Presets"), presetSelect, presetActions, presetNote);
+  const presetButton = makeButton("Presets", async () => {
+    presetPopover.hidden = !presetPopover.hidden;
+    if (!presetPopover.hidden) await refreshPresetList(presetSelect.value);
+  }, { title: "Save or load an image-independent editor recipe." });
+  presetHost.append(presetButton, presetPopover);
+
+  const resetEditorButton = makeButton("Reset", () => {
+    if (!window.confirm("Reset every Image ProcessorX editor setting to its default? Connected images and workflow routing will be retained.")) return;
+    pushUndo(s);
+    restoreSerializedEditorState(s, cloneDefaults());
+    persist(node, true);
+    syncControls();
+    invalidateAndRender(false);
+    setStatus("Editor reset to defaults");
+  }, { title: "Reset the complete editor while retaining images and workflow routing." });
 
   const topButtons = [
     currentButton,
@@ -2186,7 +2672,7 @@ function openEditor(node) {
     makeButton("Close", () => closeEditor(), { danger: true }),
   ];
 
-  topbar.append(brand, status, el("div", "wfx-ice-spacer"), zoomLabel, ...topButtons);
+  topbar.append(brand, status, el("div", "wfx-ipx-spacer"), outputSelect, resumeButton, cancelWorkflowButton, presetHost, resetEditorButton, zoomLabel, ...topButtons);
   stage.append(canvas);
   body.append(left, stage, right);
   root.append(topbar, body);
@@ -2199,7 +2685,7 @@ function openEditor(node) {
       try {
         dispose();
       } catch (err) {
-        console.warn("[WorkflowX] Image Compare Edit X editor cleanup failed:", err);
+        console.warn("[WorkflowX] Image ProcessorX editor cleanup failed:", err);
       }
     }
     window.removeEventListener("resize", scheduleRender);
@@ -2209,7 +2695,16 @@ function openEditor(node) {
     dirty(node);
   };
 
-  const closeEditor = () => cleanup();
+  const closePresetPopover = (event) => {
+    if (!presetHost.contains(event.target)) presetPopover.hidden = true;
+  };
+  document.addEventListener("pointerdown", closePresetPopover);
+  editorDisposers.push(() => document.removeEventListener("pointerdown", closePresetPopover));
+
+  const closeEditor = () => {
+    persist(node, true);
+    cleanup();
+  };
 
   s.editor = { root, render: scheduleRender, setStatus, sync: syncControls };
 
@@ -2219,7 +2714,7 @@ function openEditor(node) {
   window.addEventListener("keydown", onKeyDown);
 
   function segmented(parent, options, getValue, setValue, cols = "", config = {}) {
-    const wrap = el("div", `wfx-ice-seg ${cols}`.trim());
+    const wrap = el("div", `wfx-ipx-seg ${cols}`.trim());
     for (const [value, label] of options) {
       const btn = makeButton(label, () => setAndRefresh(() => setValue(value), config.persistMask, { history: !!config.history }));
       btn.dataset.value = value;
@@ -2228,12 +2723,13 @@ function openEditor(node) {
       wrap.appendChild(btn);
     }
     parent.appendChild(wrap);
+    return wrap;
   }
 
   function selectRow(parent, label, options, getValue, setValue) {
-    const row = el("div", "wfx-ice-row");
-    const lab = el("div", "wfx-ice-label", label);
-    const select = el("select", "wfx-ice-select");
+    const row = el("div", "wfx-ipx-row");
+    const lab = el("div", "wfx-ipx-label", label);
+    const select = el("select", "wfx-ipx-select");
     for (const [value, text] of options) {
       const option = document.createElement("option");
       option.value = value;
@@ -2250,14 +2746,14 @@ function openEditor(node) {
   }
 
   function sliderRow(parent, label, min, max, valueGetter, valueSetter, options = {}) {
-    const row = el("div", "wfx-ice-row");
-    const lab = el("div", "wfx-ice-label", label);
-    const input = el("input", "wfx-ice-slider");
+    const row = el("div", "wfx-ipx-row");
+    const lab = el("div", "wfx-ipx-label", label);
+    const input = el("input", "wfx-ipx-slider");
     input.type = "range";
     input.min = String(min);
     input.max = String(max);
     input.step = String(options.step ?? 1);
-    const number = el("input", "wfx-ice-number");
+    const number = el("input", "wfx-ipx-number");
     number.type = "number";
     number.min = String(min);
     number.max = String(max);
@@ -2301,6 +2797,7 @@ function openEditor(node) {
     });
     row.append(lab, input, number);
     parent.appendChild(row);
+    input.__row = row;
     return input;
   }
 
@@ -2311,18 +2808,18 @@ function openEditor(node) {
       for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
       return node;
     };
-    const wrap = el("div", "wfx-ice-curve-wrap");
-    const tabs = el("div", "wfx-ice-curve-tabs");
+    const wrap = el("div", "wfx-ipx-curve-wrap");
+    const tabs = el("div", "wfx-ipx-curve-tabs");
     const surface = svgEl("svg", {
-      class: "wfx-ice-curve-canvas",
+      class: "wfx-ipx-curve-canvas",
       viewBox: "0 0 256 256",
       preserveAspectRatio: "none",
       tabindex: "0",
     });
     const curveControls = el("div");
-    const pointInput = el("input", "wfx-ice-curve-points");
+    const pointInput = el("input", "wfx-ipx-curve-points");
     pointInput.placeholder = "0,0;128,128;255,255";
-    const help = el("div", "wfx-ice-curve-help", "Click or drag the curve to add a point. Drag points to shape the curve. Right-click an inner point to delete.");
+    const help = el("div", "wfx-ipx-curve-help", "Click or drag the curve to add a point. Drag points to shape the curve. Right-click an inner point to delete.");
     let selectedPoint = -1;
     let dragging = false;
     let histogramCache = { key: "", paths: {} };
@@ -2468,7 +2965,7 @@ function openEditor(node) {
 
     function buildHistogramPaths() {
       const paths = {};
-      if (!s.img1 || !s.img2) return paths;
+      if (!s.img1) return paths;
       const base = composeBaseComposite(s, { includeBlendMask: true, preview: true });
       const bctx = base.getContext("2d", { willReadFrequently: true });
       const data = bctx.getImageData(0, 0, base.width, base.height).data;
@@ -2599,7 +3096,7 @@ function openEditor(node) {
       tabs.appendChild(btn);
     }
 
-    const curveActions = el("div", "wfx-ice-actions");
+    const curveActions = el("div", "wfx-ipx-actions");
     curveActions.append(
       makeButton("Reset Channel", () => {
         const c = curve(true);
@@ -2729,24 +3226,24 @@ function openEditor(node) {
       draw();
     }
 
-    const heading = el("div", "wfx-ice-row");
+    const heading = el("div", "wfx-ipx-row");
     heading.style.marginTop = "9px";
-    heading.append(el("div", "wfx-ice-label", "Curves"));
+    heading.append(el("div", "wfx-ipx-label", "Curves"));
     wrap.append(heading, tabs, surface, curveControls, pointInput, curveActions, help);
     parent.appendChild(wrap);
     return { sync, draw };
   }
 
   const compare = makePanel("Compare");
-  selectRow(compare.body, "Source A", IMAGE_OPTIONS, () => s.sourceA, (v) => {
+  const sourceASelect = selectRow(compare.body, "Source A", IMAGE_OPTIONS, () => s.sourceA, (v) => {
     s.sourceA = v;
   });
-  selectRow(compare.body, "Source B", IMAGE_OPTIONS, () => s.sourceB, (v) => {
+  const sourceBSelect = selectRow(compare.body, "Source B", IMAGE_OPTIONS, () => s.sourceB, (v) => {
     s.sourceB = v;
   });
-  const swapRow = el("div", "wfx-ice-row");
+  const swapRow = el("div", "wfx-ipx-row");
   swapRow.append(
-    el("div", "wfx-ice-label", ""),
+    el("div", "wfx-ipx-label", ""),
     makeButton("Swap A/B", () => setAndRefresh(() => {
       const nextA = s.sourceB;
       s.sourceB = s.sourceA;
@@ -2763,7 +3260,7 @@ function openEditor(node) {
     },
     "four",
   );
-  compare.body.appendChild(el("div", "wfx-ice-row"));
+  compare.body.appendChild(el("div", "wfx-ipx-row"));
   segmented(
     compare.body,
     SPLIT_MODES,
@@ -2783,9 +3280,9 @@ function openEditor(node) {
     return layer;
   };
   const adjust = makePanel("Adjustment Controls");
-  const presetWrap = el("div", "wfx-ice-presets");
+  const presetWrap = el("div", "wfx-ipx-presets");
   for (const name of Object.keys(PRESETS)) {
-    const chip = el("button", "wfx-ice-chip", name);
+    const chip = el("button", "wfx-ipx-chip", name);
     chip.type = "button";
     chip.dataset.preset = name;
     chip.onclick = () => setAndRefresh(() => {
@@ -2798,7 +3295,7 @@ function openEditor(node) {
     presetWrap.appendChild(chip);
   }
   adjust.body.appendChild(presetWrap);
-  const adjustActions = el("div", "wfx-ice-actions");
+  const adjustActions = el("div", "wfx-ipx-actions");
   adjustActions.append(
     makeButton("Reset Layer", () => setAndRefresh(() => {
       const layer = requireAdjustmentLayer();
@@ -2822,9 +3319,9 @@ function openEditor(node) {
     syncLegacyAdjustmentState(s);
   }, { defaultValue: 100, history: true });
   for (const [group, keys] of FX_GROUPS) {
-    const groupRow = el("div", "wfx-ice-row");
+    const groupRow = el("div", "wfx-ipx-row");
     groupRow.style.marginTop = "9px";
-    groupRow.append(el("div", "wfx-ice-label", group), makeButton("reset", () => setAndRefresh(() => {
+    groupRow.append(el("div", "wfx-ipx-label", group), makeButton("reset", () => setAndRefresh(() => {
       const layer = requireAdjustmentLayer();
       if (!layer) return;
       for (const key of keys) layer.adjustments[key] = 0;
@@ -2847,27 +3344,27 @@ function openEditor(node) {
   left.appendChild(adjust.panel);
 
   const info = makePanel("Images");
-  const meta = el("div", "wfx-ice-meta");
+  const meta = el("div", "wfx-ipx-meta");
   info.body.appendChild(meta);
   left.appendChild(info.panel);
 
   const layerPanel = makePanel("Layers");
-  const layerList = el("div", "wfx-ice-layer-list");
-  const topLayer = el("div", "wfx-ice-layer top");
-  topLayer.append(el("span", "", ""), el("div", "wfx-ice-layer-pick"));
+  const layerList = el("div", "wfx-ipx-layer-list");
+  const topLayer = el("div", "wfx-ipx-layer top");
+  topLayer.append(el("span", "", ""), el("div", "wfx-ipx-layer-pick"));
   const topLayerName = el("strong", "", "Top Image");
   const topLayerMeta = el("span", "", "Image 2");
   topLayer.children[1].append(topLayerName, topLayerMeta);
-  const underLayer = el("div", "wfx-ice-layer");
-  underLayer.append(el("span", "", ""), el("div", "wfx-ice-layer-pick"));
+  const underLayer = el("div", "wfx-ipx-layer");
+  underLayer.append(el("span", "", ""), el("div", "wfx-ipx-layer-pick"));
   const underLayerName = el("strong", "", "Under Image");
   const underLayerMeta = el("span", "", "Image 1");
   underLayer.children[1].append(underLayerName, underLayerMeta);
   layerList.append(topLayer, underLayer);
   layerPanel.body.appendChild(layerList);
-  const maskPreviewRow = el("div", "wfx-ice-row");
-  maskPreviewRow.append(el("div", "wfx-ice-label", "Masks"));
-  const maskPreviewCell = el("div", "wfx-ice-grow");
+  const maskPreviewRow = el("div", "wfx-ipx-row");
+  maskPreviewRow.append(el("div", "wfx-ipx-label", "Masks"));
+  const maskPreviewCell = el("div", "wfx-ipx-grow");
   const showMaskButton = makeButton("Masks On", () => setAndRefresh(() => {
     s.maskPreviewEnabled = s.maskPreviewEnabled === false;
     s.showMask = s.maskPreviewEnabled;
@@ -2879,15 +3376,15 @@ function openEditor(node) {
   maskPreviewCell.appendChild(showMaskButton);
   maskPreviewRow.appendChild(maskPreviewCell);
   layerPanel.body.appendChild(maskPreviewRow);
-  const previewModeRow = el("div", "wfx-ice-row");
-  previewModeRow.append(el("div", "wfx-ice-label", "Mask View"));
-  const previewModeCell = el("div", "wfx-ice-grow");
+  const previewModeRow = el("div", "wfx-ipx-row");
+  previewModeRow.append(el("div", "wfx-ipx-label", "Mask View"));
+  const previewModeCell = el("div", "wfx-ipx-grow");
   previewModeRow.appendChild(previewModeCell);
   layerPanel.body.appendChild(previewModeRow);
   segmented(previewModeCell, [["selected", "Selected"], ["all", "All"]], () => s.maskPreviewMode || "selected", (v) => {
     s.maskPreviewMode = v === "all" ? "all" : "selected";
   });
-  const layerActions = el("div", "wfx-ice-actions");
+  const layerActions = el("div", "wfx-ipx-actions");
   layerActions.append(
     makeButton("Add Global", () => addAdjustmentLayer("global")),
     makeButton("Add Brush", () => addAdjustmentLayer("brush")),
@@ -2895,7 +3392,7 @@ function openEditor(node) {
     makeButton("Delete", () => deleteSelectedLayer()),
   );
   layerPanel.body.appendChild(layerActions);
-  segmented(layerPanel.body, [["2over1", "Image 2 over 1"], ["1over2", "Image 1 over 2"]], () => s.layerOrder, (v) => {
+  const layerOrderControl = segmented(layerPanel.body, [["2over1", "Image 2 over 1"], ["1over2", "Image 1 over 2"]], () => s.layerOrder, (v) => {
     s.layerOrder = v;
     s.maskCanvas = null;
     for (const layer of s.adjustmentLayers) {
@@ -2903,12 +3400,12 @@ function openEditor(node) {
       layer.maskKey = "";
     }
   }, "", { history: true, persistMask: true });
-  sliderRow(layerPanel.body, "Top Opacity", 0, 100, () => Math.round(s.topOpacity * 100), (v) => {
+  const topOpacityInput = sliderRow(layerPanel.body, "Top Opacity", 0, 100, () => Math.round(s.topOpacity * 100), (v) => {
     s.topOpacity = v / 100;
   }, { defaultValue: 65, history: true });
-  const modeRow = el("div", "wfx-ice-row");
-  modeRow.append(el("div", "wfx-ice-label", "Adjust Mode"));
-  const modeCell = el("div", "wfx-ice-grow");
+  const modeRow = el("div", "wfx-ipx-row");
+  modeRow.append(el("div", "wfx-ipx-label", "Adjust Mode"));
+  const modeCell = el("div", "wfx-ipx-grow");
   modeRow.appendChild(modeCell);
   layerPanel.body.appendChild(modeRow);
   segmented(modeCell, [["global", "Global"], ["brush", "Brush"]], () => activeAdjustment()?.mode || "global", (v) => {
@@ -2921,7 +3418,7 @@ function openEditor(node) {
   right.appendChild(layerPanel.panel);
 
   const maskPanel = makePanel("Brush");
-  segmented(maskPanel.body, [["blend", "Blend Brush"], ["adjustment", "Adjustment Brush"]], () => s.brushTarget, (v) => {
+  const brushTargetControl = segmented(maskPanel.body, [["blend", "Blend Brush"], ["adjustment", "Adjustment Brush"]], () => s.brushTarget, (v) => {
     if (v === "adjustment" && !requireAdjustmentLayer()) return;
     s.brushTarget = v;
     if (v === "adjustment") {
@@ -2947,7 +3444,7 @@ function openEditor(node) {
   sliderRow(maskPanel.body, "Flow", 1, 100, () => Math.max(1, Math.round(s.brush.flow * 100)), (v) => {
     s.brush.flow = clamp(v / 100, 0.01, 1);
   }, { defaultValue: 100 });
-  const maskActions = el("div", "wfx-ice-actions");
+  const maskActions = el("div", "wfx-ipx-actions");
   maskActions.append(
     makeButton("Reset Area", () => resetPaintArea()),
     makeButton("Invert Area", () => invertPaintArea()),
@@ -2956,13 +3453,13 @@ function openEditor(node) {
   right.appendChild(maskPanel.panel);
 
   const savePanel = makePanel("Save / Copy");
-  const saveActions = el("div", "wfx-ice-actions three");
+  const saveActions = el("div", "wfx-ipx-actions three");
   saveActions.append(
     makeButton("Save O3", () => saveImage(node, "3", false)),
     makeButton("Save D3", () => saveImage(node, "3", true)),
     makeButton("Copy 3", () => copyImage(node, "3")),
   );
-  const cacheActions = el("div", "wfx-ice-actions");
+  const cacheActions = el("div", "wfx-ipx-actions");
   cacheActions.style.gridTemplateColumns = "1fr";
   cacheActions.style.marginTop = "6px";
   cacheActions.append(
@@ -3042,7 +3539,7 @@ function openEditor(node) {
   function renderLayerStack() {
     layerList.replaceChildren();
     const maskEyeButton = (active, title, onClick, disabled = false, color = GREEN) => {
-      const btn = el("button", `wfx-ice-icon-btn mask${active ? " active" : ""}`, disabled ? "-" : "M");
+      const btn = el("button", `wfx-ipx-icon-btn mask${active ? " active" : ""}`, disabled ? "-" : "M");
       btn.type = "button";
       btn.title = title;
       btn.disabled = disabled;
@@ -3054,15 +3551,15 @@ function openEditor(node) {
       return btn;
     };
     if (!s.adjustmentLayers.length) {
-      const empty = el("div", "wfx-ice-layer");
-      empty.append(el("span", "", ""), el("div", "wfx-ice-layer-pick"));
+      const empty = el("div", "wfx-ipx-layer");
+      empty.append(el("span", "", ""), el("div", "wfx-ipx-layer-pick"));
       empty.children[1].append(el("strong", "", "No Adjustment Layers"), el("span", "", "Add Global or Add Brush when needed"));
       layerList.appendChild(empty);
     }
     for (const layer of s.adjustmentLayers) {
-      const row = el("div", `wfx-ice-layer adjustments${layer.id === s.selectedAdjustmentLayerId ? " selected" : ""}`);
-      const actions = el("div", "wfx-ice-layer-actions");
-      const visible = el("button", `wfx-ice-icon-btn${layer.visible !== false ? " active" : ""}`, layer.visible !== false ? "V" : "-");
+      const row = el("div", `wfx-ipx-layer adjustments${layer.id === s.selectedAdjustmentLayerId ? " selected" : ""}`);
+      const actions = el("div", "wfx-ipx-layer-actions");
+      const visible = el("button", `wfx-ipx-icon-btn${layer.visible !== false ? " active" : ""}`, layer.visible !== false ? "V" : "-");
       visible.type = "button";
       visible.title = layer.visible !== false ? "Hide adjustment layer" : "Show adjustment layer";
       visible.onclick = (event) => {
@@ -3084,7 +3581,7 @@ function openEditor(node) {
           layer.id === s.selectedAdjustmentLayerId ? AMBER : maskColorForLayer(layer),
         ),
       );
-      const pick = el("div", "wfx-ice-layer-pick");
+      const pick = el("div", "wfx-ipx-layer-pick");
       const hasCurves = !isCurveStateNeutral(layer.curve);
       pick.append(
         el("strong", "", layer.name || "Adjustment"),
@@ -3098,8 +3595,9 @@ function openEditor(node) {
       row.append(actions, pick, marker);
       layerList.appendChild(row);
     }
-    const blendRow = el("div", `wfx-ice-layer blend-mask${s.brushTarget === "blend" ? " selected" : ""}`);
-    const blendActions = el("div", "wfx-ice-layer-actions");
+    if (!s.hasImage2) return;
+    const blendRow = el("div", `wfx-ipx-layer blend-mask${s.brushTarget === "blend" ? " selected" : ""}`);
+    const blendActions = el("div", "wfx-ipx-layer-actions");
     blendActions.appendChild(maskEyeButton(
       s.blendMaskVisible !== false,
       "Show/hide the blend mask tint between the top and under images",
@@ -3109,7 +3607,7 @@ function openEditor(node) {
       false,
       GREEN,
     ));
-    const blendPick = el("div", "wfx-ice-layer-pick");
+    const blendPick = el("div", "wfx-ipx-layer-pick");
     blendPick.append(el("strong", "", "Blend Mask"), el("span", "", "Reveals the under image"));
     blendPick.onclick = () => setAndRefresh(() => {
       s.brushTarget = "blend";
@@ -3139,20 +3637,37 @@ function openEditor(node) {
     root.querySelectorAll("[data-preset]").forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.preset === activeAdjustment()?.preset);
     });
-    root.querySelectorAll(".wfx-ice-select").forEach((select) => select.__sync?.());
-    root.querySelectorAll(".wfx-ice-slider").forEach((input) => input.__sync?.());
+    root.querySelectorAll(".wfx-ipx-select").forEach((select) => select.__sync?.());
+    root.querySelectorAll(".wfx-ipx-slider").forEach((input) => input.__sync?.());
+    for (const select of [sourceASelect, sourceBSelect]) {
+      const option = [...select.options].find((item) => item.value === "2");
+      if (option) option.disabled = !s.hasImage2;
+    }
+    outputSelect.value = selectedOutput(node);
+    const outputO2 = [...outputSelect.options].find((item) => item.value === "O2");
+    if (outputO2) outputO2.disabled = !s.hasImage2 && selectedOutput(node) !== "O2";
+    resumeButton.disabled = !s.pendingRequest;
+    cancelWorkflowButton.disabled = !s.pendingRequest;
+    layerOrderControl.style.display = s.hasImage2 ? "grid" : "none";
+    if (topOpacityInput.__row) topOpacityInput.__row.style.display = s.hasImage2 ? "flex" : "none";
+    const blendTarget = brushTargetControl.querySelector('[data-value="blend"]');
+    if (blendTarget) blendTarget.style.display = s.hasImage2 ? "block" : "none";
     curveEditor.sync();
     const { topName, underName } = layers(s);
     const size = outputSize(s);
     topLayerMeta.textContent = `Image ${topName}  ${Math.round(s.topOpacity * 100)}%`;
     underLayerMeta.textContent = `Image ${underName}`;
     canvas.style.cursor = s.tool === "pan" ? (s.panning ? "grabbing" : "grab") : "none";
-    const warning = dimensionsDiffer(s) ? `<span class="wfx-ice-warn">Source sizes differ. Image 3 uses image ${underName}'s canvas.</span>` : "Source sizes match.";
+    const warning = !s.hasImage2
+      ? "Single-image mode: compare O1 with processed O3."
+      : dimensionsDiffer(s)
+        ? `<span class="wfx-ipx-warn">Source sizes differ. Image 3 uses image ${underName}'s canvas.</span>`
+        : "Source sizes match.";
     meta.innerHTML = `
       <div>Image 1: ${s.img1 ? `${imageW(s.img1)} x ${imageH(s.img1)}` : "not run"}</div>
-      <div>Image 2: ${s.img2 ? `${imageW(s.img2)} x ${imageH(s.img2)}` : "not run"}</div>
+      <div>Image 2: ${s.img2 ? `${imageW(s.img2)} x ${imageH(s.img2)}` : "not connected"}</div>
       <div>Image 3: ${size.w} x ${size.h}</div>
-      <div>Top: image ${topName}, Under: image ${underName}</div>
+      <div>${s.hasImage2 ? `Top: image ${topName}, Under: image ${underName}` : "Base: image 1"}</div>
       <div>${warning}</div>
     `;
     zoomLabel.textContent = `${Math.round(s.editorZoom * 100)}%`;
@@ -3229,7 +3744,7 @@ function openEditor(node) {
   }
 
   function drawBrushCursor(ctx) {
-    if (!s.cursorPoint || s.tool === "pan" || !s.img1 || !s.img2) return;
+    if (!s.cursorPoint || s.tool === "pan" || !s.img1) return;
     const fullSize = outputSize(s);
     const imageWOnStage = fullSize.w * transform.scale;
     const imageHOnStage = fullSize.h * transform.scale;
@@ -3292,13 +3807,13 @@ function openEditor(node) {
     const ch = canvas.clientHeight;
     drawChecker(ctx, cw, ch);
 
-    if (!s.img1 || !s.img2) {
+    if (!s.img1) {
       ctx.fillStyle = "#747d87";
       ctx.font = "15px Segoe UI, Arial, sans-serif";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText("Run the node with image1 and image2 to edit image3", cw / 2, ch / 2);
-      setStatus("Waiting for images");
+      ctx.fillText("Run the node with image1 to edit image3", cw / 2, ch / 2);
+      setStatus("Waiting for image1");
       return;
     }
 
@@ -3392,7 +3907,7 @@ function openEditor(node) {
   }, { passive: false });
 
   canvas.addEventListener("pointerdown", (event) => {
-    if (!s.img1 || !s.img2) return;
+    if (!s.img1) return;
     canvas.setPointerCapture?.(event.pointerId);
     const p = canvasPoint(event);
     s.cursorPoint = p;
@@ -3460,8 +3975,52 @@ function openEditor(node) {
   scheduleRender();
 }
 
+function hideNativeWidgets(node) {
+  for (const name of ["operation_mode", "output_image", "processor_state"]) {
+    const widget = findWidget(node, name);
+    if (!widget) continue;
+    widget.__workflowxImageProcessorHidden = true;
+    widget.hidden = true;
+    widget.type = "hidden";
+    widget.options = { ...(widget.options || {}), hidden: true, serialize: true };
+    widget.draw = () => {};
+    widget.computeSize = () => [0, -4];
+    widget.computeLayoutSize = () => ({ minHeight: 0, maxHeight: 0, minWidth: 0 });
+    // Newer ComfyUI DOM-backed widgets keep their element alive even after the
+    // LiteGraph widget type changes, so hide every known backing element too.
+    for (const element of [widget.element, widget.inputEl, widget.inputElement]) {
+      if (element?.style) element.style.display = "none";
+    }
+  }
+}
+
+function refreshImage2Connection(node) {
+  const input = node.inputs?.find((slot) => slot.name === "image2");
+  if (!input) return;
+  const s = getState(node);
+  persist(node, true);
+  s.hasImage2 = input.link != null;
+  if (!s.hasImage2) {
+    s.img2 = null;
+    s.images = s.images.slice(0, 1);
+  }
+  persist(node, false);
+  s.editor?.sync?.();
+  s.editor?.render?.();
+  dirty(node);
+}
+
 app.registerExtension({
-  name: "workflowx.image_compare_edit_x.canvas",
+  name: "workflowx.image_processor_x.canvas",
+  async setup() {
+    api.addEventListener(PAUSE_EVENT, (event) => {
+      const payload = event.detail || {};
+      const rawId = payload.node_id;
+      const numericId = Number(rawId);
+      const node = app.graph?.getNodeById?.(Number.isNaN(numericId) ? rawId : numericId) || app.graph?._nodes?.find((item) => String(item.id) === String(rawId));
+      if (node?.comfyClass === NODE_TYPE || node?.type === NODE_TYPE) applyPausePayload(node, payload);
+    });
+  },
   async beforeRegisterNodeDef(nodeType, nodeData) {
     if (nodeData.name !== NODE_TYPE) return;
 
@@ -3469,12 +4028,14 @@ app.registerExtension({
     nodeType.prototype.onNodeCreated = function () {
       try {
         origCreated?.apply(this, arguments);
+        hideNativeWidgets(this);
         getState(this);
         this.hideOutputImages = true;
         normalizeNodeSize(this);
         restoreImages(this);
+        setTimeout(() => restorePendingSession(this), 0);
       } catch (err) {
-        console.warn("[WorkflowX] Image Compare Edit X create hook failed:", err);
+        console.warn("[WorkflowX] Image ProcessorX create hook failed:", err);
       }
     };
 
@@ -3482,11 +4043,16 @@ app.registerExtension({
     nodeType.prototype.onConfigure = function () {
       const result = origConfigure?.apply(this, arguments);
       try {
+        hideNativeWidgets(this);
+        // onNodeCreated runs before saved widgets/properties are configured.
+        // Discard that provisional cache and hydrate from the workflow payload.
+        this.__wfxIpx = null;
         getState(this);
         normalizeNodeSize(this);
         restoreImages(this);
+        setTimeout(() => restorePendingSession(this), 0);
       } catch (err) {
-        console.warn("[WorkflowX] Image Compare Edit X configure hook failed:", err);
+        console.warn("[WorkflowX] Image ProcessorX configure hook failed:", err);
       }
       return result;
     };
@@ -3495,22 +4061,53 @@ app.registerExtension({
       try {
         this.imgs = null;
         const s = getState(this);
-        if (!output?.images || output.images.length < 2) return;
+        if (!output?.images || output.images.length < 1) return;
+        // Capture every live editor canvas before replacing the base-image
+        // references so the same recipe can be resized onto the new images.
+        persist(this, true);
         s.images = output.images.slice(0, 2).map((img) => ({
           filename: img.filename,
           subfolder: img.subfolder || "",
           type: img.type || "temp",
         }));
+        s.hasImage2 = s.images.length > 1 || output.image_processor_x?.[0]?.has_image2 === true;
+        s.pendingRequest = null;
+        s.pauseStatus = "complete";
+        s.img1 = null;
+        s.img2 = null;
         persist(this, false);
         loadImage(this, s.images[0], 1);
-        loadImage(this, s.images[1], 2);
+        if (s.images[1]) loadImage(this, s.images[1], 2);
       } catch (err) {
-        console.warn("[WorkflowX] Image Compare Edit X execution hook failed:", err);
+        console.warn("[WorkflowX] Image ProcessorX execution hook failed:", err);
       }
+    };
+
+    const origSerialize = nodeType.prototype.onSerialize;
+    nodeType.prototype.onSerialize = function (serialized) {
+      try {
+        persist(this, true);
+        serialized.properties = { ...(serialized.properties || {}), [STATE_KEY]: this.properties?.[STATE_KEY] };
+        const processorWidget = findWidget(this, "processor_state");
+        const widgetIndex = this.widgets?.indexOf(processorWidget) ?? -1;
+        if (widgetIndex >= 0 && Array.isArray(serialized.widgets_values)) {
+          serialized.widgets_values[widgetIndex] = processorWidget.value;
+        }
+      } catch (err) {
+        console.warn("[WorkflowX] Image ProcessorX serialize hook failed:", err);
+      }
+      return origSerialize?.apply(this, arguments);
     };
 
     nodeType.prototype.onDrawBackground = function () {
       if (this.imgs) this.imgs = null;
+    };
+
+    const origConnectionsChange = nodeType.prototype.onConnectionsChange;
+    nodeType.prototype.onConnectionsChange = function () {
+      const result = origConnectionsChange?.apply(this, arguments);
+      refreshImage2Connection(this);
+      return result;
     };
 
     const origDraw = nodeType.prototype.onDrawForeground;
@@ -3521,7 +4118,7 @@ app.registerExtension({
       try {
         drawNode(ctx, this);
       } catch (err) {
-        console.warn("[WorkflowX] Image Compare Edit X draw failed:", err);
+        console.warn("[WorkflowX] Image ProcessorX draw failed:", err);
         drawNodeFallback(ctx, this, err);
       }
     };

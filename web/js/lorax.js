@@ -21,6 +21,7 @@ const LORA_EXT_RE = /\.(safetensors|ckpt|pt|bin)$/i;
 const VIDEO_EXT_RE = /\.(mp4|webm|mov)(?:[?#].*)?$/i;
 
 let catalogPromise = null;
+let canonicalItemsPromise = null;
 let activePicker = null;
 
 function markDirty(node) {
@@ -208,15 +209,27 @@ async function loadLoraManagerTree() {
   return data;
 }
 
+async function loadCanonicalItems() {
+  if (!canonicalItemsPromise) {
+    canonicalItemsPromise = fetchJson(LORAX_ROUTE)
+      .then((data) => (Array.isArray(data.items) ? data.items : []))
+      .catch((error) => {
+        canonicalItemsPromise = null;
+        throw error;
+      });
+  }
+  return canonicalItemsPromise;
+}
+
 async function loadCatalog() {
   if (!catalogPromise) {
     catalogPromise = (async () => {
-      const canonical = await fetchJson(LORAX_ROUTE).catch(() => ({ items: [] }));
+      const canonicalItems = await loadCanonicalItems().catch(() => []);
       const [managerItems, managerTree] = await Promise.all([
         loadLoraManagerItems().catch(() => []),
         loadLoraManagerTree().catch(() => null),
       ]);
-      const items = mergeCatalog(Array.isArray(canonical.items) ? canonical.items : [], managerItems);
+      const items = mergeCatalog(canonicalItems, managerItems);
       const tree = managerTree ? buildTreeFromManagerData(managerTree, items) : buildTreeFromItems(items);
       return { items, tree };
     })();
@@ -661,15 +674,18 @@ async function openDetailsModal(item, onSelect) {
 
   const actions = document.createElement("div");
   actions.className = "workflowx-lorax-detail-actions";
-  const select = document.createElement("button");
-  select.className = "primary";
-  select.type = "button";
-  select.textContent = "Select";
-  select.addEventListener("click", () => {
-    onSelect(item);
-    closeDetails();
-  });
-  actions.appendChild(select);
+  let select = null;
+  if (typeof onSelect === "function") {
+    select = document.createElement("button");
+    select.className = "primary";
+    select.type = "button";
+    select.textContent = "Select";
+    select.addEventListener("click", () => {
+      onSelect(item);
+      closeDetails();
+    });
+    actions.appendChild(select);
+  }
   modal.append(head, body, actions);
 
   const fetched = await fetchManagerDetails(item);
@@ -863,6 +879,74 @@ function sanitizeRowValue(value) {
   return row;
 }
 
+function rowDetailsFallback(value) {
+  const row = sanitizeRowValue(value);
+  const loadName = normalizePath(row.load_name);
+  const filename = loadName.split("/").pop() || loadName;
+  const fileStem = stripExt(filename);
+  const metadata = row.metadata || {};
+  return {
+    load_name: loadName,
+    folder: normalizePath(row.path || loadName.slice(0, Math.max(0, loadName.lastIndexOf("/")))),
+    filename,
+    file_stem: fileStem,
+    full_path: normalizePath(metadata.file_path),
+    canonical_display_name: fileStem,
+    display_name: row.display_name || metadata.model_name || fileStem,
+    model_name: normalizePath(metadata.model_name),
+    base_model: normalizePath(metadata.base_model),
+    tags: compactArray(metadata.tags),
+    auto_tags: compactArray(metadata.auto_tags),
+    trained_words: uniqueStrings([...row.trigger_words, ...trainedWords(metadata)]),
+    preview_url: normalizePath(metadata.preview_url),
+    favorite: Boolean(metadata.favorite),
+    update_available: Boolean(metadata.update_available),
+    sub_type: normalizePath(metadata.sub_type),
+    creator: creatorName(metadata),
+    metadata,
+  };
+}
+
+async function resolveRowDetailsItem(value) {
+  const fallback = rowDetailsFallback(value);
+  if (!fallback.load_name) return fallback;
+  try {
+    const key = canonicalKey(fallback);
+    const canonicalItems = await loadCanonicalItems();
+    const match = canonicalItems.map(normalizeCanonical).find((item) => canonicalKey(item) === key);
+    if (!match) return fallback;
+    return {
+      ...fallback,
+      ...match,
+      display_name: fallback.display_name || match.display_name,
+      model_name: fallback.model_name,
+      base_model: fallback.base_model,
+      tags: fallback.tags,
+      auto_tags: fallback.auto_tags,
+      trained_words: fallback.trained_words,
+      preview_url: fallback.preview_url,
+      favorite: fallback.favorite,
+      update_available: fallback.update_available,
+      sub_type: fallback.sub_type,
+      creator: fallback.creator,
+      metadata: fallback.metadata,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+async function openRowDetails(row) {
+  if (!row?.value || row.__loraxDetailsOpening) return;
+  row.__loraxDetailsOpening = true;
+  try {
+    const item = await resolveRowDetailsItem(row.value);
+    if (item.load_name) await openDetailsModal(item);
+  } finally {
+    row.__loraxDetailsOpening = false;
+  }
+}
+
 function rowLoadName(value) {
   if (!value || typeof value !== "object") return "";
   const loadName = value.load_name ?? value.loadName ?? value.lora;
@@ -1035,7 +1119,7 @@ function createRowWidget(name, value) {
         removeRow(node, this);
         return true;
       }
-      openPicker((item) => setRowFromItem(node, this, item));
+      openRowDetails(this);
       return true;
     },
   };
@@ -1271,7 +1355,7 @@ function handleRowClick(node, event, pos) {
       return true;
     }
 
-    openPicker((item) => setRowFromItem(node, widget, item));
+    openRowDetails(widget);
     return true;
   }
   return false;

@@ -9,6 +9,7 @@ import stat
 import tempfile
 import threading
 import time
+import re
 from pathlib import Path
 from typing import Any
 
@@ -77,6 +78,34 @@ def resolve_input_path(value: object, folder_paths_module=None) -> tuple[str, Pa
     if not _is_within(root, candidate):
         raise ValueError("Image path escapes the ComfyUI input directory")
     return relative, candidate
+
+
+_ANNOTATED_PATH_RE = re.compile(r"^(.*?)\s*\[(input|output|temp)\]\s*$", re.IGNORECASE)
+
+
+def resolve_annotated_image_path(value: object, folder_paths_module=None) -> tuple[str, Path]:
+    """Resolve a ComfyUI image path while enforcing its annotated root boundary."""
+    if folder_paths_module is None:
+        folder_paths_module = folder_paths
+    raw = str(value or "").replace("\\", "/").strip()
+    match = _ANNOTATED_PATH_RE.fullmatch(raw)
+    if match:
+        raw, path_type = match.group(1).strip(), match.group(2).lower()
+    else:
+        path_type = "input"
+
+    relative = normalize_relative_path(raw)
+    root_getter = {
+        "input": folder_paths_module.get_input_directory,
+        "output": folder_paths_module.get_output_directory,
+        "temp": folder_paths_module.get_temp_directory,
+    }[path_type]
+    root = Path(root_getter()).resolve()
+    candidate = (root / Path(*relative.split("/"))).resolve()
+    if not _is_within(root, candidate):
+        raise ValueError(f"Image path escapes the ComfyUI {path_type} directory")
+    annotated = relative if path_type == "input" and match is None else f"{relative} [{path_type}]"
+    return annotated, candidate
 
 
 def resolve_deletable_input_path(value: object, folder_paths_module=None) -> tuple[str, Path]:
