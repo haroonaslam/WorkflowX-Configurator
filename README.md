@@ -243,6 +243,8 @@ See the [Kie and Atlas Image API Nodes guide](docs/KIE_ATLAS_API_NODES.md) for c
 
 `Unified Autoprompter X` is a prompting node under `WorkflowX/Prompting`. It is designed to build model-targeted prompt output from the WorkflowX autoprompting UI.
 
+For Local GGUF, `Additional model folders` can point to existing LM Studio or other shared GGUF directories, separated with semicolons. Refresh recursively combines those folders with `ComfyUI/models/LLM`, deduplicates resolved files, and includes external models and mmproj files without copying them. The folder list stays in Unified browser storage and is sent transiently only for listing and local generation.
+
 The node returns:
 
 - `prompt`: final prompt text for the selected target format
@@ -462,6 +464,8 @@ The packaged `afj_awesome_flex_json_v2/visual_builder/presets.json` is the autho
 
 JsonX defaults to a deep hierarchy contract: visually supported concepts are decomposed into atomic leaves using the catalog's parent/child/sub-child structure instead of being compressed into short parent strings. Click `Settings` to choose Deep or Exhaustive expansion, review or customize the Stage 1 and Stage 2 system instructions, reset defaults, and preview the exact effective prompts with live preset context. Custom instruction copies stay in JsonX browser storage and are not serialized into workflows.
 
+Settings also provides two generation profiles. **Adaptive** is the unchanged default and uses the node's Optimized/Full preset-context selector. **Template Fill** sends the complete live catalog hierarchy with every leaf set to JSON `null`, asks the model to fill applicable leaves without restructuring the tree, and removes remaining null leaves deterministically in the backend. Its independent **Use Presets** checkbox appends the complete raw `presets.json`; when enabled, the model prefers suitable preset values and writes a custom value in the same style when no preset fits. When disabled, no preset catalog is sent. In Refined mode, Stage 2 improves coherence and wording only at paths established by Stage 1.
+
 Deep and Exhaustive use coverage behavior rather than numerical leaf ranges. Both maximize relevant hierarchy, subtrees, and atomic leaves and continue until all supported independent visual attributes are represented. Exhaustive performs the broader branch-by-branch relevance pass. Leaf count remains a diagnostic only: it is neither a target nor a maximum, and irrelevant or unsupported filler is still prohibited.
 
 The preset catalog is guidance rather than a closed vocabulary. JsonX uses an exact or semantically faithful preset value when available, but it does not force a nearby preset that changes the requested meaning. If a known path lacks the right value, the LLM writes a deterministic custom value at that path; if the concept also lacks a path, it creates the smallest coherent custom subtree beneath the closest logical parent. Uncovered visible or requested details therefore remain in the output and follow the same atomic hierarchy and concise visual wording style as catalog-backed content.
@@ -474,7 +478,9 @@ Gemini, OpenAI-compatible, Ollama, and Local GGUF model results use full-list pi
 
 JsonX canonicalization treats preset IDs as internal metadata. If a model emits an ID-key object such as `{"environment":{"env_indoor_home":"..."}}`, the backend resolves it to the canonical scalar path `{"environment":"canonical preset value"}`. It also restores misplaced catalog siblings and converts singular `subject` into the repeatable `subjects` array before final validation.
 
-For Local GGUF, expand `Local generation settings` to configure context and output token limits, sampling, memory/offload mode, reasoning format, and seed. Large `full` preset calls may require a larger context value. JsonX uses its own llama.cpp backend and dedicated `vendor/jsonx-llama.cpp` runtime cache. Long system instructions are sent through short temporary UTF-8 files and removed after the local call, including failure and cancellation paths. JsonX does not import or modify Unified Autoprompter X backends.
+For Local GGUF, expand `Local generation settings` to configure context and output token limits, sampling, memory/offload mode, reasoning format, speculative decoding, and seed. JsonX defaults to reasoning off and an 8192-token output ceiling so structured output is not consumed by a hidden reasoning budget; both remain user-adjustable. `Auto` speculative decoding detects GGUFs with an embedded MTP head; `MTP` forces `draft-mtp`, and the draft-token setting controls its depth. Large `full` preset calls may require a larger context value. JsonX uses its own pinned llama.cpp backend and dedicated `vendor/jsonx-llama.cpp` runtime cache. Long system instructions are sent through short temporary UTF-8 files and removed after the local call, including failure and cancellation paths. JsonX does not import or modify Unified Autoprompter X backends.
+
+`Additional model folders` accepts semicolon-separated LM Studio or other shared GGUF directories. Refresh recursively combines them with `ComfyUI/models/LLM`, deduplicates resolved files, and lists external models and mmproj files without copying them. The folder list remains in JsonX browser storage and is sent transiently only for discovery and local generation. Because JsonX and Unified are isolated, configure the folders separately in each node.
 
 ![LLM to JsonX node](docs/images/workflowx-jsonx-llm-to-jsonx-node.png)
 

@@ -174,6 +174,10 @@ Local model support uses:
 - optional mmproj `.gguf` files under `models/LLM`
 - optional system prompt `.txt` presets under `models/LLM/prompts`
 
+Use `Additional model folders` to reuse GGUF files already managed by LM Studio or another application. Enter one or more directory paths separated by semicolons, then click `Refresh local GGUF list`. WorkflowX scans each directory recursively, combines the results with `ComfyUI/models/LLM`, and removes duplicate resolved files. External models and mmproj files appear with an `(external)` label; system prompt presets continue to come from `ComfyUI/models/LLM/prompts`.
+
+The additional-folder list is browser-local Unified state. It is not written into workflow JSON and is sent to the backend only while refreshing the list or running the selected local model. External selections use opaque identifiers and can resolve only inside the currently configured folders. Missing paths are skipped and reported in the node status.
+
 UI fields include model selection, mmproj selection, system prompt preset, and local generation options.
 
 ## Connected Image Inputs
@@ -340,6 +344,8 @@ ComfyUI/models/LLM/
 ```
 
 Then click `Refresh local GGUF list`.
+
+If the model is already stored by LM Studio or another tool, place its containing directory in `Additional model folders` instead of copying the file. Multiple directories can be separated with semicolons.
 
 ### Connected image is ignored
 

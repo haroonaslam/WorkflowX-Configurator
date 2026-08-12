@@ -766,6 +766,7 @@ def register_visual_builder_routes(app):
     from aiohttp import web
 
     route_paths = {r.resource.canonical for r in app.router.routes()}
+    route_methods = {(r.method, r.resource.canonical) for r in app.router.routes()}
 
     async def presets_handler(request):
         return web.json_response(load_visual_presets())
@@ -855,12 +856,14 @@ def register_visual_builder_routes(app):
             return web.json_response({"error": str(exc)}, status=400)
 
     async def jsonx_local_models_handler(request):
+        body = {}
+        if str(getattr(request, "method", "GET")).upper() == "POST":
+            try:
+                body = await request.json()
+            except Exception:
+                body = {}
         return web.json_response(
-            {
-                "models": jsonx_llm.local_models.model_options(),
-                "mmproj": jsonx_llm.local_models.mmproj_options(),
-                "system_prompts": jsonx_llm.local_models.system_prompt_options(),
-            }
+            jsonx_llm.local_models.model_catalog(body.get("additional_model_paths"))
         )
 
     async def jsonx_gemini_models_handler(request):
@@ -939,8 +942,10 @@ def register_visual_builder_routes(app):
         app.router.add_get("/workflowx/jsonx/instructions", jsonx_instruction_templates_handler)
     if "/workflowx/jsonx/instructions/preview" not in route_paths:
         app.router.add_post("/workflowx/jsonx/instructions/preview", jsonx_instruction_preview_handler)
-    if "/workflowx/jsonx/local/models" not in route_paths:
+    if ("GET", "/workflowx/jsonx/local/models") not in route_methods:
         app.router.add_get("/workflowx/jsonx/local/models", jsonx_local_models_handler)
+    if ("POST", "/workflowx/jsonx/local/models") not in route_methods:
+        app.router.add_post("/workflowx/jsonx/local/models", jsonx_local_models_handler)
     if "/workflowx/jsonx/gemini/models" not in route_paths:
         app.router.add_post("/workflowx/jsonx/gemini/models", jsonx_gemini_models_handler)
     if "/workflowx/jsonx/openai/models" not in route_paths:

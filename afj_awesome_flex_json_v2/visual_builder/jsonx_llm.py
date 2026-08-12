@@ -66,10 +66,40 @@ DEFAULT_REFINEMENT_INSTRUCTIONS = """You are the JsonX coherence refiner. Refine
 - Enrich materials, textures, surface condition, lighting interaction, camera intent, environment, and visible subject/object properties without flattening the hierarchy.
 - Use deterministic wording and never offer alternatives."""
 
+DEFAULT_TEMPLATE_FILL_INSTRUCTIONS = """You are LLM to JsonX operating in Template Fill profile.
+
+Rules:
+- Return exactly one valid JSON prompt object with no markdown, wrapper, commentary, or process metadata.
+- Use the supplied blank JsonX hierarchy as the output structure. Do not rename, move, wrap, flatten, or invent branches.
+- Replace each applicable `null` leaf with one concise, deterministic natural-language visual value.
+- Leave a leaf as JSON `null` only when it clearly does not apply, is not visible or supported, or would require guessing.
+- Do not use empty strings, placeholder text, arrays, or objects as leaf values. Catalog leaves must remain scalar.
+- `subjects` must remain an array of objects. Use one populated object per distinct visible or requested subject; duplicate the supplied subject item structure only when another subject is required.
+- Keep independent details in their existing independent leaves. Resolve contradictions and respect framing visibility.
+- Preset IDs are lookup metadata only and must never appear as output keys or values."""
+
+TEMPLATE_FILL_PRESET_GUIDANCE = """Preset use is enabled for Template Fill.
+- The complete presets.json catalog is supplied verbatim after the blank hierarchy.
+- For each applicable leaf, first choose the preset value that faithfully matches the request or image.
+- Output the preset's natural-language value, never its internal preset ID.
+- If no preset value is suitable, write a custom value in the same concise, deterministic descriptive style as neighboring values for that leaf. Never force an inaccurate preset match."""
+
+TEMPLATE_FILL_NO_PRESET_GUIDANCE = """Preset use is disabled for Template Fill.
+- Fill applicable leaves by reasoning from the user instructions and image.
+- Use concise, deterministic natural-language visual values.
+- Keep `null` only where the leaf genuinely does not apply or lacks support."""
+
+TEMPLATE_FILL_REFINEMENT_GUIDANCE = """Template Fill refinement constraint:
+- Improve only coherence, specificity, and wording of existing populated scalar leaves.
+- Preserve the populated Stage 1 hierarchy and every existing path. Do not rename, move, flatten, wrap, or add branches.
+- You may set an existing leaf to JSON `null` only when it is clearly contradictory, impossible, or unsupported. Omitted paths are treated as unchanged.
+- Return the complete refined prompt object as JSON only."""
+
 PRESET_OPEN_WORLD_GUIDANCE = """Preset coverage rule: the JsonX preset catalog is authoritative guidance, not a closed vocabulary.
 - First use an exact catalog value when it faithfully expresses the requested or observed concept.
 - Otherwise use a semantically close value only when it preserves the specific meaning; never force a merely similar preset that changes, weakens, or generalizes the intent.
 - When the correct catalog path exists but none of its preset values is suitable, keep that path and write a concise, deterministic custom natural-language value in the same descriptive style as neighboring preset values.
+- A catalog leaf is scalar. When a concept needs nested children beneath a catalog scalar leaf, keep the catalog leaf scalar when applicable and put the expansion in a sibling `<leaf>_details` custom subtree; for example, use `scene.environment_details.*`, not an object inside `scene.environment`.
 - When no suitable catalog path exists, place the concept beneath the closest logical JsonX parent and create the smallest coherent nested branch needed to express it. Use descriptive lower_snake_case keys and natural-language visual values; never invent preset IDs or ID-like keys.
 - Preserve deep tree structure for custom content. Split independent attributes into separate leaves instead of packing uncovered details into one catch-all string.
 - Never omit a requested, visible, or strongly implied concept merely because the preset catalog does not contain it. Reason from the instructions and image, while respecting visibility, coherence, and the prompt-only contract."""
@@ -77,6 +107,7 @@ PRESET_OPEN_WORLD_GUIDANCE = """Preset coverage rule: the JsonX preset catalog i
 REFINEMENT_OPEN_WORLD_GUIDANCE = """Open-world refinement rule: custom JsonX paths and values are valid prompt content.
 - Preserve a coherent custom leaf or subtree when it expresses a concept not covered by the draft's catalog-derived structure.
 - Do not delete, flatten, or replace custom content merely because it is not a preset value.
+- Keep catalog leaves scalar; move a justified nested expansion beside the leaf as a `<leaf>_details` custom subtree.
 - When adding an uncovered detail, use the closest logical parent, descriptive lower_snake_case keys, atomic natural-language values, and the same concise visual wording style as the rest of the prompt."""
 
 DEPTH_GUIDANCE = {
@@ -214,6 +245,37 @@ def build_preset_context(mode: str, user_instructions: str) -> tuple[str, int]:
     if mode != "optimized":
         raise ValueError(f"Unsupported JsonX preset context mode: {mode}")
     return optimized_preset_context(user_instructions), len(raw)
+
+
+def template_fill_hierarchy(presets: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Build the complete live catalog hierarchy with null scalar leaves."""
+    catalog = presets if presets is not None else load_presets()
+
+    def blank(value: Any) -> Any:
+        if _is_leaf_options(value):
+            return None
+        if isinstance(value, dict):
+            return {str(key): blank(item) for key, item in value.items()}
+        return None
+
+    output: dict[str, Any] = {}
+    for key, value in catalog.items():
+        if key == "subject":
+            output["subjects"] = [blank(value)]
+        elif key == "interaction_suggestions":
+            output["interactions"] = blank(value)
+        else:
+            output[str(key)] = blank(value)
+    return output
+
+
+def template_fill_context(use_presets: bool) -> tuple[str, int]:
+    raw = raw_presets_text()
+    hierarchy = json.dumps(template_fill_hierarchy(), ensure_ascii=False, indent=2)
+    context = "Blank JsonX hierarchy to fill:\n" + hierarchy
+    if use_presets:
+        context += "\n\nComplete JsonX presets.json (verbatim):\n" + raw
+    return context, len(raw)
 
 
 def _normalize_output_path(path: list[str]) -> str:
@@ -411,6 +473,7 @@ def canonicalize_prompt_structure(
         if catalog_path in leaves:
             if isinstance(value, dict):
                 unresolved: list[tuple[str, Any]] = []
+                leaf_was_set = False
                 for nested_key, nested_value in value.items():
                     nested_key_text = str(nested_key)
                     if not isinstance(nested_value, (dict, list)):
@@ -420,10 +483,12 @@ def canonicalize_prompt_structure(
                                 out_tokens,
                                 leaves[catalog_path][nested_key_text],
                             )
+                            leaf_was_set = True
                             continue
                         resolved_id = choose_id_path(nested_key_text, catalog_path, nested_value)
                         if resolved_id and resolved_id[0] == catalog_path:
                             _set_prompt_path(output, out_tokens, resolved_id[1])
+                            leaf_was_set = True
                             continue
                     sibling_path = _resolve_catalog_child(
                         catalog_path,
@@ -443,16 +508,28 @@ def canonicalize_prompt_structure(
                         continue
                     unresolved.append((nested_key_text, nested_value))
                 if unresolved:
-                    if len(unresolved) == 1 and not isinstance(unresolved[0][1], (dict, list)):
+                    if (
+                        not leaf_was_set
+                        and len(unresolved) == 1
+                        and not isinstance(unresolved[0][1], (dict, list))
+                    ):
                         _set_prompt_path(output, out_tokens, unresolved[0][1])
                     else:
-                        keys = ", ".join(key for key, _item in unresolved)
-                        raise ValueError(
-                            f"JsonX leaf '{catalog_path}' contains unresolved nested keys: {keys}."
-                        )
+                        # The catalog leaf remains scalar, but open-world JsonX content may
+                        # legitimately expand it. Preserve that hierarchy beside the leaf
+                        # rather than flattening it or rejecting otherwise useful detail.
+                        leaf_name = str(out_tokens[-1])
+                        detail_tokens = [*out_tokens[:-1], f"{leaf_name}_details"]
+                        _set_prompt_path(output, detail_tokens, dict(unresolved))
                 return
             if isinstance(value, list):
-                raise ValueError(f"JsonX leaf '{catalog_path}' must be a scalar value.")
+                if all(not isinstance(item, (dict, list)) for item in value):
+                    _set_prompt_path(output, out_tokens, ", ".join(str(item) for item in value))
+                    return
+                leaf_name = str(out_tokens[-1])
+                detail_tokens = [*out_tokens[:-1], f"{leaf_name}_details"]
+                _set_prompt_path(output, detail_tokens, {"items": value})
+                return
             _set_prompt_path(output, out_tokens, value)
             return
 
@@ -725,6 +802,22 @@ def stage_one_system_prompt(
     )
 
 
+def template_fill_system_prompt(
+    template_context: str,
+    has_image: bool,
+    use_presets: bool,
+    instructions: str | None = None,
+) -> str:
+    image_rule = (
+        "Inspect the provided image and fill only visible, relevant, or strongly supported details."
+        if has_image
+        else "No image is provided; fill the hierarchy from the user instructions only."
+    )
+    base = _custom_instructions(instructions, DEFAULT_TEMPLATE_FILL_INSTRUCTIONS)
+    preset_rule = TEMPLATE_FILL_PRESET_GUIDANCE if use_presets else TEMPLATE_FILL_NO_PRESET_GUIDANCE
+    return f"{base}\n\nImage rule: {image_rule}\n\n{preset_rule}\n\n{template_context}"
+
+
 def refinement_system_prompt(
     has_image: bool,
     instructions: str | None = None,
@@ -738,10 +831,25 @@ def refinement_system_prompt(
     )
 
 
+def template_fill_refinement_system_prompt(
+    has_image: bool,
+    instructions: str | None = None,
+    detail_level: str = "deep",
+) -> str:
+    return (
+        refinement_system_prompt(has_image, instructions, detail_level)
+        + "\n\n"
+        + TEMPLATE_FILL_REFINEMENT_GUIDANCE
+    )
+
+
 def instruction_templates() -> dict[str, Any]:
     return {
         "stage_one": DEFAULT_STAGE_ONE_INSTRUCTIONS,
+        "template_fill": DEFAULT_TEMPLATE_FILL_INSTRUCTIONS,
         "refinement": DEFAULT_REFINEMENT_INSTRUCTIONS,
+        "generation_profiles": ["adaptive", "template_fill"],
+        "default_generation_profile": "adaptive",
         "detail_levels": list(DEPTH_GUIDANCE),
         "default_detail_level": "deep",
     }
@@ -751,19 +859,39 @@ def effective_instruction_preview(data: dict[str, Any]) -> dict[str, Any]:
     user_instructions = str(data.get("user_instructions") or "").strip()
     context_mode = str(data.get("preset_context_mode") or "optimized").strip().lower()
     detail_level = str(data.get("detail_level") or "deep").strip().lower()
-    preset_context, full_chars = build_preset_context(context_mode, user_instructions)
+    generation_profile = str(data.get("generation_profile") or "adaptive").strip().lower()
+    if generation_profile not in {"adaptive", "template_fill"}:
+        raise ValueError(f"Unsupported JsonX generation profile: {generation_profile}")
+    template_use_presets = bool(data.get("template_use_presets", False))
     has_image = bool(data.get("has_image", False))
-    stage_one = stage_one_system_prompt(
-        preset_context,
-        has_image,
-        data.get("stage_one_instructions"),
-        detail_level,
-    )
-    refinement = refinement_system_prompt(
-        has_image,
-        data.get("refinement_instructions"),
-        detail_level,
-    )
+    if generation_profile == "template_fill":
+        preset_context, full_chars = template_fill_context(template_use_presets)
+        stage_one = template_fill_system_prompt(
+            preset_context,
+            has_image,
+            template_use_presets,
+            data.get("template_fill_instructions"),
+        )
+        refinement = template_fill_refinement_system_prompt(
+            has_image,
+            data.get("refinement_instructions"),
+            detail_level,
+        )
+        effective_preset_mode = "full" if template_use_presets else "none"
+    else:
+        preset_context, full_chars = build_preset_context(context_mode, user_instructions)
+        stage_one = stage_one_system_prompt(
+            preset_context,
+            has_image,
+            data.get("stage_one_instructions"),
+            detail_level,
+        )
+        refinement = refinement_system_prompt(
+            has_image,
+            data.get("refinement_instructions"),
+            detail_level,
+        )
+        effective_preset_mode = context_mode
     return {
         "stage_one": stage_one,
         "refinement": refinement,
@@ -771,7 +899,9 @@ def effective_instruction_preview(data: dict[str, Any]) -> dict[str, Any]:
         "refinement_characters": len(refinement),
         "full_preset_chars": full_chars,
         "detail_level": detail_level,
-        "preset_context_mode": context_mode,
+        "generation_profile": generation_profile,
+        "template_use_presets": template_use_presets,
+        "preset_context_mode": effective_preset_mode,
     }
 
 
@@ -852,35 +982,168 @@ def _call_provider(data: dict[str, Any], system_prompt: str, user_prompt: str, i
             pil_images=images,
             mmproj=str(data.get("mmproj") or "none"),
             system_prompt_preset=str(data.get("system_prompt_preset") or "none"),
+            additional_model_paths=data.get("additional_model_paths"),
             options=options,
         )
     raise ValueError(f"Unsupported JsonX backend: {backend}")
 
 
-def _parse_and_normalize(raw: str) -> dict[str, Any]:
+_DROP_NULL = object()
+
+
+def prune_null_leaves(prompt: dict[str, Any]) -> dict[str, Any]:
+    """Remove null leaves and containers made empty by their removal."""
+
+    def prune(value: Any) -> Any:
+        if value is None:
+            return _DROP_NULL
+        if isinstance(value, dict):
+            cleaned = {}
+            for key, item in value.items():
+                result = prune(item)
+                if result is not _DROP_NULL:
+                    cleaned[key] = result
+            return cleaned if cleaned else _DROP_NULL
+        if isinstance(value, list):
+            cleaned = []
+            for item in value:
+                result = prune(item)
+                if result is not _DROP_NULL:
+                    cleaned.append(result)
+            return cleaned if cleaned else _DROP_NULL
+        return value
+
+    result = prune(prompt)
+    return result if isinstance(result, dict) else {}
+
+
+def constrain_template_fill_structure(
+    prompt: dict[str, Any],
+    hierarchy: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Keep Template Fill content only at paths present in the live blank hierarchy."""
+    template = hierarchy if hierarchy is not None else template_fill_hierarchy()
+
+    def constrain(value: Any, shape: Any) -> Any:
+        if shape is None:
+            return value if not isinstance(value, (dict, list)) else _DROP_NULL
+        if isinstance(shape, dict):
+            if not isinstance(value, dict):
+                return _DROP_NULL
+            cleaned = {}
+            for key, child_shape in shape.items():
+                if key not in value:
+                    continue
+                child = constrain(value[key], child_shape)
+                if child is not _DROP_NULL:
+                    cleaned[key] = child
+            return cleaned if cleaned else _DROP_NULL
+        if isinstance(shape, list):
+            if not isinstance(value, list) or not shape:
+                return _DROP_NULL
+            cleaned = []
+            for item in value:
+                child = constrain(item, shape[0])
+                if child is not _DROP_NULL:
+                    cleaned.append(child)
+            return cleaned if cleaned else _DROP_NULL
+        return _DROP_NULL
+
+    result = constrain(prompt, template)
+    return validate_canonical_prompt(result if isinstance(result, dict) else {})
+
+
+def overlay_template_refinement(
+    stage_one: dict[str, Any],
+    refined: dict[str, Any],
+) -> dict[str, Any]:
+    """Apply Stage 2 values only at paths established by Template Fill Stage 1."""
+
+    def overlay(original: Any, update: Any) -> Any:
+        if update is None:
+            return None
+        if isinstance(original, dict):
+            if not isinstance(update, dict):
+                return original
+            return {
+                key: overlay(value, update[key]) if key in update else value
+                for key, value in original.items()
+            }
+        if isinstance(original, list):
+            if not isinstance(update, list):
+                return original
+            return [
+                overlay(item, update[index]) if index < len(update) else item
+                for index, item in enumerate(original)
+            ]
+        return update if not isinstance(update, (dict, list)) else original
+
+    overlaid = overlay(stage_one, refined)
+    return validate_canonical_prompt(prune_null_leaves(overlaid))
+
+
+def _parse_and_normalize(raw: str, *, prune_null: bool = False) -> dict[str, Any]:
     parsed = parse_prompt_json(raw)
     canonical = canonicalize_prompt_structure(parsed)
-    return validate_canonical_prompt(align_prompt_to_presets(canonical))
+    normalized = validate_canonical_prompt(align_prompt_to_presets(canonical))
+    return validate_canonical_prompt(prune_null_leaves(normalized)) if prune_null else normalized
 
 
 def _parse_or_repair(
     data: dict[str, Any],
     raw: str,
     stage: str = "generation",
+    image: Image.Image | None = None,
+    prune_null: bool = False,
 ) -> dict[str, Any]:
     try:
-        return _parse_and_normalize(raw)
+        return _parse_and_normalize(raw, prune_null=prune_null)
     except Exception as first_error:
+        catalog = load_presets()
+        output_roots = [
+            "subjects" if key == "subject" else "interactions" if key == "interaction_suggestions" else key
+            for key in catalog
+        ]
+        subject_branches = list(catalog.get("subject", {})) if isinstance(catalog.get("subject"), dict) else []
         repair_system = (
-            "Repair the supplied response into one valid JsonX prompt object. "
+            "Repair the supplied response with the smallest possible edits into one valid JsonX prompt object. "
+            "This is syntax and structure repair, not a new generation or summary. Preserve every recoverable "
+            "branch, key, and visual value from the source; never replace a detailed subtree with a broad string. "
             "Return JSON only with no wrapper, markdown, commentary, or process metadata. "
-            "Internal preset IDs must not appear as keys or values. Every catalog leaf must be a scalar. "
-            "Use subjects as an array and keep catalog sibling paths as siblings. "
-            "Preserve valid custom paths and natural-language values: presets are guidance, not an allow-list."
+            "The top level must be the prompt object itself, never a catalog, schema, custom_paths, or result wrapper. "
+            "Internal preset IDs must not appear as keys or values. Catalog leaves are scalar; when the source "
+            "expands a catalog leaf, retain the expansion as a descriptive sibling custom subtree. "
+            "The `subjects` value must be an array of objects. Each subject object must retain its own nested "
+            "identity, clothing or dress, pose, properties or appearance, face, hair, skin, and expression details "
+            "when present. Never turn a subject object into a label string. `interactions` must be an object. "
+            "Keep catalog sibling paths as siblings and preserve valid open-world custom paths; "
+            "presets are guidance, not an allow-list. "
+            f"Catalog-derived output roots include: {', '.join(output_roots)}. "
+            f"Catalog subject branches include: {', '.join(subject_branches)}."
         )
-        repair_user = f"Validation error: {first_error}\n\nResponse to repair:\n{raw}"
+        original_instructions = str(data.get("user_instructions") or "").strip()
+        repair_user = (
+            f"Validation error: {first_error}\n\n"
+            f"Original user instructions:\n{original_instructions or '(image-led request)'}\n\n"
+            f"Response to minimally repair:\n{raw}"
+        )
+        repair_data = dict(data)
+        if str(data.get("backend") or "").strip().lower() == "local":
+            local_options = dict(data.get("local_options") or {})
+            try:
+                current_max_tokens = int(local_options.get("max_tokens") or 0)
+            except (TypeError, ValueError):
+                current_max_tokens = 0
+            local_options.update(
+                {
+                    "reasoning": "off",
+                    "temperature": min(float(local_options.get("temperature") or 0.7), 0.2),
+                    "max_tokens": min(8192, max(4096, current_max_tokens)),
+                }
+            )
+            repair_data["local_options"] = local_options
         try:
-            repaired = _call_provider(data, repair_system, repair_user, None)
+            repaired = _call_provider(repair_data, repair_system, repair_user, image)
         except Exception as repair_call_error:
             provider_diagnostics = getattr(repair_call_error, "diagnostics", {})
             raise JsonXGenerationError(
@@ -895,7 +1158,7 @@ def _parse_or_repair(
                 },
             ) from repair_call_error
         try:
-            return _parse_and_normalize(repaired)
+            return _parse_and_normalize(repaired, prune_null=prune_null)
         except Exception as repair_error:
             raise JsonXGenerationError(
                 f"{stage} response and its repair were not valid canonical JsonX.",
@@ -933,28 +1196,45 @@ def generate_jsonx(data: dict[str, Any]) -> dict[str, Any]:
     context_mode = str(data.get("preset_context_mode") or "optimized").strip().lower()
     generation_mode = str(data.get("generation_mode") or "fast").strip().lower()
     detail_level = str(data.get("detail_level") or "deep").strip().lower()
+    generation_profile = str(data.get("generation_profile") or "adaptive").strip().lower()
+    template_use_presets = bool(data.get("template_use_presets", False))
     if generation_mode not in {"fast", "refined"}:
         raise ValueError(f"Unsupported JsonX generation mode: {generation_mode}")
+    if generation_profile not in {"adaptive", "template_fill"}:
+        raise ValueError(f"Unsupported JsonX generation profile: {generation_profile}")
     depth_guidance(detail_level)
 
-    preset_context, full_preset_chars = build_preset_context(context_mode, instructions)
+    if generation_profile == "template_fill":
+        preset_context, full_preset_chars = template_fill_context(template_use_presets)
+        stage_one_prompt = template_fill_system_prompt(
+            preset_context,
+            image is not None,
+            template_use_presets,
+            data.get("template_fill_instructions"),
+        )
+        effective_preset_mode = "full" if template_use_presets else "none"
+    else:
+        preset_context, full_preset_chars = build_preset_context(context_mode, instructions)
+        stage_one_prompt = stage_one_system_prompt(
+            preset_context,
+            image is not None,
+            data.get("stage_one_instructions"),
+            detail_level,
+        )
+        effective_preset_mode = context_mode
+    full_context_sent = effective_preset_mode == "full"
     user_prompt = instructions or "Describe the provided image as a complete JsonX prompt."
     if bool(data.get("refresh_vram", False)):
         runtime.refresh_comfy_vram()
     try:
         raw_stage_one = _call_provider(
             data,
-            stage_one_system_prompt(
-                preset_context,
-                image is not None,
-                data.get("stage_one_instructions"),
-                detail_level,
-            ),
+            stage_one_prompt,
             user_prompt,
             image,
         )
     except JsonXProviderError as exc:
-        if context_mode == "full" and _is_context_limit_error(exc):
+        if full_context_sent and _is_context_limit_error(exc):
             raise ValueError(
                 "Full Presets exceeds the selected model's context limit. "
                 "Select a model or local context size that can accept the complete catalog, "
@@ -966,7 +1246,7 @@ def generate_jsonx(data: dict[str, Any]) -> dict[str, Any]:
             {"stage": "Stage 1", **exc.diagnostics},
         ) from exc
     except Exception as exc:
-        if context_mode == "full" and _is_context_limit_error(exc):
+        if full_context_sent and _is_context_limit_error(exc):
             raise ValueError(
                 "Full Presets exceeds the selected model's context limit. "
                 "Select a model or local context size that can accept the complete catalog, "
@@ -974,7 +1254,15 @@ def generate_jsonx(data: dict[str, Any]) -> dict[str, Any]:
                 f"Provider error: {exc}"
             ) from exc
         raise
-    stage_one = _parse_or_repair(data, raw_stage_one, "Stage 1")
+    stage_one = _parse_or_repair(
+        data,
+        raw_stage_one,
+        "Stage 1",
+        image,
+        prune_null=generation_profile == "template_fill",
+    )
+    if generation_profile == "template_fill":
+        stage_one = constrain_template_fill_structure(stage_one)
 
     final_prompt = stage_one
     if generation_mode == "refined":
@@ -985,7 +1273,13 @@ def generate_jsonx(data: dict[str, Any]) -> dict[str, Any]:
         try:
             raw_refined = _call_provider(
                 data,
-                refinement_system_prompt(
+                template_fill_refinement_system_prompt(
+                    image is not None,
+                    data.get("refinement_instructions"),
+                    detail_level,
+                )
+                if generation_profile == "template_fill"
+                else refinement_system_prompt(
                     image is not None,
                     data.get("refinement_instructions"),
                     detail_level,
@@ -998,12 +1292,19 @@ def generate_jsonx(data: dict[str, Any]) -> dict[str, Any]:
                 str(exc),
                 {"stage": "Refined Stage 2", **exc.diagnostics},
             ) from exc
-        final_prompt = _parse_or_repair(data, raw_refined, "Refined Stage 2")
+        refined_prompt = _parse_or_repair(data, raw_refined, "Refined Stage 2", image)
+        final_prompt = (
+            overlay_template_refinement(stage_one, refined_prompt)
+            if generation_profile == "template_fill"
+            else refined_prompt
+        )
 
     return {
         "prompt_json": json.dumps(final_prompt, ensure_ascii=False, indent=2),
         "generation_mode": generation_mode,
-        "preset_context_mode": context_mode,
+        "generation_profile": generation_profile,
+        "template_use_presets": template_use_presets,
+        "preset_context_mode": effective_preset_mode,
         "detail_level": detail_level,
         "hierarchy_metrics": hierarchy_metrics(final_prompt),
         "full_preset_chars": full_preset_chars,

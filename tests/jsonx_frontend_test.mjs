@@ -28,6 +28,9 @@ test("LLM to JsonX stays compact and Generate feeds the prompt_json output", () 
   assert.doesNotMatch(source, /function fillModels/);
   assert.doesNotMatch(source, /datalist/);
   assert.match(source, /localModel\.setOptions\(data\.models/);
+  assert.match(source, /Additional model folders \(; separated\)/);
+  assert.match(source, /additional_model_paths: additionalModelPaths/);
+  assert.match(source, /workflowx_jsonx_provider_settings/);
   assert.match(source, /jsonx-picker-menu/);
   assert.match(source, /jsonx-picker-open/);
   assert.match(source, /for \(const item of options\)/);
@@ -35,7 +38,7 @@ test("LLM to JsonX stays compact and Generate feeds the prompt_json output", () 
   assert.match(source, /Refresh to load GGUF models/);
   assert.match(source, /No GGUF models found/);
   assert.doesNotMatch(source, /Math\.max\(680/);
-  for (const setting of ["local_ctx_size", "local_max_tokens", "local_temperature", "local_top_p", "local_top_k", "local_repeat_penalty", "local_memory_mode", "local_reasoning", "local_seed"]) {
+  for (const setting of ["local_ctx_size", "local_max_tokens", "local_temperature", "local_top_p", "local_top_k", "local_repeat_penalty", "local_memory_mode", "local_reasoning", "local_speculative_mode", "local_mtp_draft_tokens", "local_seed"]) {
     assert.match(source, new RegExp(setting));
   }
   assert.match(source, /Local generation settings/);
@@ -60,11 +63,25 @@ test("LLM to JsonX stays compact and Generate feeds the prompt_json output", () 
   assert.match(source, /settings\[`\$\{activeBackend\}_timeout`\]/);
   assert.match(source, /host:ollamaHost\.value, timeout:Number\(timeout\.value \|\| 180\)/);
   assert.match(source, /repeat_penalty: settings\.local_repeat_penalty/);
+  assert.match(source, /Auto \(detect embedded MTP\)/);
+  assert.match(source, /normalizeLocalReasoning/);
+  assert.match(source, /local_max_tokens: 8192/);
+  assert.match(source, /local_reasoning: "off"/);
   assert.match(source, /JsonX Backend Instructions/);
+  assert.match(source, /Generation profile/);
+  assert.match(source, /Adaptive \(current behavior\)/);
+  assert.match(source, /Template Fill \(maximum structure compliance\)/);
+  assert.match(source, /Use Presets \(send full presets\.json in Template Fill\)/);
+  assert.match(source, /generation_profile: generationProfileValue/);
+  assert.match(source, /template_use_presets: templateUsePresetsValue/);
+  assert.match(source, /template_fill_instructions: settings\.template_fill_instructions/);
+  assert.match(source, /sendsFullPresets/);
+  assert.match(source, /blank Template Fill hierarchy and no presets/);
   assert.match(source, /Hierarchy coverage/);
   assert.match(source, /Deep \(maximize relevant hierarchy\)/);
   assert.match(source, /Exhaustive \(maximum relevant branch coverage\)/);
-  assert.match(source, /Stage 1 preset-aware system instructions/);
+  assert.match(source, /Adaptive Stage 1 system instructions/);
+  assert.match(source, /Template Fill Stage 1 system instructions/);
   assert.match(source, /Refined Stage 2 system instructions/);
   assert.match(source, /Effective instructions preview/);
   assert.match(source, /Reset defaults/);

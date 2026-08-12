@@ -299,6 +299,8 @@ Outputs:
 
 Use this node when you want one prompt-building surface that can target multiple prompt formats while preserving positive/negative text outputs for downstream nodes. For backend setup, model profiles, connected images/text, video fields, and BBox Layout helpers, see [Unified Autoprompter X Guide](UNIFIED_AUTOPROMPTER_X.md).
 
+Local GGUF discovery always scans `ComfyUI/models/LLM`. The optional browser-local `Additional model folders` field adds semicolon-separated LM Studio or other shared directories. External models and mmproj files are scanned recursively, deduplicated by resolved file path, and selected through backend-validated opaque IDs; no model files are copied.
+
 ## LLM to JsonX
 
 `LLM to JsonX` generates prompt-only JsonX through Gemini, OpenAI-compatible, Ollama, or local GGUF backends. Provider settings and credentials use JsonX-specific browser storage and credentials are not serialized into workflows.
@@ -309,13 +311,17 @@ The response parser accepts plain JSON, one fenced JSON object, or one unambiguo
 
 After parsing, canonicalization removes internal preset IDs from keys and values, restores known fields to their catalog paths, flattens preset ID/value leaf objects to scalar values, and normalizes singular `subject` to `subjects`. Conflicting canonical paths trigger one repair call. If that repair also fails, the prior output remains unchanged and the node shows both raw responses in a transient diagnostics panel.
 
-The default Deep contract targets granular parent/child/sub-child expansion across relevant scene, subject/object, lighting, camera, style, mood, and quality branches. The compact `Settings` button opens a modal with Deep and Exhaustive targets, editable Stage 1 and Stage 2 backend instructions, default reset, and an exact effective-prompt preview. These settings are JsonX browser state only and never enter workflow JSON.
+The default Adaptive/Deep contract targets granular parent/child/sub-child expansion across relevant scene, subject/object, lighting, camera, style, mood, and quality branches. The compact `Settings` button opens a modal with Adaptive and Template Fill profiles, the Template Fill `Use Presets` checkbox, Deep and Exhaustive targets, editable profile-specific Stage 1 and Stage 2 backend instructions, default reset, and an exact effective-prompt preview. These settings are JsonX browser state only and never enter workflow JSON.
+
+Adaptive retains the existing Optimized/Full preset behavior. Template Fill derives a complete blank hierarchy dynamically from the current catalog and represents every leaf as JSON `null`. With `Use Presets` off, only that template is sent. With it on, the full raw preset file is appended and the model prefers matching preset values while retaining custom same-style values when necessary. Backend pruning removes null leaves and newly empty containers. Refined Template Fill overlays coherent Stage 2 scalar wording only onto Stage 1 paths, so omitted values remain unchanged and new or restructured branches are discarded.
 
 Deep maximizes every relevant hierarchy and Exhaustive performs a broader branch-by-branch relevance pass. Neither mode has a numerical leaf target, depth ceiling, or leaf maximum. Generation continues until supported independent attributes are represented; leaf metrics are post-generation diagnostics and unsupported filler remains prohibited.
 
 Presets are an open-world source of canonical paths and values, not an exhaustive allow-list. Exact and meaning-preserving matches become canonical values. An unmatched concept uses a reasoned custom value on the applicable path, or a minimal descriptive custom subtree under the closest logical parent when no path exists. Backend alignment preserves these unmatched values and branches rather than coercing them to an unsuitable preset.
 
-Local GGUF settings are collapsed by default and include context size, maximum output tokens, temperature, Top P, Top K, repeat penalty, memory/offload mode, reasoning format, GPU and CPU MoE layers, and seed. These settings remain in JsonX browser storage rather than workflow JSON. JsonX has an independent llama.cpp backend and runtime cache; long system prompts are passed through short temporary UTF-8 files and cleaned after success, failure, or cancellation without changing Unified Autoprompter X.
+Local GGUF settings are collapsed by default and include context size, maximum output tokens, temperature, Top P, Top K, repeat penalty, memory/offload mode, reasoning mode, MTP speculative decoding, GPU and CPU MoE layers, and seed. New settings default to reasoning off and an 8192-token output ceiling. `Auto` detects an embedded GGUF MTP head and applies the configured draft-token depth. These settings remain in JsonX browser storage rather than workflow JSON. JsonX has an independent pinned llama.cpp backend and runtime cache; long system prompts are passed through short temporary UTF-8 files and cleaned after success, failure, or cancellation without changing Unified Autoprompter X.
+
+The same panel includes browser-local `Additional model folders`. Semicolon-separated shared directories are scanned recursively alongside `ComfyUI/models/LLM`; external models and mmproj files are deduplicated and resolved only within the configured roots. JsonX stores and processes this setting independently from Unified Autoprompter X.
 
 Gemini safety settings are also collapsed by default and expose the same harassment, hate-speech, sexually-explicit, and dangerous-content thresholds as Unified Autoprompter X. The selected thresholds are sent as `gemini_safety` request state and are not serialized into the workflow.
 

@@ -78,6 +78,20 @@ function storeSecret(key, value) {
   else localStorage.removeItem(key);
 }
 
+function additionalModelPaths(value) {
+  return String(value || "")
+    .split(/[;\r\n]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function normalizeLocalReasoning(value) {
+  const mode = String(value || "auto").toLowerCase();
+  if (mode === "none") return "off";
+  if (mode === "deepseek" || mode === "qwen3") return "auto";
+  return ["auto", "on", "off"].includes(mode) ? mode : "auto";
+}
+
 function graphLink(graph, linkId) {
   if (linkId == null) return null;
   if (typeof graph?.links?.get === "function") return graph.links.get(linkId);
@@ -134,10 +148,10 @@ function option(select, value, label = value) {
 }
 
 function normalizeModelOption(value) {
-  const id = value?.id || value?.name || value;
+  const id = value?.value || value?.id || value?.name || value;
   return {
     value: String(id || ""),
-    label: String(value?.display_name || value?.name || id || ""),
+    label: String(value?.label || value?.display_name || value?.name || id || ""),
   };
 }
 
@@ -320,8 +334,9 @@ function setupLLMToJsonX(node) {
     ollama_think: false,
     local_model: "",
     local_mmproj: "none",
+    local_additional_model_paths: "",
     local_timeout: Number(savedSettings.timeout || 180),
-    local_max_tokens: 2048,
+    local_max_tokens: 8192,
     local_temperature: 0.7,
     local_top_p: 0.9,
     local_top_k: 40,
@@ -330,16 +345,22 @@ function setupLLMToJsonX(node) {
     local_memory_mode: "auto",
     local_n_gpu_layers: 99,
     local_n_cpu_moe_layers: 0,
-    local_reasoning: "auto",
+    local_reasoning: "off",
+    local_speculative_mode: "auto",
+    local_mtp_draft_tokens: 2,
     local_seed: -1,
     timeout: 180,
     unload_after: true,
     refresh_vram: false,
+    generation_profile: "adaptive",
+    template_use_presets: false,
     detail_level: "deep",
     stage_one_instructions: "",
+    template_fill_instructions: "",
     refinement_instructions: "",
     ...savedSettings,
   };
+  settings.local_reasoning = normalizeLocalReasoning(settings.local_reasoning);
 
   const root = document.createElement("div");
   root.className = "jsonx-llm";
@@ -477,6 +498,10 @@ function setupLLMToJsonX(node) {
   localSettings.append(localSettingsSummary, localSettingsGrid);
   localPanel.appendChild(localSettings);
   const localContext = makeNumberInput(localSettingsGrid, "Context tokens", settings.local_ctx_size, 512, 262144);
+  const localAdditionalPaths = makeInput(localSettingsGrid, "Additional model folders (; separated)");
+  localAdditionalPaths.value = settings.local_additional_model_paths || "";
+  localAdditionalPaths.placeholder = "D:\\LM Studio\\models; E:\\Shared GGUF";
+  localAdditionalPaths.title = "Optional folders scanned recursively in addition to ComfyUI/models/LLM";
   const localMaxTokens = makeNumberInput(localSettingsGrid, "Max output tokens", settings.local_max_tokens, 32, 8192);
   const localTemperature = makeNumberInput(localSettingsGrid, "Temperature", settings.local_temperature, 0, 2, "0.05");
   const localTopP = makeNumberInput(localSettingsGrid, "Top P", settings.local_top_p, 0, 1, "0.05");
@@ -488,7 +513,17 @@ function setupLLMToJsonX(node) {
     {value:"cpu_moe_layers", label:"CPU MoE layers"},
     {value:"gpu_and_cpu_moe_layers", label:"GPU + CPU MoE"},
   ], settings.local_memory_mode);
-  const localReasoning = makeSelect(localSettingsGrid, "Reasoning", ["auto", "none", "deepseek", "qwen3"], settings.local_reasoning);
+  const localReasoning = makeSelect(localSettingsGrid, "Reasoning", [
+    {value:"auto", label:"Auto (model template)"},
+    {value:"on", label:"On"},
+    {value:"off", label:"Off"},
+  ], settings.local_reasoning);
+  const localSpeculativeMode = makeSelect(localSettingsGrid, "Speculative decoding", [
+    {value:"auto", label:"Auto (detect embedded MTP)"},
+    {value:"off", label:"Off"},
+    {value:"mtp", label:"MTP"},
+  ], settings.local_speculative_mode);
+  const localMtpDraftTokens = makeNumberInput(localSettingsGrid, "MTP draft tokens", settings.local_mtp_draft_tokens, 1, 8);
   const localGpuLayers = makeNumberInput(localSettingsGrid, "GPU layers", settings.local_n_gpu_layers, 0, 999);
   const localCpuMoeLayers = makeNumberInput(localSettingsGrid, "CPU MoE layers", settings.local_n_cpu_moe_layers, 0, 999);
   const localSeed = makeNumberInput(localSettingsGrid, "Seed (-1 random)", settings.local_seed, -1, 4294967295);
@@ -552,7 +587,20 @@ function setupLLMToJsonX(node) {
   instructionHead.append(instructionTitle, instructionClose);
   const instructionNote = document.createElement("div");
   instructionNote.className = "jsonx-instruction-note";
-  instructionNote.textContent = "These instructions are sent only by LLM to JsonX. Custom copies stay in JsonX browser storage and are never written into workflow JSON. Preset context, image rules, and the selected depth target are appended by the backend.";
+  instructionNote.textContent = "Adaptive keeps the current open-world generation behavior. Template Fill supplies the complete blank hierarchy; Use Presets additionally sends the full presets.json verbatim. These browser-local settings are never written into workflow JSON.";
+  const generationProfileLabel = document.createElement("label");
+  generationProfileLabel.textContent = "Generation profile";
+  const generationProfile = document.createElement("select");
+  option(generationProfile, "adaptive", "Adaptive (current behavior)");
+  option(generationProfile, "template_fill", "Template Fill (maximum structure compliance)");
+  generationProfile.value = settings.generation_profile || "adaptive";
+  generationProfileLabel.appendChild(generationProfile);
+  const templateUsePresetsLabel = document.createElement("label");
+  templateUsePresetsLabel.className = "jsonx-check";
+  const templateUsePresets = document.createElement("input");
+  templateUsePresets.type = "checkbox";
+  templateUsePresets.checked = Boolean(settings.template_use_presets);
+  templateUsePresetsLabel.append(templateUsePresets, document.createTextNode("Use Presets (send full presets.json in Template Fill)"));
   const detailLevelLabel = document.createElement("label");
   detailLevelLabel.textContent = "Hierarchy coverage";
   const detailLevel = document.createElement("select");
@@ -561,10 +609,15 @@ function setupLLMToJsonX(node) {
   detailLevel.value = settings.detail_level || "deep";
   detailLevelLabel.appendChild(detailLevel);
   const stageOneLabel = document.createElement("label");
-  stageOneLabel.textContent = "Stage 1 preset-aware system instructions";
+  stageOneLabel.textContent = "Adaptive Stage 1 system instructions";
   const stageOneInstructions = document.createElement("textarea");
   stageOneInstructions.spellcheck = false;
   stageOneLabel.appendChild(stageOneInstructions);
+  const templateFillLabel = document.createElement("label");
+  templateFillLabel.textContent = "Template Fill Stage 1 system instructions";
+  const templateFillInstructions = document.createElement("textarea");
+  templateFillInstructions.spellcheck = false;
+  templateFillLabel.appendChild(templateFillInstructions);
   const refinementLabel = document.createElement("label");
   refinementLabel.textContent = "Refined Stage 2 system instructions";
   const refinementInstructions = document.createElement("textarea");
@@ -603,8 +656,11 @@ function setupLLMToJsonX(node) {
   instructionModal.append(
     instructionHead,
     instructionNote,
+    generationProfileLabel,
+    templateUsePresetsLabel,
     detailLevelLabel,
     stageOneLabel,
+    templateFillLabel,
     refinementLabel,
     effectiveDetails,
     instructionButtons,
@@ -651,6 +707,12 @@ function setupLLMToJsonX(node) {
     status.textContent = text;
     status.classList.toggle("error", error);
   };
+  const syncTemplateProfile = () => {
+    const isTemplateFill = generationProfile.value === "template_fill";
+    templateUsePresets.disabled = !isTemplateFill;
+    templateFillInstructions.disabled = !isTemplateFill;
+    stageOneInstructions.disabled = isTemplateFill;
+  };
   const persist = () => {
     settings.backend = backend.value;
     settings[`${activeBackend}_timeout`] = Number(timeout.value || 180);
@@ -667,9 +729,12 @@ function setupLLMToJsonX(node) {
     if (backend.value === "openai") settings.unload_after = openaiUnload.checked;
     if (backend.value === "ollama") settings.unload_after = ollamaUnload.checked;
     settings.refresh_vram = refreshVram.checked;
+    settings.generation_profile = generationProfile.value || "adaptive";
+    settings.template_use_presets = templateUsePresets.checked;
     settings.local_model = localModel.value || "";
     settings.local_mmproj = mmproj.value || "none";
-    settings.local_max_tokens = numericValue(localMaxTokens, 2048);
+    settings.local_additional_model_paths = localAdditionalPaths.value.trim();
+    settings.local_max_tokens = numericValue(localMaxTokens, 8192);
     settings.local_temperature = numericValue(localTemperature, 0.7);
     settings.local_top_p = numericValue(localTopP, 0.9);
     settings.local_top_k = numericValue(localTopK, 40);
@@ -679,6 +744,8 @@ function setupLLMToJsonX(node) {
     settings.local_n_gpu_layers = numericValue(localGpuLayers, 99);
     settings.local_n_cpu_moe_layers = numericValue(localCpuMoeLayers, 0);
     settings.local_reasoning = localReasoning.value || "auto";
+    settings.local_speculative_mode = localSpeculativeMode.value || "auto";
+    settings.local_mtp_draft_tokens = numericValue(localMtpDraftTokens, 2);
     settings.local_seed = numericValue(localSeed, -1);
     saveSettings(settings);
     storeSecret(GEMINI_KEY, geminiKey.value);
@@ -701,14 +768,17 @@ function setupLLMToJsonX(node) {
           user_instructions: String(widgetValue(node, "user_instructions", "")).trim(),
           preset_context_mode: String(widgetValue(node, "preset_context_mode", "optimized")),
           has_image: Boolean(resolveImageSource(node)),
+          generation_profile: generationProfile.value,
+          template_use_presets: templateUsePresets.checked,
           detail_level: detailLevel.value,
           stage_one_instructions: stageOneInstructions.value,
+          template_fill_instructions: templateFillInstructions.value,
           refinement_instructions: refinementInstructions.value,
         }),
       });
       effectiveStage.value = data.stage_one || "";
       effectiveRefinement.value = data.refinement || "";
-      instructionMeta.textContent = `Stage 1: ${Number(data.stage_one_characters || 0).toLocaleString()} chars · Stage 2: ${Number(data.refinement_characters || 0).toLocaleString()} chars · ${data.preset_context_mode} presets · ${data.detail_level} depth`;
+      instructionMeta.textContent = `Stage 1: ${Number(data.stage_one_characters || 0).toLocaleString()} chars · Stage 2: ${Number(data.refinement_characters || 0).toLocaleString()} chars · ${data.generation_profile} · presets ${data.preset_context_mode} · ${data.detail_level} depth`;
       effectiveDetails.open = true;
     } catch (error) {
       instructionMeta.textContent = error.message;
@@ -723,8 +793,12 @@ function setupLLMToJsonX(node) {
     try {
       const defaults = await loadInstructionTemplates();
       stageOneInstructions.value = String(settings.stage_one_instructions || defaults.stage_one || "");
+      templateFillInstructions.value = String(settings.template_fill_instructions || defaults.template_fill || "");
       refinementInstructions.value = String(settings.refinement_instructions || defaults.refinement || "");
+      generationProfile.value = settings.generation_profile || defaults.default_generation_profile || "adaptive";
+      templateUsePresets.checked = Boolean(settings.template_use_presets);
       detailLevel.value = settings.detail_level || defaults.default_detail_level || "deep";
+      syncTemplateProfile();
       effectiveStage.value = "";
       effectiveRefinement.value = "";
       instructionMeta.textContent = "Open the preview to inspect the exact prompt including live preset context.";
@@ -743,24 +817,34 @@ function setupLLMToJsonX(node) {
   resetInstructions.onclick = async () => {
     const defaults = await loadInstructionTemplates();
     stageOneInstructions.value = defaults.stage_one || "";
+    templateFillInstructions.value = defaults.template_fill || "";
     refinementInstructions.value = defaults.refinement || "";
+    generationProfile.value = defaults.default_generation_profile || "adaptive";
+    templateUsePresets.checked = false;
     detailLevel.value = defaults.default_detail_level || "deep";
+    syncTemplateProfile();
     instructionMeta.textContent = "Defaults restored in the editor. Click Save settings to keep them.";
   };
   previewInstructions.onclick = refreshInstructionPreview;
   saveInstructions.onclick = () => {
     const stageOneValue = stageOneInstructions.value.trim();
+    const templateFillValue = templateFillInstructions.value.trim();
     const refinementValue = refinementInstructions.value.trim();
     settings.stage_one_instructions = stageOneValue === String(defaultInstructionTemplates?.stage_one || "").trim()
       ? ""
       : stageOneValue;
+    settings.template_fill_instructions = templateFillValue === String(defaultInstructionTemplates?.template_fill || "").trim()
+      ? ""
+      : templateFillValue;
     settings.refinement_instructions = refinementValue === String(defaultInstructionTemplates?.refinement || "").trim()
       ? ""
       : refinementValue;
     settings.detail_level = detailLevel.value || "deep";
+    settings.generation_profile = generationProfile.value || "adaptive";
+    settings.template_use_presets = templateUsePresets.checked;
     saveSettings(settings);
     closeInstructionModal();
-    setStatus(`JsonX instructions saved · ${settings.detail_level} hierarchy depth.`);
+    setStatus(`JsonX settings saved · ${settings.generation_profile} · ${settings.detail_level} hierarchy depth.`);
   };
   const instructionEscapeHandler = (event) => {
     if (event.key === "Escape" && instructionOverlay.classList.contains("visible")) {
@@ -805,12 +889,17 @@ function setupLLMToJsonX(node) {
   localRefresh.onclick = async () => {
     try {
       setStatus("Refreshing local models...");
-      const data = await requestJson(`${ROUTE}/local/models`);
+      const data = await requestJson(`${ROUTE}/local/models`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({additional_model_paths: additionalModelPaths(localAdditionalPaths.value)}),
+      });
       localModel.setOptions(data.models, settings.local_model, "No GGUF models found");
       mmproj.setOptions(data.mmproj, settings.local_mmproj || "none", "No vision projector");
       localModel.dataset.loaded = "true";
       persist();
-      setStatus("Local model list refreshed.");
+      const skipped = Number(data.invalid_paths?.length || 0);
+      setStatus(`Local model list refreshed${data.additional_roots ? ` · ${data.additional_roots} additional folder(s)` : ""}${skipped ? ` · ${skipped} missing/invalid path(s) skipped` : ""}.`, skipped > 0);
     } catch (error) { setStatus(error.message, true); }
   };
 
@@ -820,13 +909,18 @@ function setupLLMToJsonX(node) {
     const instructions = String(widgetValue(node, "user_instructions", "")).trim();
     const generationMode = String(widgetValue(node, "generation_mode", "fast"));
     const presetMode = String(widgetValue(node, "preset_context_mode", "optimized"));
+    const generationProfileValue = settings.generation_profile || "adaptive";
+    const templateUsePresetsValue = Boolean(settings.template_use_presets);
     const imageSource = resolveImageSource(node);
     const imageB64 = await imageSourceToDataUrl(imageSource);
     if (!instructions && !imageB64) {
       setStatus(imageSource ? "Connected image has no readable preview. Run the upstream node first." : "Enter instructions or connect an image.", true);
       return;
     }
-    if (presetMode === "full") {
+    const sendsFullPresets = generationProfileValue === "template_fill"
+      ? templateUsePresetsValue
+      : presetMode === "full";
+    if (sendsFullPresets) {
       try {
         const info = await requestJson(`${ROUTE}/presets/info`);
         setStatus(`Full preset mode: sending all ${info.characters.toLocaleString()} characters (~${info.estimated_tokens.toLocaleString()} tokens) without truncation.`);
@@ -834,6 +928,8 @@ function setupLLMToJsonX(node) {
         setStatus("Full preset mode: sending the complete presets.json without truncation.");
       }
       await new Promise((resolve) => requestAnimationFrame(resolve));
+    } else if (generationProfileValue === "template_fill") {
+      setStatus(`Generating ${generationMode} JsonX with the blank Template Fill hierarchy and no presets...`);
     } else {
       setStatus(`Generating ${generationMode} JsonX with optimized presets...`);
     }
@@ -842,8 +938,11 @@ function setupLLMToJsonX(node) {
       backend: backend.value,
       generation_mode: generationMode,
       preset_context_mode: presetMode,
+      generation_profile: generationProfileValue,
+      template_use_presets: templateUsePresetsValue,
       detail_level: settings.detail_level || "deep",
       stage_one_instructions: settings.stage_one_instructions || "",
+      template_fill_instructions: settings.template_fill_instructions || "",
       refinement_instructions: settings.refinement_instructions || "",
       user_instructions: instructions,
       image_b64: imageB64,
@@ -873,6 +972,7 @@ function setupLLMToJsonX(node) {
       payload.unload_after = ollamaUnload.checked;
     } else {
       payload.mmproj = mmproj.value || "none";
+      payload.additional_model_paths = additionalModelPaths(localAdditionalPaths.value);
       payload.local_options = {
         max_tokens: settings.local_max_tokens,
         temperature: settings.local_temperature,
@@ -884,6 +984,8 @@ function setupLLMToJsonX(node) {
         n_gpu_layers: settings.local_n_gpu_layers,
         n_cpu_moe_layers: settings.local_n_cpu_moe_layers,
         reasoning: settings.local_reasoning,
+        speculative_mode: settings.local_speculative_mode,
+        mtp_draft_tokens: settings.local_mtp_draft_tokens,
         seed: settings.local_seed,
         timeout: Number(timeout.value || 180),
       };
@@ -902,7 +1004,7 @@ function setupLLMToJsonX(node) {
       const metricText = metrics.leaf_count != null
         ? ` · ${metrics.leaf_count} leaves · depth ${metrics.max_depth} · ${metrics.root_groups} roots`
         : "";
-      setStatus(`Saved to prompt_json · ${data.generation_mode} · ${data.preset_context_mode} · ${data.detail_level || "deep"}${metricText}`);
+      setStatus(`Saved to prompt_json · ${data.generation_mode} · ${data.generation_profile || "adaptive"} · presets ${data.preset_context_mode} · ${data.detail_level || "deep"}${metricText}`);
     } catch (error) {
       showDiagnostics(error.data?.diagnostics);
       setStatus(`${error.message}. Previous output kept.`, true);
@@ -929,7 +1031,9 @@ function setupLLMToJsonX(node) {
   localMemoryMode.addEventListener("change", syncMemoryFields);
   syncMemoryFields();
   openaiModel.addEventListener("change", () => { openaiManualModel.value = ""; persist(); });
-  for (const control of [timeout, geminiKey, geminiModel, ...Object.values(geminiSafetySelects), openaiUrl, openaiKey, openaiManualModel, openaiModel, openaiUnload, ollamaHost, ollamaModel, ollamaThink, ollamaUnload, refreshVram, localModel, mmproj, localContext, localMaxTokens, localTemperature, localTopP, localTopK, localRepeatPenalty, localMemoryMode, localReasoning, localGpuLayers, localCpuMoeLayers, localSeed]) control.addEventListener("change", persist);
+  generationProfile.addEventListener("change", syncTemplateProfile);
+  for (const control of [timeout, geminiKey, geminiModel, ...Object.values(geminiSafetySelects), openaiUrl, openaiKey, openaiManualModel, openaiModel, openaiUnload, ollamaHost, ollamaModel, ollamaThink, ollamaUnload, refreshVram, localModel, mmproj, localAdditionalPaths, localContext, localMaxTokens, localTemperature, localTopP, localTopK, localRepeatPenalty, localMemoryMode, localReasoning, localSpeculativeMode, localMtpDraftTokens, localGpuLayers, localCpuMoeLayers, localSeed]) control.addEventListener("change", persist);
+  syncTemplateProfile();
   refreshPanels();
   if (backend.value === "local") setTimeout(() => localRefresh.click(), 0);
 

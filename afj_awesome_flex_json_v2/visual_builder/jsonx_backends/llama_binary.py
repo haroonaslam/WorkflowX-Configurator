@@ -11,7 +11,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 
-LLAMA_CPP_RELEASE_TAG = "b8840"
+# b10252 matches LM Studio's llama.cpp engine 2.28.2 and includes the Qwen3.6
+# embedded-MTP/NVFP4 loader required by current Blackwell GGUF releases.
+LLAMA_CPP_RELEASE_TAG = "b10252"
 RELEASE_API_URL = f"https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/{LLAMA_CPP_RELEASE_TAG}"
 PACKAGE_ROOT = Path(__file__).resolve().parents[3]
 VENDOR_ROOT = PACKAGE_ROOT / "vendor" / "jsonx-llama.cpp"

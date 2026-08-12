@@ -10,7 +10,7 @@ from aiohttp import web
 from PIL import Image
 
 from . import gemini_backend, local_llama_backend, ollama_backend, openai_backend
-from .folder_registry import model_options, mmproj_options, system_prompt_options
+from .folder_registry import model_catalog
 from .profile_config import profile_config_payload, reset_config, save_config
 from .profiles import normalize_format, profiles_payload, supports_negative
 from .prompt_builder import build_system_prompt, build_user_prompt
@@ -126,14 +126,15 @@ def register_routes(app=None) -> None:
             return _json_error(str(exc))
 
     @routes.get(f"{ROUTE_PREFIX}/local/models")
+    @routes.post(f"{ROUTE_PREFIX}/local/models")
     async def workflowx_unified_local_models(request):
-        return web.json_response(
-            {
-                "models": model_options(),
-                "mmproj": mmproj_options(),
-                "system_prompts": system_prompt_options(),
-            }
-        )
+        data = {}
+        if str(getattr(request, "method", "GET")).upper() == "POST":
+            try:
+                data = await request.json()
+            except Exception:
+                data = {}
+        return web.json_response(model_catalog(data.get("additional_model_paths")))
 
     @routes.post(f"{ROUTE_PREFIX}/gemini/models")
     async def workflowx_unified_gemini_models(request):
@@ -274,6 +275,7 @@ def register_routes(app=None) -> None:
                         pil_images=pil_images,
                         mmproj=data.get("mmproj") or "none",
                         system_prompt_preset=data.get("system_prompt_preset") or "none",
+                        additional_model_paths=data.get("additional_model_paths"),
                         options=local_options,
                     ),
                 )

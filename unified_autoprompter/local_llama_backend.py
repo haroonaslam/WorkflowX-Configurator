@@ -181,14 +181,15 @@ def generate(
     pil_images: list[Image.Image] | None = None,
     mmproj: str = NO_MMPROJ,
     system_prompt_preset: str = NO_SYSTEM_PROMPT,
+    additional_model_paths: Any = None,
     options: dict[str, Any] | None = None,
 ) -> str:
     if not model or model == NO_MODELS_FOUND:
-        raise ValueError("Select a local GGUF model from ComfyUI/models/LLM.")
+        raise ValueError("Select a local GGUF model from the configured model folders.")
 
     options = options or {}
-    model_path = full_model_path(model)
-    mmproj_path = full_mmproj_path(mmproj or NO_MMPROJ)
+    model_path = full_model_path(model, additional_model_paths)
+    mmproj_path = full_mmproj_path(mmproj or NO_MMPROJ, additional_model_paths)
     preset_path = full_system_prompt_path(system_prompt_preset or NO_SYSTEM_PROMPT)
     command, cleanup_paths = build_command(
         model_path=model_path,

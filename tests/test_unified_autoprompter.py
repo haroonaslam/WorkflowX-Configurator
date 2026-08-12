@@ -60,6 +60,14 @@ def _load_gemini_backend():
     return _load_module("unified_autoprompter/gemini_backend.py", f"{package_name}.gemini_backend")
 
 
+def _load_folder_registry():
+    _install_folder_paths_stub()
+    package_name = "workflowx_unified_autoprompter_test"
+    package = sys.modules.setdefault(package_name, types.ModuleType(package_name))
+    package.__path__ = [str(ROOT / "unified_autoprompter")]
+    return _load_module("unified_autoprompter/folder_registry.py", f"{package_name}.folder_registry")
+
+
 def _load_routes_module():
     _load_package_modules()
     aiohttp = sys.modules.setdefault("aiohttp", types.ModuleType("aiohttp"))
@@ -982,6 +990,43 @@ def test_refresh_comfy_vram_unloads_all_models_and_cache():
     assert calls == ["unload_all_models", ("soft_empty_cache", {"force": True})]
     assert "unloaded all models" in status
     assert "emptied cache" in status
+
+
+def test_unified_additional_model_folders_are_recursive_and_safely_resolved(tmp_path):
+    registry = _load_folder_registry()
+    external = tmp_path / "LM Studio" / "models"
+    nested = external / "publisher" / "Qwen"
+    nested.mkdir(parents=True)
+    model = nested / "qwen.gguf"
+    projector = nested / "qwen-mmproj.gguf"
+    model.write_bytes(b"model")
+    projector.write_bytes(b"projector")
+
+    catalog = registry.model_catalog(f'"{external}"; {external}')
+    model_option = next(item for item in catalog["models"] if isinstance(item, dict))
+    mmproj_option = next(item for item in catalog["mmproj"] if isinstance(item, dict))
+    assert model_option["label"].endswith("publisher/Qwen/qwen.gguf")
+    assert registry.full_model_path(model_option["value"], [str(external)]) == model
+    assert registry.full_mmproj_path(mmproj_option["value"], [str(external)]) == projector
+    assert catalog["additional_roots"] == 1
+
+    try:
+        registry.full_model_path(model_option["value"], [str(tmp_path / "other")])
+    except FileNotFoundError as error:
+        assert "no longer configured" in str(error)
+    else:
+        raise AssertionError("External selection must not resolve outside configured roots")
+
+
+def test_unified_frontend_keeps_additional_model_folders_in_browser_storage():
+    source = (ROOT / "web" / "js" / "unified_autoprompter.js").read_text(encoding="utf-8")
+    assert "workflowx_unified_autoprompter_additional_local_model_paths" in source
+    assert "Additional model folders (; separated)" in source
+    assert "additional_model_paths: additionalLocalModelPaths" in source
+    serializable_section = source.split("function serializableState(state)", 1)[1].split(
+        "function positiveAndNegativePrompt", 1
+    )[0]
+    assert "additional_local_model_paths" not in serializable_section
 
 
 def test_unified_autoprompter_node_is_registered_and_builds_outputs():

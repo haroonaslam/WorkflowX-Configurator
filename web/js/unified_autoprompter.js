@@ -6,6 +6,7 @@ const GEMINI_KEY_STORAGE_KEY = "workflowx_unified_autoprompter_gemini_api_key";
 const OPENAI_KEY_STORAGE_KEY = "workflowx_unified_autoprompter_openai_api_key";
 const OPENAI_BASE_URL_STORAGE_KEY = "workflowx_unified_autoprompter_openai_base_url";
 const MODEL_SELECTION_STORAGE_KEY = "workflowx_unified_autoprompter_model_selection";
+const ADDITIONAL_LOCAL_MODEL_PATHS_STORAGE_KEY = "workflowx_unified_autoprompter_additional_local_model_paths";
 const IDEOGRAM_TEMPLATE_STORAGE_KEY = "workflowx_unified_autoprompter_ideogram_templates";
 const IDEOGRAM_TEMPLATE_DIR = "workflowx/unified-autoprompter/ideogram4/templates";
 const DEFAULT_OLLAMA_HOST = "http://localhost:11434";
@@ -913,6 +914,31 @@ function storeModelSelection(selection) {
   } catch {
     // Browser storage can be unavailable in restricted contexts.
   }
+}
+
+function loadStoredAdditionalLocalModelPaths() {
+  try {
+    return window.localStorage?.getItem(ADDITIONAL_LOCAL_MODEL_PATHS_STORAGE_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function storeAdditionalLocalModelPaths(value) {
+  try {
+    const clean = String(value || "").trim();
+    if (clean) window.localStorage?.setItem(ADDITIONAL_LOCAL_MODEL_PATHS_STORAGE_KEY, clean);
+    else window.localStorage?.removeItem(ADDITIONAL_LOCAL_MODEL_PATHS_STORAGE_KEY);
+  } catch {
+    // Browser storage can be unavailable in restricted contexts.
+  }
+}
+
+function additionalLocalModelPaths(value) {
+  return String(value || "")
+    .split(/[;\r\n]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function loadIdeogramTemplates() {
@@ -2210,6 +2236,10 @@ function setupUnifiedAutoprompter(node) {
   const localModelSelect = createSelect();
   const mmprojSelect = createSelect();
   const systemPresetSelect = createSelect();
+  const localAdditionalPathsInput = createInput("text");
+  localAdditionalPathsInput.value = loadStoredAdditionalLocalModelPaths();
+  localAdditionalPathsInput.placeholder = "D:\\LM Studio\\models; E:\\Shared GGUF";
+  localAdditionalPathsInput.title = "Optional folders scanned recursively in addition to ComfyUI/models/LLM";
   const maxTokensInput = createInput("number");
   maxTokensInput.min = "32";
   maxTokensInput.value = String(state.max_tokens);
@@ -2232,6 +2262,7 @@ function setupUnifiedAutoprompter(node) {
   field(localGrid, "GGUF model", localModelSelect);
   field(localGrid, "mmproj", mmprojSelect);
   field(localGrid, "System preset fallback", systemPresetSelect);
+  field(localGrid, "Additional model folders (; separated)", localAdditionalPathsInput);
   field(localGrid, "Max tokens", maxTokensInput);
   field(localGrid, "Temperature", tempInput);
   field(localGrid, "Context", ctxInput);
@@ -4969,7 +5000,14 @@ function setupUnifiedAutoprompter(node) {
     fetchLocalBtn.disabled = true;
     setStatus("Refreshing local GGUF files...");
     try {
-      const response = await fetch(`${ROUTE}/local/models`);
+      storeAdditionalLocalModelPaths(localAdditionalPathsInput.value);
+      const response = await fetch(`${ROUTE}/local/models`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          additional_model_paths: additionalLocalModelPaths(localAdditionalPathsInput.value),
+        }),
+      });
       const data = await response.json();
       if (!response.ok || data.error) throw new Error(data.error || `HTTP ${response.status}`);
       setSelectOptions(localModelSelect, data.models || [], state.local_model);
@@ -4980,7 +5018,8 @@ function setupUnifiedAutoprompter(node) {
       state.local_system_prompt_preset = systemPresetSelect.value || "none";
       persistModelSelection();
       syncPreview();
-      setStatus("Local model list refreshed.");
+      const skipped = Number(data.invalid_paths?.length || 0);
+      setStatus(`Local model list refreshed${data.additional_roots ? ` · ${data.additional_roots} additional folder(s)` : ""}${skipped ? ` · ${skipped} missing/invalid path(s) skipped` : ""}.`, skipped > 0);
     } catch (error) {
       setStatus(`Error: ${error.message}`, true);
     } finally {
@@ -5092,6 +5131,7 @@ function setupUnifiedAutoprompter(node) {
       payload.model = localModelSelect.value;
       payload.mmproj = mmprojSelect.value || "none";
       payload.system_prompt_preset = systemPresetSelect.value || "none";
+      payload.additional_model_paths = additionalLocalModelPaths(localAdditionalPathsInput.value);
       payload.local_options = {
         max_tokens: state.max_tokens,
         temperature: state.temperature,
@@ -5278,6 +5318,9 @@ function setupUnifiedAutoprompter(node) {
   localModelSelect.addEventListener("change", () => {
     state.local_model = localModelSelect.value || "";
     persistModelSelection();
+  });
+  localAdditionalPathsInput.addEventListener("change", () => {
+    storeAdditionalLocalModelPaths(localAdditionalPathsInput.value);
   });
   unloadInput.addEventListener("change", () => {
     state.unload_after = unloadInput.checked;

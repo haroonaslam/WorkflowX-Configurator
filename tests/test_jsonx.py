@@ -129,6 +129,41 @@ def test_optimized_and_full_preset_context_modes_have_distinct_contracts():
     assert len(optimized) < len(full)
 
 
+def test_template_fill_hierarchy_is_dynamic_complete_and_null_leafed():
+    _package, _api, llm = _modules()
+    presets = {
+        "scene": {
+            "environment": {"env_home": "home interior"},
+            "weather": {"weather_clear": "clear weather"},
+        },
+        "subject": {
+            "identity": {"age": {"age_adult": "adult"}},
+            "future_branch": {"detail": {"future_id": "future value"}},
+        },
+        "interaction_suggestions": {"energy": {"calm": "calm interaction"}},
+        "future_root": {"future_leaf": {"future_option": "future value"}},
+    }
+    assert llm.template_fill_hierarchy(presets) == {
+        "scene": {"environment": None, "weather": None},
+        "subjects": [{"identity": {"age": None}, "future_branch": {"detail": None}}],
+        "interactions": {"energy": None},
+        "future_root": {"future_leaf": None},
+    }
+
+
+def test_template_fill_context_sends_no_presets_or_full_verbatim_presets():
+    _package, _api, llm = _modules()
+    raw = llm.raw_presets_text()
+    without_presets, chars_without = llm.template_fill_context(False)
+    with_presets, chars_with = llm.template_fill_context(True)
+    assert "Blank JsonX hierarchy to fill:" in without_presets
+    assert "Complete JsonX presets.json (verbatim):" not in without_presets
+    assert raw not in without_presets
+    assert with_presets.endswith(raw)
+    assert "Complete JsonX presets.json (verbatim):" in with_presets
+    assert chars_without == chars_with == len(raw)
+
+
 def test_deep_instruction_contract_and_effective_preview():
     _package, _api, llm = _modules()
     prompt = llm.stage_one_system_prompt("CATALOG", True, detail_level="deep")
@@ -142,6 +177,7 @@ def test_deep_instruction_contract_and_effective_preview():
     assert "no count should act as a stopping condition" in prompt
     assert "not a closed vocabulary" in prompt
     assert "none of its preset values is suitable" in prompt
+    assert "sibling `<leaf>_details` custom subtree" in prompt
     assert "closest logical JsonX parent" in prompt
     assert "Never omit a requested, visible, or strongly implied concept" in prompt
     assert "CATALOG" in prompt
@@ -164,6 +200,33 @@ def test_deep_instruction_contract_and_effective_preview():
     assert "custom JsonX paths and values are valid prompt content" in exhaustive["refinement"]
     assert exhaustive["detail_level"] == "exhaustive"
     assert exhaustive["stage_one_characters"] == len(exhaustive["stage_one"])
+
+    template = llm.effective_instruction_preview(
+        {
+            "user_instructions": "fill a portrait",
+            "generation_profile": "template_fill",
+            "template_use_presets": False,
+            "preset_context_mode": "full",
+            "has_image": True,
+        }
+    )
+    assert template["generation_profile"] == "template_fill"
+    assert template["preset_context_mode"] == "none"
+    assert "Blank JsonX hierarchy to fill:" in template["stage_one"]
+    assert "Complete JsonX presets.json (verbatim):" not in template["stage_one"]
+    assert "Leave a leaf as JSON `null`" in template["stage_one"]
+    assert "Template Fill refinement constraint" in template["refinement"]
+
+    template_with_presets = llm.effective_instruction_preview(
+        {
+            "generation_profile": "template_fill",
+            "template_use_presets": True,
+            "preset_context_mode": "optimized",
+        }
+    )
+    assert template_with_presets["preset_context_mode"] == "full"
+    assert template_with_presets["stage_one"].endswith(llm.raw_presets_text())
+    assert "If no preset value is suitable" in template_with_presets["stage_one"]
 
 
 def test_custom_instructions_are_transient_and_generation_receives_depth(monkeypatch):
@@ -240,6 +303,58 @@ def test_unmatched_known_path_value_and_new_custom_subtree_remain_verbatim():
 
     canonical = llm.canonicalize_prompt_structure(prompt, presets)
     assert llm.align_prompt_to_presets(canonical, presets) == prompt
+
+
+def test_canonicalizer_preserves_custom_expansion_beside_catalog_scalar_leaf():
+    _package, _api, llm = _modules()
+    presets = {
+        "scene": {"environment": {"env_beach": "sandy beach shoreline"}},
+        "subject": {
+            "properties": {
+                "expression": {"expression_calm": "calm neutral expression"},
+            }
+        },
+        "negative_prompts": {"negative_realistic": "plastic skin, harsh shadows"},
+    }
+    prompt = {
+        "scene": {
+            "environment": {
+                "setting": "sandy beach shoreline",
+                "background_elements": ["calm ocean horizon", "gentle foam waves"],
+                "ground_texture": "fine beige sand with footprints",
+            }
+        },
+        "subjects": [
+            {
+                "expression": {
+                    "mood": "calm and introspective",
+                    "facial_muscles": "relaxed jaw and soft gaze",
+                }
+            }
+        ],
+        "negative_prompts": ["plastic skin", "harsh shadows"],
+    }
+
+    assert llm.canonicalize_prompt_structure(prompt, presets) == {
+        "scene": {
+            "environment_details": {
+                "setting": "sandy beach shoreline",
+                "background_elements": ["calm ocean horizon", "gentle foam waves"],
+                "ground_texture": "fine beige sand with footprints",
+            }
+        },
+        "subjects": [
+            {
+                "properties": {
+                    "expression_details": {
+                        "mood": "calm and introspective",
+                        "facial_muscles": "relaxed jaw and soft gaze",
+                    }
+                }
+            }
+        ],
+        "negative_prompts": "plastic skin, harsh shadows",
+    }
 
 
 def test_canonicalizer_converts_internal_id_keys_and_subject_alias():
@@ -336,6 +451,120 @@ def test_fast_and_refined_generation_call_counts_and_repair(monkeypatch):
     assert len(calls) == 2
 
 
+def test_template_fill_generation_prunes_nulls_and_uses_its_own_preset_toggle(monkeypatch):
+    _package, _api, llm = _modules()
+    calls = []
+
+    def fake_call(data, system, user, image):
+        calls.append(system)
+        return json.dumps(
+            {
+                "scene": {"environment": "quiet beach", "weather": None},
+                "subjects": [
+                    {"identity": {"gender": "woman", "age": None}, "pose": {"action": None}}
+                ],
+                "interactions": {"energy": None},
+                "invented_root": {"summary": "must not survive Template Fill"},
+            }
+        )
+
+    monkeypatch.setattr(llm, "_call_provider", fake_call)
+    result = llm.generate_jsonx(
+        {
+            "user_instructions": "a woman on a quiet beach",
+            "generation_profile": "template_fill",
+            "template_use_presets": False,
+            "preset_context_mode": "full",
+        }
+    )
+    prompt = json.loads(result["prompt_json"])
+    assert prompt == {
+        "scene": {"environment": "quiet beach"},
+        "subjects": [{"identity": {"gender": "woman"}}],
+    }
+    assert result["generation_profile"] == "template_fill"
+    assert result["preset_context_mode"] == "none"
+    assert "Blank JsonX hierarchy to fill:" in calls[0]
+    assert "Complete JsonX presets.json (verbatim):" not in calls[0]
+
+    constrained = llm.constrain_template_fill_structure(
+        {
+            "subjects": [
+                {"identity": {"gender": "woman"}},
+                {"identity": {"gender": "man"}},
+            ],
+            "invented_root": {"summary": "discarded"},
+        },
+        {"subjects": [{"identity": {"gender": None}}]},
+    )
+    assert constrained == {
+        "subjects": [
+            {"identity": {"gender": "woman"}},
+            {"identity": {"gender": "man"}},
+        ]
+    }
+
+    calls.clear()
+    result = llm.generate_jsonx(
+        {
+            "user_instructions": "a woman on a quiet beach",
+            "generation_profile": "template_fill",
+            "template_use_presets": True,
+            "preset_context_mode": "optimized",
+        }
+    )
+    assert result["preset_context_mode"] == "full"
+    assert calls[0].endswith(llm.raw_presets_text())
+    assert "If no preset value is suitable" in calls[0]
+
+
+def test_template_fill_refined_overlays_wording_without_restructuring(monkeypatch):
+    _package, _api, llm = _modules()
+    responses = iter(
+        [
+            json.dumps(
+                {
+                    "scene": {
+                        "environment": "beach",
+                        "weather": "overcast daylight",
+                    },
+                    "subjects": [{"identity": {"gender": "woman"}}],
+                }
+            ),
+            json.dumps(
+                {
+                    "scene": {"environment": "quiet sandy beach shoreline"},
+                    "subjects": [{"identity": {"gender": "adult woman"}}],
+                    "invented_root": {"summary": "must be ignored"},
+                }
+            ),
+        ]
+    )
+    calls = []
+
+    def fake_call(data, system, user, image):
+        calls.append((system, user))
+        return next(responses)
+
+    monkeypatch.setattr(llm, "_call_provider", fake_call)
+    result = llm.generate_jsonx(
+        {
+            "user_instructions": "coherent beach portrait",
+            "generation_mode": "refined",
+            "generation_profile": "template_fill",
+            "template_use_presets": False,
+        }
+    )
+    assert json.loads(result["prompt_json"]) == {
+        "scene": {
+            "environment": "quiet sandy beach shoreline",
+            "weather": "overcast daylight",
+        },
+        "subjects": [{"identity": {"gender": "adult woman"}}],
+    }
+    assert "Template Fill refinement constraint" in calls[1][0]
+    assert "JsonX draft to refine" in calls[1][1]
+
 def test_failed_repair_exposes_transient_raw_diagnostics(monkeypatch):
     _package, _api, llm = _modules()
     monkeypatch.setattr(llm, "_call_provider", lambda *args, **kwargs: "still not json")
@@ -364,6 +593,38 @@ def test_repair_contract_preserves_open_world_custom_content(monkeypatch):
     repaired = llm._parse_or_repair({}, "malformed", "Stage 1")
     assert repaired["scene"]["custom_atmosphere"]["particle_motion"] == "glowing pollen spirals upward"
     assert "presets are guidance, not an allow-list" in calls[0]
+
+
+def test_local_repair_is_constrained_deterministic_and_image_aware(monkeypatch):
+    _package, _api, llm = _modules()
+    calls = []
+    image = llm.Image.new("RGB", (2, 2), "white")
+
+    def fake_call(data, system, user, repair_image):
+        calls.append((data, system, user, repair_image))
+        return '{"subjects":[{"identity":{"description":"portrait subject"}}]}'
+
+    monkeypatch.setattr(llm, "_call_provider", fake_call)
+    repaired = llm._parse_or_repair(
+        {
+            "backend": "local",
+            "user_instructions": "describe the portrait",
+            "local_options": {"reasoning": "auto", "temperature": 0.8, "max_tokens": 1024},
+        },
+        "truncated source",
+        "Stage 1",
+        image,
+    )
+    assert repaired["subjects"][0]["identity"]["description"] == "portrait subject"
+    repair_data, repair_system, repair_user, repair_image = calls[0]
+    assert repair_data["local_options"]["reasoning"] == "off"
+    assert repair_data["local_options"]["temperature"] == 0.2
+    assert repair_data["local_options"]["max_tokens"] == 4096
+    assert repair_image is image
+    assert "smallest possible edits" in repair_system
+    assert "never a catalog, schema, custom_paths" in repair_system
+    assert "Never turn a subject object into a label string" in repair_system
+    assert "describe the portrait" in repair_user
 
 
 def test_jsonx_refreshes_comfy_vram_once_before_generation(monkeypatch):
@@ -474,6 +735,22 @@ def test_provider_context_limit_errors_propagate_without_fallback(monkeypatch):
         raise AssertionError("Expected the provider context-limit error to propagate")
     assert contexts == ["full"]
 
+    try:
+        llm.generate_jsonx(
+            {
+                "user_instructions": "scene",
+                "generation_profile": "template_fill",
+                "template_use_presets": True,
+                "preset_context_mode": "optimized",
+            }
+        )
+    except ValueError as error:
+        assert "Full Presets exceeds" in str(error)
+        assert "context length exceeded" in str(error)
+    else:
+        raise AssertionError("Expected Template Fill full-preset context error to propagate")
+    assert contexts == ["full"]
+
 
 def test_llm_node_defaults_and_output_contract():
     package, _api, _llm = _modules()
@@ -517,6 +794,41 @@ def test_jsonx_local_model_discovery_is_recursive_and_independent(tmp_path, monk
     assert models.mmproj_options() == ["none", "Qwen/vision/qwen-mmproj.gguf"]
     assert models.system_prompt_options() == ["none", "nested/jsonx.txt"]
     assert models.full_model_path("Qwen/qwen-vision.gguf").is_file()
+
+
+def test_jsonx_additional_model_folders_are_recursive_deduplicated_and_resolved(tmp_path, monkeypatch):
+    _package, _api, llm = _modules()
+    models = llm.local_models
+    comfy_root = tmp_path / "Comfy" / "LLM"
+    external = tmp_path / "LM Studio" / "models"
+    missing = tmp_path / "missing"
+    (comfy_root / "Qwen").mkdir(parents=True)
+    (external / "publisher" / "model").mkdir(parents=True)
+    (external / "publisher" / "vision").mkdir(parents=True)
+    (comfy_root / "Qwen" / "base.gguf").write_bytes(b"base")
+    external_model = external / "publisher" / "model" / "shared-model.gguf"
+    external_mmproj = external / "publisher" / "vision" / "shared-mmproj.gguf"
+    external_model.write_bytes(b"external")
+    external_mmproj.write_bytes(b"projector")
+    monkeypatch.setattr(models.folder_paths, "models_dir", str(tmp_path / "Comfy"))
+
+    catalog = models.model_catalog([str(external), str(external), str(missing)])
+    assert catalog["models"][0] == "Qwen/base.gguf"
+    external_options = [item for item in catalog["models"] if isinstance(item, dict)]
+    assert len(external_options) == 1
+    assert external_options[0]["label"].endswith("publisher/model/shared-model.gguf")
+    assert models.full_model_path(external_options[0]["value"], [str(external)]) == external_model
+    mmproj_option = next(item for item in catalog["mmproj"] if isinstance(item, dict))
+    assert models.full_mmproj_path(mmproj_option["value"], [str(external)]) == external_mmproj
+    assert catalog["additional_roots"] == 1
+    assert catalog["invalid_paths"] == [str(missing)]
+
+    try:
+        models.full_model_path(external_options[0]["value"], [])
+    except FileNotFoundError as error:
+        assert "no longer configured" in str(error)
+    else:
+        raise AssertionError("External selection must require its configured browser path")
 
 
 def test_jsonx_gemini_empty_candidates_is_diagnosed_without_retry(monkeypatch):
@@ -642,6 +954,7 @@ def test_jsonx_local_backend_uses_dedicated_cache_and_short_temp_files(tmp_path,
     backend = llm.local_llama_backend
     binary = importlib.import_module(f"{backend.__package__}.llama_binary")
     assert binary.VENDOR_ROOT == ROOT / "vendor" / "jsonx-llama.cpp"
+    assert binary.LLAMA_CPP_RELEASE_TAG == "b10252"
     assert "unified" not in str(binary.VENDOR_ROOT).lower()
 
     fake_cli = tmp_path / "llama-cli.exe"
@@ -667,6 +980,69 @@ def test_jsonx_local_backend_uses_dedicated_cache_and_short_temp_files(tmp_path,
     assert max(len(part) for part in command) < 1000
     backend._cleanup(cleanup_paths)
     assert all(path is None or not path.exists() for path in cleanup_paths)
+
+
+def test_jsonx_local_backend_detects_embedded_mtp_and_builds_speculative_flags(tmp_path, monkeypatch):
+    _package, _api, llm = _modules()
+    backend = llm.local_llama_backend
+    fake_cli = tmp_path / "llama-cli.exe"
+    monkeypatch.setattr(
+        backend,
+        "ensure_llama_cli_paths",
+        lambda: types.SimpleNamespace(cli=fake_cli),
+    )
+
+    import struct
+
+    model = tmp_path / "qwen36.gguf"
+    key = b"qwen35.nextn_predict_layers"
+    model.write_bytes(
+        b"GGUF"
+        + struct.pack("<IQQ", 3, 0, 1)
+        + struct.pack("<Q", len(key))
+        + key
+        + struct.pack("<II", 4, 1)
+    )
+    assert backend.model_has_embedded_mtp(model) is True
+
+    command, cleanup_paths = backend.build_command(
+        model_path=model,
+        mmproj_path=None,
+        system_prompt_path=None,
+        system_prompt_text="JsonX system",
+        pil_images=None,
+        prompt="Generate JSON",
+        options={"speculative_mode": "auto", "mtp_draft_tokens": 3},
+    )
+    assert command[command.index("--spec-type") + 1] == "draft-mtp"
+    assert command[command.index("--spec-draft-n-max") + 1] == "3"
+    assert command[command.index("--reasoning") + 1] == "auto"
+    backend._cleanup(cleanup_paths)
+
+    assert backend.normalize_reasoning_mode("none") == "off"
+    assert backend.normalize_reasoning_mode("qwen3") == "auto"
+
+
+def test_jsonx_local_backend_reports_old_runtime_mtp_loader_mismatch(monkeypatch):
+    _package, _api, llm = _modules()
+    backend = llm.local_llama_backend
+
+    class FakeProcess:
+        returncode = 1
+
+    monkeypatch.setattr(backend.subprocess, "Popen", lambda *args, **kwargs: FakeProcess())
+    monkeypatch.setattr(
+        backend,
+        "_communicate",
+        lambda *args, **kwargs: ("", "missing tensor 'blk.64.ssm_conv1d.weight'"),
+    )
+    try:
+        backend.run_llama_cli(["llama-cli", "-m", "qwen-mtp.gguf"], 5)
+    except RuntimeError as error:
+        assert "embedded MTP layer" in str(error)
+        assert "Speculative decoding = Auto or MTP" in str(error)
+    else:
+        raise AssertionError("Expected an actionable MTP compatibility error")
 
 
 def test_jsonx_local_backend_cleans_files_when_process_start_fails(tmp_path, monkeypatch):
