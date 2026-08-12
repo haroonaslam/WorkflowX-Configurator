@@ -1,13 +1,47 @@
-# AFJ - User Guide (Templates v2)
+# JsonX User Guide
 
 ## 1. What You Can Do
-AFJ provides three nodes:
-1. `AFJ - Visual Builder`: visual tree editor for prompt JSON.
-2. `AFJ - Template Randomizer`: runtime randomization from saved templates.
-3. `AFJ - Prompt Template Importer`: convert final prompt JSON into AFJ template format and save it.
+JsonX provides four nodes under `WorkflowX/Prompting/JsonX`:
 
-## 2. Visual Builder Quick Start
-1. Add `AFJ - Visual Builder` node.
+1. `LLM to JsonX`: preset-aware generation from instructions and an optional image.
+2. `JsonX - Visual Builder`: visual tree editor for prompt JSON.
+3. `JsonX - Template Randomizer`: runtime randomization from saved templates.
+4. `JsonX - Prompt Template Importer`: convert final prompt JSON into JsonX template format and save it.
+
+## 2. LLM to JsonX Quick Start
+
+1. Add `LLM to JsonX`.
+2. Enter instructions and optionally connect one `IMAGE`.
+3. Choose a provider and model in the embedded JsonX panel.
+4. Keep `fast` for one generation call, or select `refined` for a preset-aware first pass plus a preset-agnostic coherence pass.
+5. Keep `optimized` to send every live schema path plus a bounded, deterministically ranked set of relevant preset values. Select `full` only when the model can accept the complete preset catalog; JsonX shows an estimated size warning and never silently falls back.
+6. Click `Generate`. The validated result is saved in the node, displayed in the read-only `Generated JsonX output` box, and returned from `prompt_json` when queued; the prior result is retained if generation or validation fails.
+
+JsonX defaults to **Deep** hierarchy generation. It asks the model to decompose visible concepts into atomic leaves and use the catalog's deepest compatible paths—for example nested clothing, pose, appearance, lens, and exposure branches—while omitting details unsupported by framing. Click `Settings` to select **Exhaustive** when you want still broader visible-detail coverage.
+
+Neither mode uses a numerical leaf range or maximum. Deep maximizes all relevant tree and subtree coverage; Exhaustive makes a broader branch-by-branch relevance pass. The model must not stop because it has reached a count, and it must not create unsupported filler simply to increase that count.
+
+The preset catalog is not an exhaustive vocabulary. JsonX chooses a preset only when it faithfully matches the intended detail. If no supplied value fits, it reasons out a concise custom value on the appropriate catalog path; if no path fits either, it adds a small descriptive subtree under the nearest logical parent. Custom keys use readable `lower_snake_case`, custom values use natural visual wording, and independent attributes stay as separate atomic leaves. Missing preset coverage never causes a requested or visible concept to be silently dropped.
+
+The Settings modal also exposes the editable Stage 1 preset-aware and Stage 2 refinement system instructions. `Refresh effective preview` shows the exact backend prompts after image rules, depth guidance, and the current Optimized or Full preset context are appended. `Reset defaults` restores the packaged instructions. Saved custom instructions remain only in JsonX browser storage and are not embedded in workflow JSON.
+
+After Generate, the status line reports the resulting atomic leaf count, maximum hierarchy depth, and number of root groups. These measurements are diagnostic only and are never generation targets or stopping conditions; visibility, relevance, and evidence govern the content.
+
+Provider settings and credentials are stored in JsonX-specific browser storage. API keys are not saved in workflow JSON or returned through the node output. Queueing a workflow emits the saved, validated `prompt_json`; it does not invoke the provider again.
+
+For Gemini, expand `Gemini safety settings` to configure harassment, hate-speech, sexually-explicit, and dangerous-content blocking thresholds. These match Unified Autoprompter X and default to `BLOCK_NONE`.
+
+If Gemini returns no candidates, JsonX does not retry. `Generation diagnostics` shows the provider's sanitized prompt feedback or blocking reason without exposing the API key, and the previous generated JSON remains saved.
+
+Fetched provider models appear in full-list pickers. OpenAI-compatible and Ollama panels expose unload controls, Ollama also exposes think mode, and `Refresh VRAM` can unload active ComfyUI models before generation. Timeout values are remembered separately per backend.
+
+Preset IDs such as `env_indoor_home` are lookup metadata and never belong in final output. JsonX automatically converts recognized ID-key objects into canonical scalar path/value fields and normalizes a singular generated `subject` into `subjects`. If generation and its one repair call both fail, expand `Generation diagnostics` to inspect the transient raw responses; the previously saved prompt remains intact.
+
+When using Local GGUF, expand `Local generation settings` for context size, maximum output length, sampling, memory/offload, reasoning, and seed controls. `full` mode commonly needs more context than `optimized`. JsonX uses its own llama.cpp runtime cache. Long system instructions are supplied through short temporary UTF-8 files and removed when the call finishes, fails, or is cancelled, so they do not hit the Windows command-line length limit or accumulate during normal use.
+
+## 3. Visual Builder Quick Start
+
+1. Add `JsonX - Visual Builder` node.
 2. Click `Open Visual Builder`.
 3. Build/edit your prompt tree.
 4. Click `Validate & Apply` to write JSON into `prompt_json`.
@@ -18,7 +52,7 @@ Important behavior:
 3. `Close` discards in-session unsaved edits.
 4. `Validate & Apply` is the save boundary for editor state.
 
-## 3. Templates (Per-File Storage)
+## 4. Templates (Per-File Storage)
 Templates are stored as separate files:
 1. `visual_builder/templates/<template_name>.json`
 
@@ -38,8 +72,8 @@ Template names are rejected if they:
 3. end with dot/space
 4. are reserved Windows names (like `CON`, `PRN`, `AUX`, `NUL`, `COM1`...)
 
-## 4. Prompt Template Importer (JSON -> Template)
-Use `AFJ - Prompt Template Importer` when you have JSON prompt text from another source.
+## 5. Prompt Template Importer (JSON -> Template)
+Use `JsonX - Prompt Template Importer` when you have JSON prompt text from another source.
 
 ### Steps
 1. Add node and click `Open Prompt Template Importer UI`.
@@ -51,7 +85,7 @@ Use `AFJ - Prompt Template Importer` when you have JSON prompt text from another
 
 ### Input constraint
 Importer accepts final prompt JSON object only.
-If JSON looks like AFJ metadata payload (`tree` / `randomizer_checked`), conversion is rejected with a clear error.
+If JSON looks like JsonX metadata payload (`tree` / `randomizer_checked`), conversion is rejected with a clear error.
 
 ### Conversion behavior
 1. Builds a minimal tree from your prompt JSON only (no extra blank starter sections).
@@ -60,16 +94,18 @@ If JSON looks like AFJ metadata payload (`tree` / `randomizer_checked`), convers
 4. Arrays support object items and primitive items.
 5. Saved templates strip `options`; live options are rehydrated from current `presets.json`.
 
-## 5. Template Randomizer Quick Start
-1. Add `AFJ - Template Randomizer` node.
+## 6. Template Randomizer Quick Start
+1. Add `JsonX - Template Randomizer` node.
 2. Click `Open Template Randomizer UI`.
 3. Select template and fields.
 4. Apply writes `randomize_rules` back to node.
 5. Run graph; node outputs randomized `prompt_json` plus `run_log`.
 6. Preset randomization uses current `presets.json` dynamically (not frozen template option blobs).
 
-## 6. Add a New Leaf/Field in `presets.json`
+## 7. Update the Authoritative `presets.json`
 File: `visual_builder/presets.json`
+
+This file is the authoritative JsonX schema and value catalog. Its root categories, nested branches, field paths, preset IDs, and values are discovered dynamically by the backend starter tree, Visual Builder, importer, saved-template hydration, randomizer, and LLM preset context. Preserve valid UTF-8 JSON and reload the ComfyUI frontend after replacing or editing it.
 
 ### Add options to existing field
 ```json
@@ -108,10 +144,7 @@ After editing presets:
 1. Reload ComfyUI frontend.
 2. Reopen builder/importer UI.
 
-## 7. Add a New Category in `presets.json` (and required code updates)
-If you add a brand-new root category, update both presets and code.
-
-### Step 1: Add root category in presets
+### Add a root category
 ```json
 {
   "story": {
@@ -123,37 +156,23 @@ If you add a brand-new root category, update both presets and code.
 }
 ```
 
-### Step 2: Add starter section in builder code
-File: `web/flux_visual_builder.js`
-Function: `buildStarterTree()`
+No code change is required for a new root category. The reserved mappings remain:
 
-Add a root child entry like:
-```js
-buildNodesFromPresetObject("story", presets.story || {}, "story", false, "story")
-```
+1. Catalog `subject` becomes the repeatable output `subjects` array; every branch below it is discovered dynamically.
+2. `interaction_suggestions` provides choices for the editable output `interactions` group.
+3. `negative` remains an editable free-form output branch.
 
-### Step 3: Include category in preset attach library
-File: `web/flux_visual_builder.js`
-Ensure the preset library traversal includes `story` root.
+### Add a subject subsection
 
-### Step 4 (optional): validation logic
-File: `visual_builder/api.py`
-Function: `validate_prompt_payload()`
-Add checks only if new category needs constraints.
+Add it anywhere under `subject` in `visual_builder/presets.json`. New subject cards and importer bindings discover the subsection automatically.
 
-## 8. Add a Subject Subsection
-To add a subsection under `subject`:
-1. Add it in `visual_builder/presets.json` under `subject`.
-2. Update `buildSubjectItemTemplate()` in `web/flux_visual_builder.js` to include that subsection.
+## 8. Troubleshooting
 
-Without step 2, new subject subsection will not appear by default in each subject card.
-
-## 9. Troubleshooting
 1. Template not visible:
    1. Check save response/status message.
    2. Verify file exists under `visual_builder/templates/`.
 2. Importer says metadata payload:
-   1. Paste final prompt object JSON, not AFJ template JSON.
+   1. Paste final prompt object JSON, not JsonX template JSON.
 3. Preset dropdown missing for a field:
    1. Use `Attach Preset Options` in Visual Builder.
 4. Apply blocked in Visual Builder:

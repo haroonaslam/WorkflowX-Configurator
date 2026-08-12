@@ -1,0 +1,977 @@
+import { app } from "../../scripts/app.js";
+
+const TARGET_NODE = "LLMToJsonX";
+const ROUTE = "/workflowx/jsonx";
+const SETTINGS_KEY = "workflowx_jsonx_provider_settings";
+const GEMINI_KEY = "workflowx_jsonx_gemini_api_key";
+const OPENAI_KEY = "workflowx_jsonx_openai_api_key";
+const DEFAULT_OPENAI_URL = "http://localhost:1234/v1";
+const DEFAULT_OLLAMA_HOST = "http://localhost:11434";
+const GEMINI_SAFETY_OPTIONS = [
+  "BLOCK_DEFAULT",
+  "BLOCK_NONE",
+  "BLOCK_LOW_AND_ABOVE",
+  "BLOCK_MEDIUM_AND_ABOVE",
+  "BLOCK_ONLY_HIGH",
+];
+const GEMINI_SAFETY_FIELDS = [
+  ["safety_harassment", "Harassment"],
+  ["safety_hate_speech", "Hate speech"],
+  ["safety_sexual", "Sexual"],
+  ["safety_dangerous", "Dangerous"],
+];
+
+function chainCallback(object, name, callback) {
+  const previous = object?.[name];
+  object[name] = function chainedJsonXCallback(...args) {
+    const result = typeof previous === "function" ? previous.apply(this, args) : undefined;
+    callback.apply(this, args);
+    return result;
+  };
+}
+
+function widget(node, name) {
+  return node.widgets?.find((item) => item.name === name) || null;
+}
+
+function widgetValue(node, name, fallback = "") {
+  return widget(node, name)?.value ?? fallback;
+}
+
+function setWidgetValue(node, name, value) {
+  const item = widget(node, name);
+  if (!item) return;
+  item.value = value;
+  item.callback?.(value);
+  app.graph?.setDirtyCanvas?.(true, true);
+}
+
+function hideWidget(node, name) {
+  const item = widget(node, name);
+  if (!item) return;
+  item.hidden = true;
+  item.computeSize = () => [0, -4];
+  const index = node.inputs?.findIndex((input) => input.name === name);
+  if (index >= 0) node.removeInput(index);
+}
+
+function loadSettings() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveSettings(settings) {
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+}
+
+function storedSecret(key) {
+  return localStorage.getItem(key) || "";
+}
+
+function storeSecret(key, value) {
+  const clean = String(value || "").trim();
+  if (clean) localStorage.setItem(key, clean);
+  else localStorage.removeItem(key);
+}
+
+function graphLink(graph, linkId) {
+  if (linkId == null) return null;
+  if (typeof graph?.links?.get === "function") return graph.links.get(linkId);
+  return graph?.links?.[linkId] || null;
+}
+
+function resolveImageSource(node) {
+  const input = node.inputs?.find((item) => item.name === "image");
+  if (!input || input.link == null) return null;
+  const link = graphLink(node.graph, input.link);
+  const source = link ? node.graph?.getNodeById?.(link.origin_id) : null;
+  if (!source) return null;
+  if (source.imgs?.[0]?.src) return source.imgs[0].src;
+  const imageWidget = source.widgets?.find((item) => item.name === "image");
+  if (imageWidget?.value) {
+    let filename = String(imageWidget.value);
+    let subfolder = "";
+    const slash = filename.lastIndexOf("/");
+    if (slash >= 0) {
+      subfolder = filename.slice(0, slash);
+      filename = filename.slice(slash + 1);
+    }
+    return `/view?filename=${encodeURIComponent(filename)}&type=input&subfolder=${encodeURIComponent(subfolder)}`;
+  }
+  return null;
+}
+
+function imageSourceToDataUrl(source) {
+  return new Promise((resolve) => {
+    if (!source) return resolve("");
+    const image = new Image();
+    image.crossOrigin = "anonymous";
+    image.onload = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = image.naturalWidth || image.width || 1;
+        canvas.height = image.naturalHeight || image.height || 1;
+        canvas.getContext("2d")?.drawImage(image, 0, 0);
+        resolve(canvas.toDataURL("image/png"));
+      } catch {
+        resolve("");
+      }
+    };
+    image.onerror = () => resolve("");
+    image.src = source;
+  });
+}
+
+function option(select, value, label = value) {
+  const item = document.createElement("option");
+  item.value = value;
+  item.textContent = label;
+  select.appendChild(item);
+}
+
+function normalizeModelOption(value) {
+  const id = value?.id || value?.name || value;
+  return {
+    value: String(id || ""),
+    label: String(value?.display_name || value?.name || id || ""),
+  };
+}
+
+function makePicker(panel, labelText, storedValue, placeholder) {
+  const label = document.createElement("label");
+  label.textContent = labelText;
+  const trigger = document.createElement("button");
+  trigger.type = "button";
+  trigger.className = "jsonx-picker-trigger";
+  trigger.setAttribute("aria-haspopup", "listbox");
+  const menu = document.createElement("div");
+  menu.className = "jsonx-picker-menu";
+  menu.setAttribute("role", "listbox");
+  document.body.appendChild(menu);
+  label.appendChild(trigger);
+  panel.appendChild(label);
+
+  let current = String(storedValue || "");
+  let emptyText = String(placeholder || "Choose a model");
+  let options = [];
+  let lastToggleAt = 0;
+  const listeners = new Set();
+
+  const updateTrigger = () => {
+    const selected = options.find((item) => item.value === current);
+    trigger.textContent = selected?.label || current || emptyText;
+    trigger.title = selected?.label || current || emptyText;
+    trigger.classList.toggle("placeholder", !current);
+  };
+  const close = () => {
+    menu.classList.remove("jsonx-picker-open");
+    trigger.setAttribute("aria-expanded", "false");
+  };
+  const position = () => {
+    const rect = trigger.getBoundingClientRect();
+    menu.style.left = `${Math.max(4, rect.left)}px`;
+    menu.style.top = `${rect.bottom + 2}px`;
+    menu.style.width = `${Math.max(180, rect.width)}px`;
+  };
+  const selectValue = (value) => {
+    current = String(value || "");
+    updateTrigger();
+    close();
+    for (const listener of listeners) listener({target: picker});
+  };
+  const renderMenu = () => {
+    menu.replaceChildren();
+    for (const item of options) {
+      const choice = document.createElement("button");
+      choice.type = "button";
+      choice.className = "jsonx-picker-option";
+      choice.textContent = item.label;
+      choice.title = item.value;
+      choice.setAttribute("role", "option");
+      choice.setAttribute("aria-selected", String(item.value === current));
+      choice.onclick = (event) => {
+        event.stopPropagation();
+        selectValue(item.value);
+      };
+      menu.appendChild(choice);
+    }
+    if (!options.length) {
+      const empty = document.createElement("div");
+      empty.className = "jsonx-picker-empty";
+      empty.textContent = emptyText;
+      menu.appendChild(empty);
+    }
+  };
+  const open = () => {
+    if (trigger.disabled) return;
+    for (const other of document.querySelectorAll(".jsonx-picker-menu.jsonx-picker-open")) {
+      if (other !== menu) other.classList.remove("jsonx-picker-open");
+    }
+    renderMenu();
+    position();
+    menu.classList.add("jsonx-picker-open");
+    trigger.setAttribute("aria-expanded", "true");
+  };
+
+  const picker = {
+    dataset: trigger.dataset,
+    get value() { return current; },
+    set value(value) { current = String(value || ""); updateTrigger(); },
+    get disabled() { return trigger.disabled; },
+    set disabled(value) { trigger.disabled = Boolean(value); },
+    addEventListener(name, listener) { if (name === "change") listeners.add(listener); },
+    setOptions(values, selected = current, nextPlaceholder = emptyText) {
+      options = (values || []).map(normalizeModelOption).filter((item) => item.value);
+      emptyText = String(nextPlaceholder || emptyText);
+      const requested = String(selected || "");
+      current = options.some((item) => item.value === requested)
+        ? requested
+        : options[0]?.value || "";
+      trigger.disabled = !options.length;
+      updateTrigger();
+      renderMenu();
+    },
+    destroy() {
+      close();
+      menu.remove();
+    },
+  };
+
+  trigger.onclick = (event) => {
+    event.stopPropagation();
+    const now = performance.now();
+    if (now - lastToggleAt < 250) return;
+    lastToggleAt = now;
+    if (menu.classList.contains("jsonx-picker-open")) close();
+    else open();
+  };
+  trigger.onkeydown = (event) => {
+    if (event.key === "Escape") close();
+  };
+  updateTrigger();
+  return picker;
+}
+
+async function requestJson(url, options = {}) {
+  const response = await fetch(url, options);
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error(`Invalid JSON response (HTTP ${response.status})`);
+  }
+  if (!response.ok || data.error) {
+    const error = new Error(data.error || `HTTP ${response.status}`);
+    error.data = data;
+    throw error;
+  }
+  return data;
+}
+
+function setupLLMToJsonX(node) {
+  if (node.__jsonXLLMReady) return;
+  node.__jsonXLLMReady = true;
+  hideWidget(node, "generated_prompt_json");
+  hideWidget(node, "ui_state");
+  const instructionsWidget = widget(node, "user_instructions");
+  if (instructionsWidget) instructionsWidget.computeSize = () => [0, 82];
+
+  if (!document.getElementById("workflowx-jsonx-llm-style")) {
+    const style = document.createElement("style");
+    style.id = "workflowx-jsonx-llm-style";
+    style.textContent = `
+    .jsonx-llm{font:11px "Segoe UI",sans-serif;color:#e8eef7;background:#111923;border:1px solid #2b4258;border-radius:7px;padding:6px;display:grid;gap:5px;align-content:start;overflow:hidden}
+    .jsonx-llm *{box-sizing:border-box}.jsonx-llm-row{display:grid;grid-template-columns:minmax(0,1fr) 96px;gap:5px}
+    .jsonx-llm label{display:grid;gap:2px;color:#adc0d3;min-width:0}.jsonx-llm input,.jsonx-llm select{width:100%;height:26px;min-height:26px;background:#0b1219;color:#edf4fb;border:1px solid #35516b;border-radius:4px;padding:2px 7px;font:inherit;color-scheme:dark}
+    .jsonx-llm select:disabled{opacity:.72}.jsonx-llm button{height:27px;min-height:27px;background:#1b3349;color:#edf6ff;border:1px solid #3b6485;border-radius:4px;padding:2px 9px;font:inherit;cursor:pointer;white-space:nowrap}.jsonx-llm button.primary{background:#176a86;border-color:#35a6c4;font-weight:700}
+    .jsonx-llm button:disabled{opacity:.55;cursor:wait}.jsonx-llm-status{min-height:27px;max-height:48px;overflow:auto;padding:5px 7px;border-radius:4px;background:#0c141c;color:#9fc1d8;white-space:pre-wrap;line-height:16px}.jsonx-llm-status.error{color:#ffadad;border:1px solid #713b45}
+    .jsonx-llm-panel{display:none;gap:5px}.jsonx-llm-panel.active{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.jsonx-llm-panel>button{grid-column:1/-1;width:max-content;max-width:100%}
+    .jsonx-llm-actions{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:5px;align-items:center}.jsonx-llm-actions .primary{min-width:88px}
+    .jsonx-check{display:flex!important;grid-auto-flow:column!important;grid-template-columns:auto 1fr!important;align-items:center;gap:5px!important;white-space:nowrap;color:#adc0d3}.jsonx-check input{width:14px!important;height:14px!important;min-height:14px!important;margin:0}
+    .jsonx-output-preview{display:grid;gap:2px;color:#adc0d3}.jsonx-output-preview textarea{width:100%;height:88px;min-height:88px;resize:vertical;background:#091119;color:#d8e9f6;border:1px solid #35516b;border-radius:4px;padding:6px 7px;font:10px/14px Consolas,"Cascadia Mono",monospace;white-space:pre;overflow:auto;color-scheme:dark}.jsonx-output-preview textarea:placeholder-shown{color:#7890a3}
+    .jsonx-diagnostics{display:none;border:1px solid #713b45;border-radius:4px;padding:4px 6px;background:#180f14}.jsonx-diagnostics.visible{display:block}.jsonx-diagnostics summary{cursor:pointer;color:#ffb9b9}.jsonx-diagnostics textarea{width:100%;height:120px;margin-top:5px;resize:vertical;background:#090d12;color:#ffd2d2;border:1px solid #713b45;border-radius:4px;padding:6px;font:10px/14px Consolas,"Cascadia Mono",monospace;white-space:pre;overflow:auto}
+    .jsonx-local-settings{grid-column:1/-1;border:1px solid #2b4258;border-radius:4px;padding:4px 6px;background:#0d161f}.jsonx-local-settings summary{cursor:pointer;color:#adc0d3;user-select:none}.jsonx-local-settings[open] summary{margin-bottom:5px}.jsonx-local-settings-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}
+    .jsonx-llm .jsonx-picker-trigger{width:100%;text-align:left;overflow:hidden;text-overflow:ellipsis;padding-right:22px;position:relative;background:#0b1219}.jsonx-llm .jsonx-picker-trigger:after{content:"▾";position:absolute;right:7px;color:#9fc1d8}.jsonx-llm .jsonx-picker-trigger.placeholder{color:#7890a3}
+    .jsonx-picker-menu{display:none;position:fixed;z-index:100000;max-height:220px;overflow:auto;padding:4px;background:#0b1219;border:1px solid #3b6485;border-radius:5px;box-shadow:0 8px 24px #000a;font:11px "Segoe UI",sans-serif}.jsonx-picker-menu.jsonx-picker-open{display:grid;gap:2px}.jsonx-picker-option{min-height:27px;height:auto;padding:5px 7px;text-align:left;white-space:normal;overflow-wrap:anywhere;color:#edf4fb;background:#111d28;border:1px solid transparent;border-radius:3px;cursor:pointer}.jsonx-picker-option:hover,.jsonx-picker-option[aria-selected="true"]{background:#1b4058;border-color:#3b7192}.jsonx-picker-empty{padding:7px;color:#7890a3}
+    .jsonx-instruction-overlay{display:none;position:fixed;inset:0;z-index:100200;background:#000b;align-items:center;justify-content:center;padding:24px}.jsonx-instruction-overlay.visible{display:flex}.jsonx-instruction-modal{width:min(1040px,96vw);max-height:92vh;overflow:auto;background:#101923;color:#e9f2fa;border:1px solid #426783;border-radius:8px;box-shadow:0 18px 60px #000;padding:12px;font:12px "Segoe UI",sans-serif}.jsonx-instruction-head,.jsonx-instruction-buttons{display:flex;align-items:center;gap:8px}.jsonx-instruction-head{justify-content:space-between;margin-bottom:9px}.jsonx-instruction-head h2{font-size:16px;margin:0}.jsonx-instruction-modal button{height:29px;background:#1b3349;color:#edf6ff;border:1px solid #3b6485;border-radius:4px;padding:3px 10px;cursor:pointer}.jsonx-instruction-modal button.primary{background:#176a86;border-color:#35a6c4;font-weight:700}.jsonx-instruction-modal label{display:grid;gap:4px;color:#b7cadb;margin:7px 0}.jsonx-instruction-modal select{height:29px;background:#091119;color:#edf4fb;border:1px solid #35516b;border-radius:4px;padding:3px 7px}.jsonx-instruction-modal textarea{width:100%;height:210px;resize:vertical;background:#081018;color:#dcebf7;border:1px solid #35516b;border-radius:4px;padding:8px;font:11px/15px Consolas,"Cascadia Mono",monospace;white-space:pre;overflow:auto}.jsonx-instruction-modal .jsonx-effective textarea{height:170px}.jsonx-instruction-note{color:#8fa9bc;line-height:17px}.jsonx-instruction-meta{color:#8fc6df;margin:7px 0}.jsonx-instruction-buttons{justify-content:flex-end;flex-wrap:wrap;margin-top:9px}.jsonx-instruction-modal details{border:1px solid #2b4258;border-radius:5px;padding:6px;margin-top:9px}.jsonx-instruction-modal summary{cursor:pointer;color:#acd1e5}
+    `;
+    document.head.appendChild(style);
+  }
+
+  const savedSettings = loadSettings();
+  const settings = {
+    backend: "gemini",
+    gemini_model: "",
+    gemini_timeout: Number(savedSettings.timeout || 120),
+    safety_harassment: "BLOCK_NONE",
+    safety_hate_speech: "BLOCK_NONE",
+    safety_sexual: "BLOCK_NONE",
+    safety_dangerous: "BLOCK_NONE",
+    openai_base_url: DEFAULT_OPENAI_URL,
+    openai_model: "",
+    openai_timeout: Number(savedSettings.timeout || 120),
+    ollama_host: DEFAULT_OLLAMA_HOST,
+    ollama_model: "",
+    ollama_timeout: Number(savedSettings.timeout || 600),
+    ollama_think: false,
+    local_model: "",
+    local_mmproj: "none",
+    local_timeout: Number(savedSettings.timeout || 180),
+    local_max_tokens: 2048,
+    local_temperature: 0.7,
+    local_top_p: 0.9,
+    local_top_k: 40,
+    local_repeat_penalty: 1.05,
+    local_ctx_size: 32768,
+    local_memory_mode: "auto",
+    local_n_gpu_layers: 99,
+    local_n_cpu_moe_layers: 0,
+    local_reasoning: "auto",
+    local_seed: -1,
+    timeout: 180,
+    unload_after: true,
+    refresh_vram: false,
+    detail_level: "deep",
+    stage_one_instructions: "",
+    refinement_instructions: "",
+    ...savedSettings,
+  };
+
+  const root = document.createElement("div");
+  root.className = "jsonx-llm";
+  root.addEventListener("pointerdown", (event) => event.stopPropagation());
+  root.addEventListener("wheel", (event) => event.stopPropagation());
+
+  const backendRow = document.createElement("div");
+  backendRow.className = "jsonx-llm-row";
+  const backendLabel = document.createElement("label");
+  backendLabel.textContent = "LLM backend";
+  const backend = document.createElement("select");
+  for (const value of ["gemini", "openai", "ollama", "local"]) option(backend, value, value === "openai" ? "OpenAI compatible" : value === "local" ? "Local GGUF" : value[0].toUpperCase() + value.slice(1));
+  backend.value = settings.backend;
+  backendLabel.appendChild(backend);
+  const timeoutLabel = document.createElement("label");
+  timeoutLabel.textContent = "Timeout seconds";
+  const timeout = document.createElement("input");
+  timeout.type = "number";
+  timeout.min = "5";
+  timeout.max = "3600";
+  let activeBackend = settings.backend;
+  timeout.value = settings[`${activeBackend}_timeout`] || settings.timeout || 180;
+  timeoutLabel.appendChild(timeout);
+  backendRow.append(backendLabel, timeoutLabel);
+  root.appendChild(backendRow);
+
+  const makePanel = () => {
+    const panel = document.createElement("div");
+    panel.className = "jsonx-llm-panel";
+    root.appendChild(panel);
+    return panel;
+  };
+  const makeInput = (panel, labelText, type = "text") => {
+    const label = document.createElement("label");
+    label.textContent = labelText;
+    const input = document.createElement("input");
+    input.type = type;
+    label.appendChild(input);
+    panel.appendChild(label);
+    return input;
+  };
+  const makeRefresh = (panel, text) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = text;
+    panel.appendChild(button);
+    return button;
+  };
+  const makeNumberInput = (panel, labelText, value, min, max, step = "1") => {
+    const input = makeInput(panel, labelText, "number");
+    input.value = String(value);
+    input.min = String(min);
+    input.max = String(max);
+    input.step = String(step);
+    return input;
+  };
+  const makeSelect = (panel, labelText, values, selected) => {
+    const label = document.createElement("label");
+    label.textContent = labelText;
+    const select = document.createElement("select");
+    for (const value of values) {
+      if (typeof value === "string") option(select, value, value);
+      else option(select, value.value, value.label);
+    }
+    select.value = selected;
+    label.appendChild(select);
+    panel.appendChild(label);
+    return select;
+  };
+  const makeCheckbox = (panel, labelText, checked) => {
+    const label = document.createElement("label");
+    label.className = "jsonx-check";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = Boolean(checked);
+    label.append(input, document.createTextNode(labelText));
+    panel.appendChild(label);
+    return input;
+  };
+  const numericValue = (input, fallback) => {
+    const value = Number(input.value);
+    return Number.isFinite(value) ? value : fallback;
+  };
+
+  const geminiPanel = makePanel();
+  const geminiKey = makeInput(geminiPanel, "Gemini API key", "password");
+  geminiKey.value = storedSecret(GEMINI_KEY);
+  const geminiModel = makePicker(geminiPanel, "Gemini model", settings.gemini_model, "Fetch Gemini models");
+  const geminiRefresh = makeRefresh(geminiPanel, "Fetch Gemini models");
+  const geminiSettings = document.createElement("details");
+  geminiSettings.className = "jsonx-local-settings";
+  const geminiSettingsSummary = document.createElement("summary");
+  geminiSettingsSummary.textContent = "Gemini safety settings";
+  const geminiSettingsGrid = document.createElement("div");
+  geminiSettingsGrid.className = "jsonx-local-settings-grid";
+  geminiSettings.append(geminiSettingsSummary, geminiSettingsGrid);
+  geminiPanel.appendChild(geminiSettings);
+  const geminiSafetySelects = {};
+  for (const [key, label] of GEMINI_SAFETY_FIELDS) {
+    geminiSafetySelects[key] = makeSelect(
+      geminiSettingsGrid,
+      `Safety: ${label}`,
+      GEMINI_SAFETY_OPTIONS,
+      settings[key] || "BLOCK_NONE",
+    );
+  }
+
+  const openaiPanel = makePanel();
+  const openaiUrl = makeInput(openaiPanel, "OpenAI-compatible base URL");
+  openaiUrl.value = settings.openai_base_url;
+  const openaiKey = makeInput(openaiPanel, "API key (optional)", "password");
+  openaiKey.value = storedSecret(OPENAI_KEY);
+  const openaiManualModel = makeInput(openaiPanel, "Manual model ID (optional)");
+  const openaiModel = makePicker(openaiPanel, "Fetched model", settings.openai_model, "Fetch compatible models");
+  const openaiRefresh = makeRefresh(openaiPanel, "Fetch compatible models");
+  const openaiUnload = makeCheckbox(openaiPanel, "Unload after generation", settings.unload_after);
+
+  const ollamaPanel = makePanel();
+  const ollamaHost = makeInput(ollamaPanel, "Ollama host");
+  ollamaHost.value = settings.ollama_host;
+  const ollamaModel = makePicker(ollamaPanel, "Ollama model", settings.ollama_model, "Fetch Ollama models");
+  const ollamaRefresh = makeRefresh(ollamaPanel, "Fetch Ollama models");
+  const ollamaThink = makeCheckbox(ollamaPanel, "Enable think mode", settings.ollama_think);
+  const ollamaUnload = makeCheckbox(ollamaPanel, "Unload after generation", settings.unload_after);
+
+  const localPanel = makePanel();
+  const localModel = makePicker(localPanel, "Local GGUF model", settings.local_model, "Refresh to load GGUF models");
+  const mmproj = makePicker(localPanel, "Vision mmproj", settings.local_mmproj || "none", "No vision projector");
+  const localSettings = document.createElement("details");
+  localSettings.className = "jsonx-local-settings";
+  const localSettingsSummary = document.createElement("summary");
+  localSettingsSummary.textContent = "Local generation settings";
+  const localSettingsGrid = document.createElement("div");
+  localSettingsGrid.className = "jsonx-local-settings-grid";
+  localSettings.append(localSettingsSummary, localSettingsGrid);
+  localPanel.appendChild(localSettings);
+  const localContext = makeNumberInput(localSettingsGrid, "Context tokens", settings.local_ctx_size, 512, 262144);
+  const localMaxTokens = makeNumberInput(localSettingsGrid, "Max output tokens", settings.local_max_tokens, 32, 8192);
+  const localTemperature = makeNumberInput(localSettingsGrid, "Temperature", settings.local_temperature, 0, 2, "0.05");
+  const localTopP = makeNumberInput(localSettingsGrid, "Top P", settings.local_top_p, 0, 1, "0.05");
+  const localTopK = makeNumberInput(localSettingsGrid, "Top K", settings.local_top_k, 0, 10000);
+  const localRepeatPenalty = makeNumberInput(localSettingsGrid, "Repeat penalty", settings.local_repeat_penalty, 0, 5, "0.05");
+  const localMemoryMode = makeSelect(localSettingsGrid, "Memory mode", [
+    {value:"auto", label:"Auto memory"},
+    {value:"gpu_layers", label:"GPU layers"},
+    {value:"cpu_moe_layers", label:"CPU MoE layers"},
+    {value:"gpu_and_cpu_moe_layers", label:"GPU + CPU MoE"},
+  ], settings.local_memory_mode);
+  const localReasoning = makeSelect(localSettingsGrid, "Reasoning", ["auto", "none", "deepseek", "qwen3"], settings.local_reasoning);
+  const localGpuLayers = makeNumberInput(localSettingsGrid, "GPU layers", settings.local_n_gpu_layers, 0, 999);
+  const localCpuMoeLayers = makeNumberInput(localSettingsGrid, "CPU MoE layers", settings.local_n_cpu_moe_layers, 0, 999);
+  const localSeed = makeNumberInput(localSettingsGrid, "Seed (-1 random)", settings.local_seed, -1, 4294967295);
+  const localRefresh = makeRefresh(localPanel, "Refresh models");
+
+  const status = document.createElement("div");
+  status.className = "jsonx-llm-status";
+  status.textContent = "Ready — Generate saves the validated JSON to prompt_json.";
+  const generate = document.createElement("button");
+  generate.type = "button";
+  generate.className = "primary";
+  generate.textContent = "Generate";
+  const instructionSettings = document.createElement("button");
+  instructionSettings.type = "button";
+  instructionSettings.textContent = "Settings";
+  instructionSettings.title = "Review and customize JsonX backend instructions";
+  const refreshVramLabel = document.createElement("label");
+  refreshVramLabel.className = "jsonx-check";
+  const refreshVram = document.createElement("input");
+  refreshVram.type = "checkbox";
+  refreshVram.checked = Boolean(settings.refresh_vram);
+  refreshVramLabel.append(refreshVram, document.createTextNode("Refresh VRAM"));
+  const actions = document.createElement("div");
+  actions.className = "jsonx-llm-actions";
+  actions.append(status, refreshVramLabel, instructionSettings, generate);
+  root.append(actions);
+
+  const outputPreviewLabel = document.createElement("label");
+  outputPreviewLabel.className = "jsonx-output-preview";
+  outputPreviewLabel.textContent = "Generated JsonX output";
+  const outputPreview = document.createElement("textarea");
+  outputPreview.readOnly = true;
+  outputPreview.spellcheck = false;
+  outputPreview.placeholder = "Generated JSON will appear here.";
+  outputPreview.value = String(widgetValue(node, "generated_prompt_json", "") || "");
+  outputPreviewLabel.appendChild(outputPreview);
+  root.appendChild(outputPreviewLabel);
+
+  const diagnostics = document.createElement("details");
+  diagnostics.className = "jsonx-diagnostics";
+  const diagnosticsSummary = document.createElement("summary");
+  diagnosticsSummary.textContent = "Generation diagnostics";
+  const diagnosticsOutput = document.createElement("textarea");
+  diagnosticsOutput.readOnly = true;
+  diagnosticsOutput.spellcheck = false;
+  diagnostics.append(diagnosticsSummary, diagnosticsOutput);
+  root.appendChild(diagnostics);
+
+  const instructionOverlay = document.createElement("div");
+  instructionOverlay.className = "jsonx-instruction-overlay";
+  const instructionModal = document.createElement("div");
+  instructionModal.className = "jsonx-instruction-modal";
+  instructionModal.addEventListener("pointerdown", (event) => event.stopPropagation());
+  const instructionHead = document.createElement("div");
+  instructionHead.className = "jsonx-instruction-head";
+  const instructionTitle = document.createElement("h2");
+  instructionTitle.textContent = "JsonX Backend Instructions";
+  const instructionClose = document.createElement("button");
+  instructionClose.type = "button";
+  instructionClose.textContent = "Close";
+  instructionHead.append(instructionTitle, instructionClose);
+  const instructionNote = document.createElement("div");
+  instructionNote.className = "jsonx-instruction-note";
+  instructionNote.textContent = "These instructions are sent only by LLM to JsonX. Custom copies stay in JsonX browser storage and are never written into workflow JSON. Preset context, image rules, and the selected depth target are appended by the backend.";
+  const detailLevelLabel = document.createElement("label");
+  detailLevelLabel.textContent = "Hierarchy coverage";
+  const detailLevel = document.createElement("select");
+  option(detailLevel, "deep", "Deep (maximize relevant hierarchy)");
+  option(detailLevel, "exhaustive", "Exhaustive (maximum relevant branch coverage)");
+  detailLevel.value = settings.detail_level || "deep";
+  detailLevelLabel.appendChild(detailLevel);
+  const stageOneLabel = document.createElement("label");
+  stageOneLabel.textContent = "Stage 1 preset-aware system instructions";
+  const stageOneInstructions = document.createElement("textarea");
+  stageOneInstructions.spellcheck = false;
+  stageOneLabel.appendChild(stageOneInstructions);
+  const refinementLabel = document.createElement("label");
+  refinementLabel.textContent = "Refined Stage 2 system instructions";
+  const refinementInstructions = document.createElement("textarea");
+  refinementInstructions.spellcheck = false;
+  refinementLabel.appendChild(refinementInstructions);
+  const effectiveDetails = document.createElement("details");
+  effectiveDetails.className = "jsonx-effective";
+  const effectiveSummary = document.createElement("summary");
+  effectiveSummary.textContent = "Effective instructions preview";
+  const instructionMeta = document.createElement("div");
+  instructionMeta.className = "jsonx-instruction-meta";
+  const effectiveStageLabel = document.createElement("label");
+  effectiveStageLabel.textContent = "Exact Stage 1 system prompt";
+  const effectiveStage = document.createElement("textarea");
+  effectiveStage.readOnly = true;
+  effectiveStageLabel.appendChild(effectiveStage);
+  const effectiveRefinementLabel = document.createElement("label");
+  effectiveRefinementLabel.textContent = "Exact Stage 2 system prompt";
+  const effectiveRefinement = document.createElement("textarea");
+  effectiveRefinement.readOnly = true;
+  effectiveRefinementLabel.appendChild(effectiveRefinement);
+  effectiveDetails.append(effectiveSummary, instructionMeta, effectiveStageLabel, effectiveRefinementLabel);
+  const instructionButtons = document.createElement("div");
+  instructionButtons.className = "jsonx-instruction-buttons";
+  const resetInstructions = document.createElement("button");
+  resetInstructions.type = "button";
+  resetInstructions.textContent = "Reset defaults";
+  const previewInstructions = document.createElement("button");
+  previewInstructions.type = "button";
+  previewInstructions.textContent = "Refresh effective preview";
+  const saveInstructions = document.createElement("button");
+  saveInstructions.type = "button";
+  saveInstructions.className = "primary";
+  saveInstructions.textContent = "Save settings";
+  instructionButtons.append(resetInstructions, previewInstructions, saveInstructions);
+  instructionModal.append(
+    instructionHead,
+    instructionNote,
+    detailLevelLabel,
+    stageOneLabel,
+    refinementLabel,
+    effectiveDetails,
+    instructionButtons,
+  );
+  instructionOverlay.appendChild(instructionModal);
+  document.body.appendChild(instructionOverlay);
+  let defaultInstructionTemplates = null;
+
+  const clearDiagnostics = () => {
+    diagnostics.classList.remove("visible");
+    diagnostics.open = false;
+    diagnosticsOutput.value = "";
+    requestAnimationFrame(() => resizeForSettings());
+  };
+  const showDiagnostics = (details) => {
+    if (!details || typeof details !== "object") return;
+    const providerDetails = details.provider_diagnostics && typeof details.provider_diagnostics === "object"
+      ? details.provider_diagnostics
+      : details;
+    const formatted = (value) => {
+      if (value == null || value === "") return "";
+      return typeof value === "object" ? JSON.stringify(value, null, 2) : String(value);
+    };
+    const sections = [
+      ["Stage", details.stage],
+      ["Provider", providerDetails.provider],
+      ["Provider event", providerDetails.event],
+      ["HTTP status", providerDetails.http_status],
+      ["Prompt feedback", formatted(providerDetails.prompt_feedback)],
+      ["Candidate details", formatted(providerDetails.candidates)],
+      ["Completion reason", providerDetails.done_reason],
+      ["Initial validation error", details.initial_error],
+      ["Raw provider response", details.raw_response],
+      ["Repair error", details.repair_error],
+      ["Raw repair response", details.repair_response],
+    ].filter(([, value]) => String(value || "").trim());
+    diagnosticsOutput.value = sections.map(([label, value]) => `${label}:\n${value}`).join("\n\n");
+    diagnostics.classList.add("visible");
+    diagnostics.open = true;
+    requestAnimationFrame(() => resizeForSettings());
+  };
+
+  const setStatus = (text, error = false) => {
+    status.textContent = text;
+    status.classList.toggle("error", error);
+  };
+  const persist = () => {
+    settings.backend = backend.value;
+    settings[`${activeBackend}_timeout`] = Number(timeout.value || 180);
+    settings.timeout = settings[`${activeBackend}_timeout`];
+    settings.gemini_model = String(geminiModel.value || "").trim();
+    for (const [key] of GEMINI_SAFETY_FIELDS) {
+      settings[key] = geminiSafetySelects[key].value || "BLOCK_NONE";
+    }
+    settings.openai_base_url = openaiUrl.value.trim() || DEFAULT_OPENAI_URL;
+    settings.openai_model = openaiManualModel.value.trim() || String(openaiModel.value || "").trim();
+    settings.ollama_host = ollamaHost.value.trim() || DEFAULT_OLLAMA_HOST;
+    settings.ollama_model = String(ollamaModel.value || "").trim();
+    settings.ollama_think = ollamaThink.checked;
+    if (backend.value === "openai") settings.unload_after = openaiUnload.checked;
+    if (backend.value === "ollama") settings.unload_after = ollamaUnload.checked;
+    settings.refresh_vram = refreshVram.checked;
+    settings.local_model = localModel.value || "";
+    settings.local_mmproj = mmproj.value || "none";
+    settings.local_max_tokens = numericValue(localMaxTokens, 2048);
+    settings.local_temperature = numericValue(localTemperature, 0.7);
+    settings.local_top_p = numericValue(localTopP, 0.9);
+    settings.local_top_k = numericValue(localTopK, 40);
+    settings.local_repeat_penalty = numericValue(localRepeatPenalty, 1.05);
+    settings.local_ctx_size = numericValue(localContext, 32768);
+    settings.local_memory_mode = localMemoryMode.value || "auto";
+    settings.local_n_gpu_layers = numericValue(localGpuLayers, 99);
+    settings.local_n_cpu_moe_layers = numericValue(localCpuMoeLayers, 0);
+    settings.local_reasoning = localReasoning.value || "auto";
+    settings.local_seed = numericValue(localSeed, -1);
+    saveSettings(settings);
+    storeSecret(GEMINI_KEY, geminiKey.value);
+    storeSecret(OPENAI_KEY, openaiKey.value);
+  };
+  const loadInstructionTemplates = async () => {
+    if (!defaultInstructionTemplates) {
+      defaultInstructionTemplates = await requestJson(`${ROUTE}/instructions`);
+    }
+    return defaultInstructionTemplates;
+  };
+  const refreshInstructionPreview = async () => {
+    previewInstructions.disabled = true;
+    instructionMeta.textContent = "Building effective prompts...";
+    try {
+      const data = await requestJson(`${ROUTE}/instructions/preview`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          user_instructions: String(widgetValue(node, "user_instructions", "")).trim(),
+          preset_context_mode: String(widgetValue(node, "preset_context_mode", "optimized")),
+          has_image: Boolean(resolveImageSource(node)),
+          detail_level: detailLevel.value,
+          stage_one_instructions: stageOneInstructions.value,
+          refinement_instructions: refinementInstructions.value,
+        }),
+      });
+      effectiveStage.value = data.stage_one || "";
+      effectiveRefinement.value = data.refinement || "";
+      instructionMeta.textContent = `Stage 1: ${Number(data.stage_one_characters || 0).toLocaleString()} chars · Stage 2: ${Number(data.refinement_characters || 0).toLocaleString()} chars · ${data.preset_context_mode} presets · ${data.detail_level} depth`;
+      effectiveDetails.open = true;
+    } catch (error) {
+      instructionMeta.textContent = error.message;
+      effectiveDetails.open = true;
+    } finally {
+      previewInstructions.disabled = false;
+    }
+  };
+  const closeInstructionModal = () => instructionOverlay.classList.remove("visible");
+  instructionSettings.onclick = async () => {
+    instructionSettings.disabled = true;
+    try {
+      const defaults = await loadInstructionTemplates();
+      stageOneInstructions.value = String(settings.stage_one_instructions || defaults.stage_one || "");
+      refinementInstructions.value = String(settings.refinement_instructions || defaults.refinement || "");
+      detailLevel.value = settings.detail_level || defaults.default_detail_level || "deep";
+      effectiveStage.value = "";
+      effectiveRefinement.value = "";
+      instructionMeta.textContent = "Open the preview to inspect the exact prompt including live preset context.";
+      effectiveDetails.open = false;
+      instructionOverlay.classList.add("visible");
+    } catch (error) {
+      setStatus(`Could not load JsonX instructions: ${error.message}`, true);
+    } finally {
+      instructionSettings.disabled = false;
+    }
+  };
+  instructionClose.onclick = closeInstructionModal;
+  instructionOverlay.onclick = (event) => {
+    if (event.target === instructionOverlay) closeInstructionModal();
+  };
+  resetInstructions.onclick = async () => {
+    const defaults = await loadInstructionTemplates();
+    stageOneInstructions.value = defaults.stage_one || "";
+    refinementInstructions.value = defaults.refinement || "";
+    detailLevel.value = defaults.default_detail_level || "deep";
+    instructionMeta.textContent = "Defaults restored in the editor. Click Save settings to keep them.";
+  };
+  previewInstructions.onclick = refreshInstructionPreview;
+  saveInstructions.onclick = () => {
+    const stageOneValue = stageOneInstructions.value.trim();
+    const refinementValue = refinementInstructions.value.trim();
+    settings.stage_one_instructions = stageOneValue === String(defaultInstructionTemplates?.stage_one || "").trim()
+      ? ""
+      : stageOneValue;
+    settings.refinement_instructions = refinementValue === String(defaultInstructionTemplates?.refinement || "").trim()
+      ? ""
+      : refinementValue;
+    settings.detail_level = detailLevel.value || "deep";
+    saveSettings(settings);
+    closeInstructionModal();
+    setStatus(`JsonX instructions saved · ${settings.detail_level} hierarchy depth.`);
+  };
+  const instructionEscapeHandler = (event) => {
+    if (event.key === "Escape" && instructionOverlay.classList.contains("visible")) {
+      closeInstructionModal();
+    }
+  };
+  document.addEventListener("keydown", instructionEscapeHandler);
+  const refreshPanels = () => {
+    for (const [name, panel] of [["gemini", geminiPanel], ["openai", openaiPanel], ["ollama", ollamaPanel], ["local", localPanel]]) {
+      panel.classList.toggle("active", backend.value === name);
+    }
+    persist();
+  };
+
+  geminiRefresh.onclick = async () => {
+    try {
+      setStatus("Fetching Gemini models...");
+      const data = await requestJson(`${ROUTE}/gemini/models`, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({api_key:geminiKey.value, timeout:Number(timeout.value || 180)})});
+      geminiModel.setOptions(data.models, settings.gemini_model, "No Gemini models found");
+      persist();
+      setStatus(`${data.models.length} Gemini models loaded.`);
+    } catch (error) { setStatus(error.message, true); }
+  };
+  openaiRefresh.onclick = async () => {
+    try {
+      setStatus("Fetching compatible models...");
+      const data = await requestJson(`${ROUTE}/openai/models`, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({base_url:openaiUrl.value, api_key:openaiKey.value, timeout:Number(timeout.value || 180)})});
+      openaiModel.setOptions(data.models, settings.openai_model, "No compatible models found");
+      persist();
+      setStatus(`${data.models.length} compatible models loaded.`);
+    } catch (error) { setStatus(error.message, true); }
+  };
+  ollamaRefresh.onclick = async () => {
+    try {
+      setStatus("Fetching Ollama models...");
+      const data = await requestJson(`${ROUTE}/ollama/models`, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({host:ollamaHost.value, timeout:Number(timeout.value || 180)})});
+      ollamaModel.setOptions(data.models, settings.ollama_model, "No Ollama models found");
+      persist();
+      setStatus(`${data.models.length} Ollama models loaded.`);
+    } catch (error) { setStatus(error.message, true); }
+  };
+  localRefresh.onclick = async () => {
+    try {
+      setStatus("Refreshing local models...");
+      const data = await requestJson(`${ROUTE}/local/models`);
+      localModel.setOptions(data.models, settings.local_model, "No GGUF models found");
+      mmproj.setOptions(data.mmproj, settings.local_mmproj || "none", "No vision projector");
+      localModel.dataset.loaded = "true";
+      persist();
+      setStatus("Local model list refreshed.");
+    } catch (error) { setStatus(error.message, true); }
+  };
+
+  generate.onclick = async () => {
+    persist();
+    clearDiagnostics();
+    const instructions = String(widgetValue(node, "user_instructions", "")).trim();
+    const generationMode = String(widgetValue(node, "generation_mode", "fast"));
+    const presetMode = String(widgetValue(node, "preset_context_mode", "optimized"));
+    const imageSource = resolveImageSource(node);
+    const imageB64 = await imageSourceToDataUrl(imageSource);
+    if (!instructions && !imageB64) {
+      setStatus(imageSource ? "Connected image has no readable preview. Run the upstream node first." : "Enter instructions or connect an image.", true);
+      return;
+    }
+    if (presetMode === "full") {
+      try {
+        const info = await requestJson(`${ROUTE}/presets/info`);
+        setStatus(`Full preset mode: sending all ${info.characters.toLocaleString()} characters (~${info.estimated_tokens.toLocaleString()} tokens) without truncation.`);
+      } catch {
+        setStatus("Full preset mode: sending the complete presets.json without truncation.");
+      }
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    } else {
+      setStatus(`Generating ${generationMode} JsonX with optimized presets...`);
+    }
+
+    const payload = {
+      backend: backend.value,
+      generation_mode: generationMode,
+      preset_context_mode: presetMode,
+      detail_level: settings.detail_level || "deep",
+      stage_one_instructions: settings.stage_one_instructions || "",
+      refinement_instructions: settings.refinement_instructions || "",
+      user_instructions: instructions,
+      image_b64: imageB64,
+      timeout: Number(timeout.value || 180),
+      refresh_vram: refreshVram.checked,
+      model: backend.value === "gemini"
+        ? String(geminiModel.value || "").trim()
+        : backend.value === "openai"
+          ? openaiManualModel.value.trim() || String(openaiModel.value || "").trim()
+          : backend.value === "ollama"
+            ? String(ollamaModel.value || "").trim()
+            : localModel.value,
+    };
+    if (backend.value === "gemini") {
+      payload.api_key = geminiKey.value.trim();
+      payload.gemini_safety = {};
+      for (const [key] of GEMINI_SAFETY_FIELDS) {
+        payload.gemini_safety[key] = geminiSafetySelects[key].value || "BLOCK_NONE";
+      }
+    } else if (backend.value === "openai") {
+      payload.base_url = openaiUrl.value.trim() || DEFAULT_OPENAI_URL;
+      payload.api_key = openaiKey.value.trim();
+      payload.unload_after = openaiUnload.checked;
+    } else if (backend.value === "ollama") {
+      payload.host = ollamaHost.value.trim() || DEFAULT_OLLAMA_HOST;
+      payload.think = ollamaThink.checked;
+      payload.unload_after = ollamaUnload.checked;
+    } else {
+      payload.mmproj = mmproj.value || "none";
+      payload.local_options = {
+        max_tokens: settings.local_max_tokens,
+        temperature: settings.local_temperature,
+        top_p: settings.local_top_p,
+        top_k: settings.local_top_k,
+        repeat_penalty: settings.local_repeat_penalty,
+        ctx_size: settings.local_ctx_size,
+        memory_mode: settings.local_memory_mode,
+        n_gpu_layers: settings.local_n_gpu_layers,
+        n_cpu_moe_layers: settings.local_n_cpu_moe_layers,
+        reasoning: settings.local_reasoning,
+        seed: settings.local_seed,
+        timeout: Number(timeout.value || 180),
+      };
+    }
+
+    generate.disabled = true;
+    generate.textContent = generationMode === "refined" ? "Generating + refining..." : "Generating...";
+    try {
+      const data = await requestJson(`${ROUTE}/generate`, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload)});
+      const promptJson = data.prompt_json || "{}";
+      setWidgetValue(node, "generated_prompt_json", promptJson);
+      outputPreview.value = promptJson;
+      outputPreview.scrollTop = 0;
+      clearDiagnostics();
+      const metrics = data.hierarchy_metrics || {};
+      const metricText = metrics.leaf_count != null
+        ? ` · ${metrics.leaf_count} leaves · depth ${metrics.max_depth} · ${metrics.root_groups} roots`
+        : "";
+      setStatus(`Saved to prompt_json · ${data.generation_mode} · ${data.preset_context_mode} · ${data.detail_level || "deep"}${metricText}`);
+    } catch (error) {
+      showDiagnostics(error.data?.diagnostics);
+      setStatus(`${error.message}. Previous output kept.`, true);
+    } finally {
+      generate.disabled = false;
+      generate.textContent = "Generate";
+    }
+  };
+
+  backend.onchange = () => {
+    settings[`${activeBackend}_timeout`] = Number(timeout.value || 180);
+    activeBackend = backend.value;
+    timeout.value = settings[`${activeBackend}_timeout`] || 180;
+    refreshPanels();
+    resizeForSettings();
+    if (backend.value === "local" && localModel.dataset.loaded !== "true") {
+      setTimeout(() => localRefresh.click(), 0);
+    }
+  };
+  const syncMemoryFields = () => {
+    localGpuLayers.disabled = !["gpu_layers", "gpu_and_cpu_moe_layers"].includes(localMemoryMode.value);
+    localCpuMoeLayers.disabled = !["cpu_moe_layers", "gpu_and_cpu_moe_layers"].includes(localMemoryMode.value);
+  };
+  localMemoryMode.addEventListener("change", syncMemoryFields);
+  syncMemoryFields();
+  openaiModel.addEventListener("change", () => { openaiManualModel.value = ""; persist(); });
+  for (const control of [timeout, geminiKey, geminiModel, ...Object.values(geminiSafetySelects), openaiUrl, openaiKey, openaiManualModel, openaiModel, openaiUnload, ollamaHost, ollamaModel, ollamaThink, ollamaUnload, refreshVram, localModel, mmproj, localContext, localMaxTokens, localTemperature, localTopP, localTopK, localRepeatPenalty, localMemoryMode, localReasoning, localGpuLayers, localCpuMoeLayers, localSeed]) control.addEventListener("change", persist);
+  refreshPanels();
+  if (backend.value === "local") setTimeout(() => localRefresh.click(), 0);
+
+  const resizeForSettings = () => {
+    requestAnimationFrame(() => {
+      const width = Math.max(380, Number(node.size?.[0]) || 380);
+      const computedHeight = Number(node.computeSize?.()?.[1]) || 370;
+      const settingsHeight = backend.value === "local" && localSettings.open
+        ? 660
+        : backend.value === "gemini" && geminiSettings.open
+          ? 590
+          : 475;
+      const expandedHeight = diagnostics.classList.contains("visible")
+        ? Math.max(650, settingsHeight + 150)
+        : settingsHeight;
+      node.setSize?.([width, Math.max(expandedHeight, expandedHeight > 475 ? computedHeight : 0)]);
+    });
+  };
+  localSettings.addEventListener("toggle", resizeForSettings);
+  geminiSettings.addEventListener("toggle", resizeForSettings);
+
+  chainCallback(node, "onRemoved", function jsonXPickerCleanup() {
+    geminiModel.destroy();
+    openaiModel.destroy();
+    ollamaModel.destroy();
+    localModel.destroy();
+    mmproj.destroy();
+    document.removeEventListener("keydown", instructionEscapeHandler);
+    instructionOverlay.remove();
+  });
+
+  node.addDOMWidget("llm_to_jsonx", "LLM to JsonX", root, {serialize:false, hideOnZoom:false, getMinHeight:() => Math.max(118, root.scrollHeight + 2)});
+  node.resizable = true;
+  const size = node.size || [420, 600];
+  node.setSize?.([Math.max(380, size[0]), 475]);
+}
+
+app.registerExtension({
+  name: "WorkflowX.LLMToJsonX",
+  async beforeRegisterNodeDef(nodeType, nodeData) {
+    if (nodeData?.name !== TARGET_NODE) return;
+    chainCallback(nodeType.prototype, "onNodeCreated", function jsonXCreated() { setupLLMToJsonX(this); });
+    chainCallback(nodeType.prototype, "onConfigure", function jsonXConfigured() { setTimeout(() => setupLLMToJsonX(this), 0); });
+  },
+});

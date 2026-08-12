@@ -207,8 +207,8 @@ function ensureModal() {
       <div class="afjimp-modal">
         <div class="afjimp-head">
           <div>
-            <div class="afjimp-title">AFJ Prompt Template Importer</div>
-            <div class="afjimp-sub">Paste final prompt JSON, convert to AFJ template, then save.</div>
+            <div class="afjimp-title">JsonX Prompt Template Importer</div>
+            <div class="afjimp-sub">Paste final prompt JSON, convert to a JsonX template, then save.</div>
           </div>
         </div>
         <div class="afjimp-tools">
@@ -296,7 +296,7 @@ function attachButton(node) {
 }
 
 app.registerExtension({
-    name: "AFJ.PromptTemplateImporterUI",
+    name: "JsonX.PromptTemplateImporterUI",
 
     async nodeCreated(node) {
         if (!isTargetNode(node)) return;

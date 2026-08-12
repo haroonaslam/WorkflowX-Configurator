@@ -4,12 +4,13 @@ import random
 import re
 
 from .api import convert_prompt_json_text_to_template, load_visual_presets, load_visual_templates
+from .jsonx_llm import parse_prompt_json
 
 
 DEFAULT_PROMPT = {}
 _PATH_SEGMENT_RE = re.compile(r"^([^\.\[\]]+)(?:\[(\d+)\])?$")
 
-RULES_HELP_TEXT = """AFJ Randomize Rules (one line per field):
+RULES_HELP_TEXT = """JsonX Randomize Rules (one line per field):
 path | mode | value
 
 Examples:
@@ -293,7 +294,7 @@ def _format_run_log(lines):
 
 
 class FluxVisualJsonBuilderNode:
-    CATEGORY = "AFJ"
+    CATEGORY = "WorkflowX/Prompting/JsonX"
     RETURN_TYPES = ("STRING",)
     RETURN_NAMES = ("prompt_json",)
     FUNCTION = "build"
@@ -337,7 +338,7 @@ class FluxVisualJsonBuilderNode:
 
 
 class FluxTemplateRandomizerNode:
-    CATEGORY = "AFJ"
+    CATEGORY = "WorkflowX/Prompting/JsonX"
     RETURN_TYPES = ("STRING", "STRING")
     RETURN_NAMES = ("prompt_json", "run_log")
     FUNCTION = "build"
@@ -431,7 +432,7 @@ class FluxTemplateRandomizerNode:
         prompt = compiled if isinstance(compiled, dict) else {}
 
         if warnings:
-            print(f"[AFJTemplateRandomizer] Warnings ({name}):")
+            print(f"[JsonXTemplateRandomizer] Warnings ({name}):")
             for w in warnings:
                 print(f"  - {w}")
 
@@ -439,7 +440,7 @@ class FluxTemplateRandomizerNode:
 
 
 class AFJPromptTemplateImporterNode:
-    CATEGORY = "AFJ"
+    CATEGORY = "WorkflowX/Prompting/JsonX"
     RETURN_TYPES = ("STRING",)
     RETURN_NAMES = ("template_payload_json",)
     FUNCTION = "build"
@@ -467,7 +468,7 @@ class AFJPromptTemplateImporterNode:
                     "STRING",
                     {
                         "multiline": True,
-                        "default": "Paste final prompt JSON and use Open Prompt Template Importer UI for convert/preview/save.",
+                        "default": "Paste final prompt JSON and use Open JsonX Template Importer UI for convert/preview/save.",
                     },
                 ),
             },
@@ -490,3 +491,55 @@ class AFJPromptTemplateImporterNode:
         if not isinstance(out, dict):
             out = {"tree": {}, "randomizer_checked": []}
         return (json.dumps(out, indent=2, ensure_ascii=False),)
+
+
+class LLMToJsonXNode:
+    CATEGORY = "WorkflowX/Prompting/JsonX"
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("prompt_json",)
+    FUNCTION = "build"
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "user_instructions": (
+                    "STRING",
+                    {
+                        "multiline": True,
+                        "default": "",
+                        "tooltip": "Describe the desired prompt. A connected image may be used with or without text.",
+                    },
+                ),
+                "generation_mode": (["fast", "refined"], {"default": "fast"}),
+                "preset_context_mode": (["optimized", "full"], {"default": "optimized"}),
+                "generated_prompt_json": (
+                    "STRING",
+                    {"multiline": True, "default": "{}", "tooltip": "Managed by the JsonX generation UI."},
+                ),
+            },
+            "optional": {
+                "image": ("IMAGE",),
+                "ui_state": (
+                    "STRING",
+                    {
+                        "multiline": True,
+                        "default": "{}",
+                        "tooltip": "Managed by the JsonX UI. Credentials are never stored here.",
+                    },
+                ),
+            },
+        }
+
+    def build(
+        self,
+        user_instructions="",
+        generation_mode="fast",
+        preset_context_mode="optimized",
+        generated_prompt_json="{}",
+        image=None,
+        ui_state="{}",
+    ):
+        _ = (user_instructions, generation_mode, preset_context_mode, image, ui_state)
+        prompt = parse_prompt_json(str(generated_prompt_json or "{}").strip() or "{}")
+        return (json.dumps(prompt, indent=2, ensure_ascii=False),)

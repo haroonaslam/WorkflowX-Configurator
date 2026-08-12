@@ -87,7 +87,7 @@ def _load_package():
 
 def test_combined_package_exports_workflowx_and_afj_nodes():
     module = _load_package()
-    assert len(module.NODE_CLASS_MAPPINGS) == 37
+    assert len(module.NODE_CLASS_MAPPINGS) == 38
     assert "KVGC_GroupConfigurator" in module.NODE_CLASS_MAPPINGS
     assert "KVGC_ConfigSelectorAdvanced" in module.NODE_CLASS_MAPPINGS
     assert "KVGC_ConfigSelectorX" in module.NODE_CLASS_MAPPINGS
@@ -97,6 +97,13 @@ def test_combined_package_exports_workflowx_and_afj_nodes():
     assert "FluxVisualJsonBuilder" in module.NODE_CLASS_MAPPINGS
     assert "FluxTemplateRandomizer" in module.NODE_CLASS_MAPPINGS
     assert "AFJPromptTemplateImporter" in module.NODE_CLASS_MAPPINGS
+    assert "LLMToJsonX" in module.NODE_CLASS_MAPPINGS
+    assert module.NODE_DISPLAY_NAME_MAPPINGS["FluxVisualJsonBuilder"] == "JsonX - Visual Builder"
+    assert module.NODE_DISPLAY_NAME_MAPPINGS["FluxTemplateRandomizer"] == "JsonX - Template Randomizer"
+    assert module.NODE_DISPLAY_NAME_MAPPINGS["AFJPromptTemplateImporter"] == "JsonX - Prompt Template Importer"
+    assert module.NODE_DISPLAY_NAME_MAPPINGS["LLMToJsonX"] == "LLM to JsonX"
+    for node_id in ("FluxVisualJsonBuilder", "FluxTemplateRandomizer", "AFJPromptTemplateImporter", "LLMToJsonX"):
+        assert module.NODE_CLASS_MAPPINGS[node_id].CATEGORY == "WorkflowX/Prompting/JsonX"
     assert "UnifiedAutoprompterX" in module.NODE_CLASS_MAPPINGS
     assert module.NODE_DISPLAY_NAME_MAPPINGS["UnifiedAutoprompterX"] == "Unified Autoprompter X"
     assert "AnythingCropForSwap" in module.NODE_CLASS_MAPPINGS

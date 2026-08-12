@@ -24,14 +24,12 @@
 - `workflowx-xnodes-node-list.png` - XNodes saved node list
 - `workflowx-xnodes-group-card.png` - XNodes saved group card
 - `workflowx-xnodes-save-dialog.png` - XNodes save dialog
-- `workflowx-afj-visual-builder-node.png` - AFJ Visual Builder node with `prompt_json` output
-- `workflowx-afj-visual-builder-node-long-json.png` - AFJ Visual Builder node showing a larger JSON prompt payload
-- `workflowx-afj-visual-builder-ui.png` - AFJ Visual Builder full tree editor
-- `workflowx-afj-visual-builder-field-editor.png` - AFJ Visual Builder selected field editor with preset value and attach options
-- `workflowx-afj-visual-builder-preset-field.png` - AFJ Visual Builder preset-backed field dropdown
-- `workflowx-afj-visual-builder-node-actions.png` - AFJ Visual Builder selected node action buttons
-- `workflowx-afj-template-importer-node.png` - AFJ Prompt Template Importer node and import report
-- `workflowx-afj-template-importer-ui.png` - AFJ Prompt Template Importer conversion UI
-- `workflowx-afj-template-randomizer-node.png` - AFJ Template Randomizer node with rule help
-- `workflowx-afj-template-randomizer-fields.png` - AFJ Template Randomizer preset-backed field picker
-- `workflowx-afj-template-randomizer-output.png` - AFJ Template Randomizer output connected to text preview
+- `workflowx-jsonx-llm-to-jsonx-node.png` - LLM to JsonX generation node and provider controls
+- `workflowx-jsonx-visual-builder-node.png` - JsonX Visual Builder node with `prompt_json` output
+- `workflowx-jsonx-visual-builder-ui.png` - JsonX Visual Builder full tree editor using the current preset catalog
+- `workflowx-jsonx-template-importer-node.png` - JsonX Prompt Template Importer node
+- `workflowx-jsonx-template-importer-ui.png` - JsonX Prompt Template Importer conversion UI
+- `workflowx-jsonx-template-randomizer-node.png` - JsonX Template Randomizer node with rule help
+- `workflowx-jsonx-template-randomizer-fields.png` - JsonX Template Randomizer preset-backed field picker
+
+Files with the former `workflowx-afj-` prefix are retained as legacy documentation artifacts only; current documentation uses the JsonX captures above.

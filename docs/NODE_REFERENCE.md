@@ -1,6 +1,6 @@
 # WorkflowX Node Reference
 
-This reference covers every ComfyUI node registered by WorkflowX Configurator. The main package appears under `WorkflowX`; bundled AFJ nodes appear under `AFJ`.
+This reference covers every ComfyUI node registered by WorkflowX Configurator. JsonX nodes appear under `WorkflowX/Prompting/JsonX`.
 
 For the Image Compare Edit X expanded editor, see [Image Compare Edit X Editor Guide](IMAGE_COMPARE_EDIT_X_EDITOR.md). For downstream image processing and workflow control, see [Image ProcessorX Guide](IMAGE_PROCESSOR_X.md). For crop/edit/stitch workflows, see [Anything Swap Bridge Guide](ANYTHING_SWAP_BRIDGE.md). For Google Gemini image generation, see [NanoBanana Full API Guide](NANOBANANA_FULL_API.md). For Kie and Atlas generation, see [Kie and Atlas Image API Nodes](KIE_ATLAS_API_NODES.md). For Autoprompter backend setup and profile editing, see [Unified Autoprompter X Guide](UNIFIED_AUTOPROMPTER_X.md).
 
@@ -30,9 +30,10 @@ For the Image Compare Edit X expanded editor, see [Image Compare Edit X Editor G
 | `Kie Image API X` | `WorkflowX/API` | Generate or edit one image through model-aware Kie routes with resumable retrieval. |
 | `Atlas Image API X` | `WorkflowX/API` | Generate or edit one image through model-aware Atlas routes with resumable retrieval. |
 | `Unified Autoprompter X` | `WorkflowX/Prompting` | Build model-specific prompts from the WorkflowX autoprompting UI. |
-| `AFJ - Visual Builder` | `AFJ` | Build structured prompt JSON visually. |
-| `AFJ - Template Randomizer` | `AFJ` | Randomize fields from saved AFJ templates at runtime. |
-| `AFJ - Prompt Template Importer` | `AFJ` | Convert final prompt JSON into an AFJ template payload. |
+| `LLM to JsonX` | `WorkflowX/Prompting/JsonX` | Generate preset-aware JsonX from instructions and an optional image. |
+| `JsonX - Visual Builder` | `WorkflowX/Prompting/JsonX` | Build structured prompt JSON visually. |
+| `JsonX - Template Randomizer` | `WorkflowX/Prompting/JsonX` | Randomize fields from saved JsonX templates at runtime. |
+| `JsonX - Prompt Template Importer` | `WorkflowX/Prompting/JsonX` | Convert final prompt JSON into a JsonX template payload. |
 
 ## Typed Set/Get Nodes
 
@@ -298,11 +299,35 @@ Outputs:
 
 Use this node when you want one prompt-building surface that can target multiple prompt formats while preserving positive/negative text outputs for downstream nodes. For backend setup, model profiles, connected images/text, video fields, and BBox Layout helpers, see [Unified Autoprompter X Guide](UNIFIED_AUTOPROMPTER_X.md).
 
-## AFJ - Visual Builder
+## LLM to JsonX
 
-`AFJ - Visual Builder` creates structured JSON prompts from a visual tree editor.
+`LLM to JsonX` generates prompt-only JsonX through Gemini, OpenAI-compatible, Ollama, or local GGUF backends. Provider settings and credentials use JsonX-specific browser storage and credentials are not serialized into workflows.
 
-![AFJ Visual Builder node](images/workflowx-afj-visual-builder-node.png)
+Inputs include multiline `user_instructions`, `generation_mode` (`fast` or `refined`), `preset_context_mode` (`optimized` or `full`), a UI-managed generated JSON field, and an optional `IMAGE`. Clicking `Generate` validates and saves the result in the node. The read-only `Generated JsonX output` box mirrors the saved result, and the `prompt_json` output returns that same final JSON when queued; queueing does not call the LLM again. Optimized mode sends the complete preset path schema plus ranked values. Full mode sends the packaged preset file verbatim and may require a larger model context.
+
+The response parser accepts plain JSON, one fenced JSON object, or one unambiguous object surrounded by common model commentary/reasoning markers. Multiple objects remain rejected because selecting one would be ambiguous.
+
+After parsing, canonicalization removes internal preset IDs from keys and values, restores known fields to their catalog paths, flattens preset ID/value leaf objects to scalar values, and normalizes singular `subject` to `subjects`. Conflicting canonical paths trigger one repair call. If that repair also fails, the prior output remains unchanged and the node shows both raw responses in a transient diagnostics panel.
+
+The default Deep contract targets granular parent/child/sub-child expansion across relevant scene, subject/object, lighting, camera, style, mood, and quality branches. The compact `Settings` button opens a modal with Deep and Exhaustive targets, editable Stage 1 and Stage 2 backend instructions, default reset, and an exact effective-prompt preview. These settings are JsonX browser state only and never enter workflow JSON.
+
+Deep maximizes every relevant hierarchy and Exhaustive performs a broader branch-by-branch relevance pass. Neither mode has a numerical leaf target, depth ceiling, or leaf maximum. Generation continues until supported independent attributes are represented; leaf metrics are post-generation diagnostics and unsupported filler remains prohibited.
+
+Presets are an open-world source of canonical paths and values, not an exhaustive allow-list. Exact and meaning-preserving matches become canonical values. An unmatched concept uses a reasoned custom value on the applicable path, or a minimal descriptive custom subtree under the closest logical parent when no path exists. Backend alignment preserves these unmatched values and branches rather than coercing them to an unsuitable preset.
+
+Local GGUF settings are collapsed by default and include context size, maximum output tokens, temperature, Top P, Top K, repeat penalty, memory/offload mode, reasoning format, GPU and CPU MoE layers, and seed. These settings remain in JsonX browser storage rather than workflow JSON. JsonX has an independent llama.cpp backend and runtime cache; long system prompts are passed through short temporary UTF-8 files and cleaned after success, failure, or cancellation without changing Unified Autoprompter X.
+
+Gemini safety settings are also collapsed by default and expose the same harassment, hate-speech, sexually-explicit, and dangerous-content thresholds as Unified Autoprompter X. The selected thresholds are sent as `gemini_safety` request state and are not serialized into the workflow.
+
+All provider model lists use the same non-filtering picker. Additional parity controls include OpenAI-compatible unload-after, Ollama think/unload-after, Refresh VRAM, and independently persisted backend timeouts.
+
+![LLM to JsonX node](images/workflowx-jsonx-llm-to-jsonx-node.png)
+
+## JsonX - Visual Builder
+
+`JsonX - Visual Builder` creates structured JSON prompts from a visual tree editor.
+
+![JsonX Visual Builder node](images/workflowx-jsonx-visual-builder-node.png)
 
 Inputs:
 
@@ -318,11 +343,11 @@ Outputs:
 
 Click `Open Visual Builder` to edit the prompt tree, attach preset-backed fields, save/load templates, and apply the compiled JSON back to the node.
 
-## AFJ - Template Randomizer
+## JsonX - Template Randomizer
 
-`AFJ - Template Randomizer` loads a saved AFJ template and randomizes selected fields at queue time.
+`JsonX - Template Randomizer` loads a saved JsonX template and randomizes selected fields at queue time.
 
-![AFJ Template Randomizer node](images/workflowx-afj-template-randomizer-node.png)
+![JsonX Template Randomizer node](images/workflowx-jsonx-template-randomizer-node.png)
 
 Inputs:
 
@@ -348,11 +373,11 @@ path | mode | value
 
 The runtime recomputes whether each field is preset-backed or custom from the saved template metadata.
 
-## AFJ - Prompt Template Importer
+## JsonX - Prompt Template Importer
 
-`AFJ - Prompt Template Importer` converts final prompt JSON into an AFJ template payload.
+`JsonX - Prompt Template Importer` converts final prompt JSON into a JsonX template payload.
 
-![AFJ Prompt Template Importer node](images/workflowx-afj-template-importer-node.png)
+![JsonX Prompt Template Importer node](images/workflowx-jsonx-template-importer-node.png)
 
 Inputs:
 
@@ -368,7 +393,7 @@ Outputs:
 | --- | --- | --- |
 | `template_payload_json` | `STRING` | Converted template payload, or an error payload. |
 
-Use the importer when you already have final prompt JSON and want to turn it into a reusable AFJ template. The importer rejects AFJ metadata payloads such as existing `tree` / `randomizer_checked` template JSON; paste the final prompt object instead.
+Use the importer when you already have final prompt JSON and want to turn it into a reusable JsonX template. The importer rejects JsonX metadata payloads such as existing `tree` / `randomizer_checked` template JSON; paste the final prompt object instead.
 
 ## Bundled Frontend Tools
 

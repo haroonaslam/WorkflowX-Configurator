@@ -3,7 +3,7 @@ import { app } from "../../scripts/app.js";
 const TARGET_NODE = "FluxTemplateRandomizer";
 const OPEN_BUTTON = "Open Template Randomizer UI";
 
-const RULES_HELP_TEXT = `AFJ Randomize Rules (one line per field):
+const RULES_HELP_TEXT = `JsonX Randomize Rules (one line per field):
 path | mode | value
 
 Examples:
@@ -339,7 +339,7 @@ function ensureModal() {
       <div class="ftr-modal">
         <div class="ftr-head">
           <div>
-            <div class="ftr-title">Template Randomizer Config</div>
+            <div class="ftr-title">JsonX Template Randomizer</div>
             <div class="ftr-sub">Select template and randomizable fields. Apply updates randomize_rules.</div>
           </div>
           <div class="ftr-chip">single rules mode</div>
@@ -550,7 +550,7 @@ function attachButton(node) {
 }
 
 app.registerExtension({
-    name: "AFJ.TemplateRandomizerUI",
+    name: "JsonX.TemplateRandomizerUI",
 
     async nodeCreated(node) {
         if (!isTargetNode(node)) return;

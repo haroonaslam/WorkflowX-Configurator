@@ -1,6 +1,9 @@
+import asyncio
 import copy
 import json
 import os
+
+from . import jsonx_llm
 
 
 _INVALID_TEMPLATE_CHARS = set('<>:"/\\|?*')
@@ -185,11 +188,6 @@ def _build_nodes_from_preset_object(next_id, key, value, preset_path):
 
 
 def _build_subject_item_template(next_id, subject_preset):
-    identity = _build_nodes_from_preset_object(next_id, "identity", subject_preset.get("identity") or {}, "subject.identity")
-    dress = _build_nodes_from_preset_object(next_id, "dress", subject_preset.get("dress") or {}, "subject.dress")
-    pose = _build_nodes_from_preset_object(next_id, "pose", subject_preset.get("pose") or {}, "subject.pose")
-    properties = _build_nodes_from_preset_object(next_id, "properties", subject_preset.get("properties") or {}, "subject.properties")
-
     common = _group_node(
         next_id,
         "common",
@@ -201,11 +199,17 @@ def _build_subject_item_template(next_id, subject_preset):
         expanded=False,
     )
 
+    dynamic_children = []
+    for key, value in subject_preset.items():
+        dynamic_children.append(
+            _build_nodes_from_preset_object(next_id, key, value, f"subject.{key}")
+        )
+
     return _group_node(
         next_id,
         "subject",
         "subject",
-        children=[common, identity, dress, pose, properties],
+        children=[common, *dynamic_children],
         expanded=False,
         preset_path="subject",
     )
@@ -216,26 +220,39 @@ def _build_starter_tree(next_id, presets):
     subject_template = _build_subject_item_template(next_id, subject_preset)
     first_subject = _clone_with_fresh_ids(subject_template, next_id)
 
-    children = [
-        _build_nodes_from_preset_object(next_id, "scene", presets.get("scene") or {}, "scene"),
-        _array_node(
+    children = []
+    for key, value in presets.items():
+        if key == "subject":
+            children.append(
+                _array_node(
+                    next_id,
+                    "subjects",
+                    "subjects",
+                    item_template=subject_template,
+                    items=[first_subject],
+                    expanded=False,
+                    preset_path="subjects",
+                    item_preset_path="subject",
+                )
+            )
+        elif key == "interaction_suggestions":
+            interactions = _build_nodes_from_preset_object(
+                next_id, "interactions", value, "interaction_suggestions"
+            )
+            interactions["origin_preset_path"] = "interaction_suggestions"
+            children.append(interactions)
+        elif key != "negative":
+            children.append(_build_nodes_from_preset_object(next_id, key, value, key))
+
+    children.append(
+        _group_node(
             next_id,
-            "subjects",
-            "subjects",
-            item_template=subject_template,
-            items=[first_subject],
+            "negative",
+            "negative",
+            children=[_field_node(next_id, "text", "text", "")],
             expanded=False,
-            preset_path="subjects",
-            item_preset_path="subject",
-        ),
-        _group_node(next_id, "interactions", "interactions", children=[], expanded=False),
-        _build_nodes_from_preset_object(next_id, "style", presets.get("style") or {}, "style"),
-        _build_nodes_from_preset_object(next_id, "lighting", presets.get("lighting") or {}, "lighting"),
-        _build_nodes_from_preset_object(next_id, "camera", presets.get("camera") or {}, "camera"),
-        _build_nodes_from_preset_object(next_id, "mood", presets.get("mood") or {}, "mood"),
-        _build_nodes_from_preset_object(next_id, "quality", presets.get("quality") or {}, "quality"),
-        _group_node(next_id, "negative", "negative", children=[_field_node(next_id, "text", "text", "")], expanded=False),
-    ]
+        )
+    )
     return _group_node(next_id, "prompt", "prompt", children=children, expanded=True)
 
 
@@ -513,7 +530,7 @@ def load_visual_presets():
             data = json.load(f)
             return data if isinstance(data, dict) else {}
     except Exception as e:
-        print(f"[AFJ] WARNING: Failed to load presets: {e}")
+        print(f"[JsonX] WARNING: Failed to load presets: {e}")
         return {}
 
 
@@ -581,12 +598,12 @@ def load_visual_templates():
             with open(path, "r", encoding="utf-8-sig") as f:
                 data = json.load(f)
         except Exception as e:
-            print(f"[AFJ] WARNING: Failed to load template '{filename}': {e}")
+            print(f"[JsonX] WARNING: Failed to load template '{filename}': {e}")
             continue
 
         norm, err = _normalize_template_data(data, reject_embedded_options=True)
         if norm is None:
-            print(f"[AFJ] WARNING: Ignoring template file '{filename}': {err}")
+            print(f"[JsonX] WARNING: Ignoring template file '{filename}': {err}")
             continue
         out[name] = norm
 
@@ -629,8 +646,8 @@ def convert_prompt_object_to_template(prompt_obj):
     if _looks_like_afj_template_payload(prompt_obj):
         return {
             "ok": False,
-            "error": "Use final prompt JSON only, not AFJ metadata/template payload.",
-            "report": "Conversion failed: detected AFJ metadata payload (tree/randomizer_checked).",
+            "error": "Use final prompt JSON only, not JsonX metadata/template payload.",
+            "report": "Conversion failed: detected JsonX metadata payload (tree/randomizer_checked).",
             "warnings": [],
         }
 
@@ -811,6 +828,99 @@ def register_visual_builder_routes(app):
             }
         return web.json_response(result)
 
+    async def jsonx_presets_info_handler(request):
+        raw = jsonx_llm.raw_presets_text()
+        return web.json_response(
+            {
+                "characters": len(raw),
+                "estimated_tokens": max(1, (len(raw) + 3) // 4),
+                "schema_paths": len(jsonx_llm.preset_schema_paths()),
+            }
+        )
+
+    async def jsonx_instruction_templates_handler(request):
+        return web.json_response(jsonx_llm.instruction_templates())
+
+    async def jsonx_instruction_preview_handler(request):
+        try:
+            body = await request.json()
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,
+                jsonx_llm.effective_instruction_preview,
+                body,
+            )
+            return web.json_response(result)
+        except Exception as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+
+    async def jsonx_local_models_handler(request):
+        return web.json_response(
+            {
+                "models": jsonx_llm.local_models.model_options(),
+                "mmproj": jsonx_llm.local_models.mmproj_options(),
+                "system_prompts": jsonx_llm.local_models.system_prompt_options(),
+            }
+        )
+
+    async def jsonx_gemini_models_handler(request):
+        try:
+            body = await request.json()
+            loop = asyncio.get_event_loop()
+            models = await loop.run_in_executor(
+                None,
+                jsonx_llm.gemini_backend.list_models,
+                str(body.get("api_key") or "").strip(),
+                float(body.get("timeout") or 120),
+            )
+            return web.json_response({"models": models})
+        except Exception as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+
+    async def jsonx_openai_models_handler(request):
+        try:
+            body = await request.json()
+            loop = asyncio.get_event_loop()
+            models = await loop.run_in_executor(
+                None,
+                jsonx_llm.openai_backend.list_models,
+                str(body.get("base_url") or "").strip(),
+                str(body.get("api_key") or "").strip(),
+                float(body.get("timeout") or 120),
+            )
+            return web.json_response({"models": models})
+        except Exception as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+
+    async def jsonx_ollama_models_handler(request):
+        try:
+            body = await request.json()
+            loop = asyncio.get_event_loop()
+            models = await loop.run_in_executor(
+                None,
+                lambda: jsonx_llm.ollama_backend.list_models(
+                    str(body.get("host") or ""),
+                    float(body.get("timeout") or 15),
+                ),
+            )
+            return web.json_response({"models": models})
+        except Exception as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+
+    async def jsonx_generate_handler(request):
+        try:
+            body = await request.json()
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(None, jsonx_llm.generate_jsonx, body)
+            return web.json_response(result)
+        except jsonx_llm.JsonXGenerationError as exc:
+            return web.json_response(
+                {"error": str(exc), "diagnostics": exc.diagnostics},
+                status=400,
+            )
+        except Exception as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+
     if "/fluxvisual/presets" not in route_paths:
         app.router.add_get("/fluxvisual/presets", presets_handler)
     if "/fluxvisual/templates" not in route_paths:
@@ -823,5 +933,21 @@ def register_visual_builder_routes(app):
         app.router.add_post("/fluxvisual/validate", validate_handler)
     if "/fluxvisual/import/convert" not in route_paths:
         app.router.add_post("/fluxvisual/import/convert", import_convert_handler)
+    if "/workflowx/jsonx/presets/info" not in route_paths:
+        app.router.add_get("/workflowx/jsonx/presets/info", jsonx_presets_info_handler)
+    if "/workflowx/jsonx/instructions" not in route_paths:
+        app.router.add_get("/workflowx/jsonx/instructions", jsonx_instruction_templates_handler)
+    if "/workflowx/jsonx/instructions/preview" not in route_paths:
+        app.router.add_post("/workflowx/jsonx/instructions/preview", jsonx_instruction_preview_handler)
+    if "/workflowx/jsonx/local/models" not in route_paths:
+        app.router.add_get("/workflowx/jsonx/local/models", jsonx_local_models_handler)
+    if "/workflowx/jsonx/gemini/models" not in route_paths:
+        app.router.add_post("/workflowx/jsonx/gemini/models", jsonx_gemini_models_handler)
+    if "/workflowx/jsonx/openai/models" not in route_paths:
+        app.router.add_post("/workflowx/jsonx/openai/models", jsonx_openai_models_handler)
+    if "/workflowx/jsonx/ollama/models" not in route_paths:
+        app.router.add_post("/workflowx/jsonx/ollama/models", jsonx_ollama_models_handler)
+    if "/workflowx/jsonx/generate" not in route_paths:
+        app.router.add_post("/workflowx/jsonx/generate", jsonx_generate_handler)
 
-    print("[AFJ] Registered /fluxvisual API routes.")
+    print("[JsonX] Registered legacy-compatible /fluxvisual API routes.")

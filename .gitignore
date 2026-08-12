@@ -22,6 +22,9 @@ output/
 temp/
 models/
 
+# Auto-downloaded JsonX local llama.cpp runtime (machine-local cache)
+vendor/jsonx-llama.cpp/
+
 .DS_Store
 Thumbs.db
 desktop.ini

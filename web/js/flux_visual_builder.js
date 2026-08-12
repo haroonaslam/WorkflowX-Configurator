@@ -242,11 +242,6 @@ function buildNodesFromPresetObject(key, value, label = null, expanded = false, 
 }
 
 function buildSubjectItemTemplate(subjectPreset) {
-    const identity = buildNodesFromPresetObject("identity", subjectPreset.identity || {}, "identity", false, "subject.identity");
-    const dress = buildNodesFromPresetObject("dress", subjectPreset.dress || {}, "dress", false, "subject.dress");
-    const pose = buildNodesFromPresetObject("pose", subjectPreset.pose || {}, "pose", false, "subject.pose");
-    const properties = buildNodesFromPresetObject("properties", subjectPreset.properties || {}, "properties", false, "subject.properties");
-
     const common = groupNode(
         "common",
         "common",
@@ -257,30 +252,27 @@ function buildSubjectItemTemplate(subjectPreset) {
         false,
     );
 
-    return groupNode("subject", "subject", [common, identity, dress, pose, properties], false);
+    const dynamicChildren = Object.entries(subjectPreset || {}).map(([key, value]) =>
+        buildNodesFromPresetObject(key, value, key, false, `subject.${key}`),
+    );
+    return groupNode("subject", "subject", [common, ...dynamicChildren], false);
 }
 
 function buildStarterTree() {
     const subjectPreset = presets.subject || {};
 
-    const rootChildren = [
-        buildNodesFromPresetObject("scene", presets.scene || {}, "scene", false, "scene"),
-        arrayNode(
-            "subjects",
-            "subjects",
-            buildSubjectItemTemplate(subjectPreset),
-            [cloneWithFreshIds(buildSubjectItemTemplate(subjectPreset))],
-            false,
-        ),
-        // Interactions: blank group container by design in v4.
-        groupNode("interactions", "interactions", [], false),
-        buildNodesFromPresetObject("style", presets.style || {}, "style", false, "style"),
-        buildNodesFromPresetObject("lighting", presets.lighting || {}, "lighting", false, "lighting"),
-        buildNodesFromPresetObject("camera", presets.camera || {}, "camera", false, "camera"),
-        buildNodesFromPresetObject("mood", presets.mood || {}, "mood", false, "mood"),
-        buildNodesFromPresetObject("quality", presets.quality || {}, "quality", false, "quality"),
-        groupNode("negative", "negative", [fieldNode("text", "text", null, "")], false),
-    ];
+    const rootChildren = [];
+    for (const [key, value] of Object.entries(presets || {})) {
+        if (key === "subject") {
+            const template = buildSubjectItemTemplate(subjectPreset);
+            rootChildren.push(arrayNode("subjects", "subjects", template, [cloneWithFreshIds(template)], false));
+        } else if (key === "interaction_suggestions") {
+            rootChildren.push(buildNodesFromPresetObject("interactions", value, "interactions", false, "interaction_suggestions"));
+        } else if (key !== "negative") {
+            rootChildren.push(buildNodesFromPresetObject(key, value, key, false, key));
+        }
+    }
+    rootChildren.push(groupNode("negative", "negative", [fieldNode("text", "text", null, "")], false));
 
     return groupNode("prompt", "prompt", rootChildren, true);
 }
@@ -451,7 +443,7 @@ function ensureModal() {
       <div class="f4-modal">
         <div class="f4-head">
           <div>
-            <div class="f4-title">AFJ Visual Builder v4</div>
+            <div class="f4-title">JsonX Visual Builder</div>
             <div class="f4-sub">All tags optional. Interactions starts blank. Presets are direct JSON-editable.</div>
           </div>
           <div class="f4-chip">simple-presets mode</div>
@@ -1214,17 +1206,7 @@ function renderTree() {
 }
 
 function getPresetLibraryEntries() {
-    const libraryRoot = {
-        scene: presets.scene || {},
-        style: presets.style || {},
-        lighting: presets.lighting || {},
-        camera: presets.camera || {},
-        mood: presets.mood || {},
-        quality: presets.quality || {},
-        subject: presets.subject || {},
-        interaction_suggestions: presets.interaction_suggestions || {},
-    };
-    return flattenPresetLibrary(libraryRoot);
+    return flattenPresetLibrary(presets || {});
 }
 function renderInspector() {
     inspectorEl.innerHTML = "";
@@ -1747,7 +1729,7 @@ function attachButton(node) {
 }
 
 app.registerExtension({
-    name: "AFJ.VisualBuilder",
+    name: "JsonX.VisualBuilder",
 
     async nodeCreated(node) {
         if (node.comfyClass !== TARGET_NODE) return;

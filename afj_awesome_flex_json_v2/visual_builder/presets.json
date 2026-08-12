@@ -1,6 +1,7 @@
 {
   "scene": {
     "environment": {
+      "env_from_reference": "environment from reference image",
       "env_indoor_studio": "indoor photography studio, seamless backdrop",
       "env_indoor_home": "interior of a modern home, natural lived-in environment",
       "env_indoor_bedroom": "bedroom interior, natural lived-in environment",
@@ -50,6 +51,7 @@
       "wx_dry_heat": "dry heat, sharp light, arid feel"
     },
     "location_type": {
+      "loc_from_reference": "location from reference image",
       "loc_public_street": "public street, pedestrian environment",
       "loc_private_residence": "private residential space",
       "loc_commercial_space": "commercial interior, retail or hospitality",
@@ -66,6 +68,7 @@
       "loc_type_middle_eastern": "middle eastern style"
     },
     "background": {
+      "bg_from_reference": "background from reference image",
       "bg_blurred_bokeh": "heavily blurred background, strong bokeh, subject isolation",
       "bg_slightly_blurred": "slightly blurred background, shallow depth of field",
       "bg_in_focus": "background fully in focus, environmental context preserved",
@@ -101,7 +104,14 @@
       "prop_mirror": "mirror visible in scene",
       "prop_window": "window as scene element, light source or frame",
       "prop_stairs": "staircase or steps",
-      "prop_vehicle": "vehicle present in scene, car or motorcycle"
+      "prop_vehicle": "vehicle present in scene, car or motorcycle",
+      "prop_oversized_mug": "large ceramic mug held with both hands",
+      "prop_steaming_coffee": "visible steam rising from a hot beverage",
+      "prop_scattered_books": "open books or magazines on bed or floor",
+      "prop_messy_linens": "unmade bed with rumpled sheets and pillows",
+      "prop_potted_monstera": "large monstera deliciosa plant in corner",
+      "prop_scented_candle": "small flickering candle on a side table",
+      "prop_smart_tablet": "thin handheld tablet device, screen glowing"
     },
     "depth": {
       "depth_shallow": "shallow environment, subject close to background, compressed space",
@@ -113,6 +123,7 @@
   },
   "style": {
     "photography_style": {
+      "style_from_reference": "style from reference image",
       "style_editorial": "editorial fashion photography, polished and deliberate",
       "style_commercial": "commercial photography, clean and brand-ready",
       "style_fine_art": "fine art photography, artistic and conceptual",
@@ -130,6 +141,7 @@
       "style_domestic_verite": "observational 'slice of life' style, captures the subject in a way that feels like a shared living space, zero-glamour, focused on the raw honesty of the moment"
     },
     "film_type": {
+      "film_from_reference": "film type from reference image",
       "film_digital_sharp": "digital photography, sharp and clean",
       "film_35mm_film": "35mm film, slight grain, warm tones",
       "film_medium_format": "medium format film, rich detail, smooth grain",
@@ -143,6 +155,7 @@
       "film_raw_sensor_data": "unprocessed raw sensor output, no internal camera sharpening, natural digital texture"
     },
     "era": {
+      "era_from_reference": "era from reference image",
       "era_contemporary": "contemporary, current modern look",
       "era_90s": "1990s aesthetic, film grain, warm muted tones",
       "era_80s": "1980s aesthetic, high contrast, saturated colors",
@@ -154,6 +167,7 @@
       "era_ultra_modern": "current-gen digital aesthetics, high-speed sensor capture, modern optics"
     },
     "aesthetic": {
+      "aes_from_reference": "aesthetic from reference image",
       "aes_minimal": "minimal aesthetic, clean negative space, restrained",
       "aes_moody": "moody aesthetic, dark tones, emotional weight",
       "aes_bright_airy": "bright and airy, high key, light and fresh",
@@ -168,6 +182,7 @@
       "aes_zero_beautification": "no digital smoothing, authentic skin details, raw and unpolished visual truth"
     },
     "realism": {
+      "realism_from_reference": "realism from reference image",
       "realism_hyperrealistic": "hyperrealistic, extreme detail, photographic precision",
       "realism_photorealistic": "photorealistic, believable and natural",
       "realism_slightly_stylized": "slightly stylized, mostly realistic with subtle enhancement",
@@ -215,6 +230,7 @@
   },
   "lighting": {
     "type": {
+      "ltype_from_reference": "lighting from reference image",
       "ltype_natural_sunlight": "natural sunlight, direct sun",
       "ltype_diffused_natural": "diffused natural light, overcast or shade",
       "ltype_golden_hour_natural": "natural golden hour light, warm and directional",
@@ -264,6 +280,7 @@
       "ltype_neutral_night_ambient": "the generic neutral light of a house at night with minimal secondary light sources, flat and honest, zero dramatic flair"
     },
     "direction": {
+      "ldir_from_reference": "direction from reference image",
       "ldir_front": "front-lit, light source facing subject directly",
       "ldir_side_left": "side-lit from left",
       "ldir_side_right": "side-lit from right",
@@ -275,12 +292,14 @@
       "ldir_butterfly": "butterfly lighting, light directly above camera axis"
     },
     "quality": {
+      "lqual_from_reference": "quality from reference image",
       "lqual_hard": "hard light, sharp-edged shadows, high contrast",
       "lqual_soft": "soft light, diffused, gradual shadow transitions",
       "lqual_very_soft": "very soft light, almost shadowless, wraps around subject",
       "lqual_harsh": "harsh direct light, extreme contrast"
     },
     "color_temperature": {
+      "ltemp_from_reference": "color temperature from reference image",
       "ltemp_daylight": "daylight balanced, neutral white, 5500K",
       "ltemp_warm": "warm light, amber-yellow tones, 3200K",
       "ltemp_very_warm": "very warm light, deep orange, 2700K",
@@ -327,6 +346,7 @@
   },
   "camera": {
     "angle": {
+      "camangle_from_reference": "angle from reference image",
       "camangle_eye_level": "eye level, camera at subject's eye height",
       "camangle_slightly_above": "slightly above eye level, looking down slightly",
       "camangle_high_angle": "high angle, looking down at subject",
@@ -336,6 +356,7 @@
       "camangle_worms_eye": "worm's eye view, extreme low angle looking up"
     },
     "shot_type": {
+      "camshot_from_reference": "shot type from reference image",
       "camshot_extreme_close_up": "extreme close-up, single feature fills frame",
       "camshot_close_up": "close-up, face fills frame",
       "camshot_medium_close_up": "medium close-up, head and upper chest",
@@ -346,6 +367,7 @@
       "camshot_extreme_wide": "extreme wide shot, subject small in environment"
     },
     "subject_position": {
+      "pos_from_reference": "position from reference image",
       "pos_center": "subject centered in frame, symmetrical composition",
       "pos_left": "subject positioned left of frame, right side open",
       "pos_right": "subject positioned right of frame, left side open",
@@ -357,6 +379,7 @@
       "pos_background": "subject receding into background, environmental space dominant"
     },
     "aspect_ratio": {
+      "aspect_from_reference": "aspect ratio from reference image",
       "aspect_4_5": "4:5 portrait ratio, vertical crop",
       "aspect_2_3": "2:3 portrait ratio, standard vertical",
       "aspect_1_1": "1:1 square crop",
@@ -393,6 +416,7 @@
     },
     "exposure": {
       "aperture": {
+        "fstop_from_reference": "aperture from reference image",
         "fstop_f1_2": "f/1.2, extremely shallow depth of field",
         "fstop_f1_4": "f/1.4, very shallow depth of field",
         "fstop_f1_8": "f/1.8, shallow depth of field",
@@ -403,6 +427,7 @@
         "fstop_f11": "f/11, very deep depth of field"
       },
       "iso": {
+        "iso_from_reference": "iso from reference image",
         "iso_iso_100": "ISO 100, clean noiseless, bright conditions",
         "iso_iso_200": "ISO 200, very clean, good light",
         "iso_iso_400": "ISO 400, slight grain, normal conditions",
@@ -418,6 +443,7 @@
       }
     },
     "focus": {
+      "focus_from_reference": "focus from reference image",
       "focus_sharp_subject_blur_bg": "subject in sharp focus, background blurred",
       "focus_sharp_throughout": "sharp focus throughout, front to back",
       "focus_soft_focus": "soft focus overall, slightly dreamy",
@@ -456,6 +482,7 @@
       "palette_high_contrast_bw": "high contrast black and white"
     },
     "grading_style": {
+      "grade_from_reference": "grading from reference image",
       "grade_natural": "natural color grading, true to life",
       "grade_warm_grade": "warm color grade, lifted shadows in amber",
       "grade_cool_grade": "cool color grade, desaturated with blue shadows",
@@ -476,6 +503,7 @@
       "grade_recessed_interior_gloom": "muted and neutral tones found in unlit indoor spaces, flat and unexciting color palette, highly realistic for candid home shots"
     },
     "time_period_feel": {
+      "era_from_reference": "time period from reference image",
       "era_contemporary": "contemporary feel, current and modern",
       "era_vintage": "vintage feel, past era atmosphere",
       "era_timeless": "timeless, no specific era identity",
@@ -502,6 +530,7 @@
   },
   "quality": {
     "resolution": {
+      "res_from_reference": "resolution from reference image",
       "res_8k": "8K ultra high resolution",
       "res_4k": "4K high resolution",
       "res_high_res": "high resolution, detailed",
@@ -545,6 +574,7 @@
       "intent_fine_art_print": "fine art print quality, archival grade"
     },
     "camera_tags": {
+      "camtag_from_reference": "camera tags from reference image",
       "camtag_sharp_focus": "sharp focus throughout",
       "camtag_studio_quality": "studio quality output",
       "camtag_award_winning": "award winning photography quality",
@@ -556,6 +586,11 @@
   },
   "subject": {
     "identity": {
+      "gender": {
+        "gender_male": "male",
+        "gender_female": "female",
+        "gender_other": "transgender"
+      },
       "age": {
         "age_early_teens": "early teen 13-15 years old",
         "age_late_teenss": "late teen 16-18 years old",
@@ -572,6 +607,7 @@
         "age_late_50s": "late 50s"
       },
       "ethnicity": {
+        "eth_from_reference": "ethnicity from reference image",
         "eth_caucasian": "Caucasian, Northern or Western European features",
         "eth_eastern_european": "Eastern European features, Slavic bone structure",
         "eth_mediterranean": "Mediterranean features, Southern European or Middle Eastern",
@@ -589,6 +625,7 @@
     "dress": {
       "top": {
         "type": {
+          "toptype_from_reference": "top type from reference image",
           "toptype_none": "no top, bare",
           "toptype_tshirt": "t-shirt",
           "toptype_crop_top": "crop top, midriff exposed",
@@ -611,7 +648,38 @@
           "toptype_saree_no_blouse": "saree without blouse",
           "toptype_dress": "dress, single garment covering top and bottom"
         },
+        "neckline": {
+          "neck_from_reference": "neckline from reference image",
+          "neck_v": "V-neckline, sharp angular plunge",
+          "neck_round": "round crew neck, standard circular opening",
+          "neck_square": "square neckline, elegant structured frame",
+          "neck_sweetheart": "sweetheart neckline, curved heart-shaped bust frame",
+          "neck_turtleneck": "turtleneck, high fabric coverage up the neck",
+          "neck_boat": "boat neck, wide horizontal opening toward shoulders",
+          "neck_cowl": "cowl neck, draped and folded fabric at chest"
+        },
+        "sleeve": {
+          "sleeve_from_reference": "sleeve from reference image",
+          "sleeve_none": "sleeveless, shoulders exposed",
+          "sleeve_cap": "cap sleeves, minimal shoulder coverage",
+          "sleeve_short": "short sleeves, mid-upper arm length",
+          "sleeve_three_quarter": "three-quarter sleeves, ending just below elbow",
+          "sleeve_long": "long sleeves, ending at wrists",
+          "sleeve_bell": "bell sleeves, flared out at wrist",
+          "sleeve_puffed": "puffed sleeves, voluminous at shoulder"
+        },
+        "details": {
+          "detail_from_reference": "details from reference image",
+          "detail_buttons": "visible buttons along front or back",
+          "detail_zipper": "exposed or hidden zipper detail",
+          "detail_embroidery": "intricate embroidered patterns",
+          "detail_tassels": "hanging tassel accents",
+          "detail_sequins": "shimmering sequin embellishments",
+          "detail_ruffles": "folded fabric ruffles or frills",
+          "detail_pocket": "small breast pocket or side pocket"
+        },
         "style": {
+          "topstyle_from_reference": "style from reference image",
           "topstyle_casual": "casual everyday style",
           "topstyle_fitted": "fitted cut, follows body contour",
           "topstyle_oversized": "oversized, loose and relaxed",
@@ -623,6 +691,7 @@
           "topstyle_vintage": "vintage style, retro cut and detail"
         },
         "fit": {
+          "topfit_from_reference": "fit from reference image",
           "topfit_very_tight": "very tight fit, second skin",
           "topfit_tight": "tight fit, body hugging",
           "topfit_fitted": "fitted, follows shape without constricting",
@@ -653,6 +722,7 @@
           "topcolor_pattern_check": "check or plaid pattern"
         },
         "fabric": {
+          "topfabric_from_reference": "fabric from reference image",
           "topfabric_cotton": "cotton, breathable and matte",
           "topfabric_silk": "silk, smooth and lustrous",
           "topfabric_linen": "linen, textured and natural",
@@ -665,6 +735,7 @@
           "topfabric_synthetic": "synthetic, matte or shiny polymer fabric"
         },
         "condition": {
+          "topcond_from_reference": "condition from reference image",
           "topcond_pristine": "pristine, brand new appearance",
           "topcond_worn": "worn, slightly used look",
           "topcond_wrinkled": "wrinkled, creased and unironed",
@@ -674,6 +745,7 @@
       },
       "bottom": {
         "type": {
+          "btmtype_from_reference": "bottom type from reference image",
           "btmtype_none": "no bottom, bare",
           "btmtype_jeans_skinny": "skinny jeans",
           "btmtype_jeans_straight": "straight cut jeans",
@@ -689,7 +761,15 @@
           "btmtype_underwear_thong": "thong underwear",
           "btmtype_swimsuit_bottom": "bikini or swimsuit bottom"
         },
+        "details": {
+          "detail_distressed": "ripped or distressed fabric, worn look",
+          "detail_cuff": "rolled or cuffed hems at ankles",
+          "detail_pleats": "vertical pleats in fabric",
+          "detail_cargo_pockets": "large external utility pockets",
+          "detail_drawstring": "adjustable drawstring at waist"
+        },
         "style": {
+          "btmstyle_from_reference": "style from reference image",
           "btmstyle_casual": "casual everyday style",
           "btmstyle_fitted": "fitted cut",
           "btmstyle_flowy": "flowy, soft and draped",
@@ -701,6 +781,7 @@
           "btmstyle_vintage": "vintage style, retro cut"
         },
         "fit": {
+          "btmfit_from_reference": "fit from reference image",
           "btmfit_very_tight": "very tight fit, second skin",
           "btmfit_tight": "tight fit, body hugging",
           "btmfit_fitted": "fitted, follows shape",
@@ -728,6 +809,7 @@
           "btmcolor_pattern_floral": "floral pattern"
         },
         "fabric": {
+          "btmfabric_from_reference": "fabric from reference image",
           "btmfabric_cotton": "cotton, breathable and matte",
           "btmfabric_silk": "silk, smooth and lustrous",
           "btmfabric_linen": "linen, textured and natural",
@@ -755,6 +837,7 @@
         "layer_scarf_draped": "scarf draped over shoulders"
       },
       "accessories": {
+        "acc_from_reference": "accessories from reference image",
         "acc_none": "no accessories",
         "acc_minimal": "minimal jewelry, stud earrings or thin chain",
         "acc_necklace": "necklace, pendant or chain",
@@ -767,6 +850,7 @@
         "acc_belt": "belt at waist"
       },
       "footwear": {
+        "foot_from_reference": "footwear from reference image",
         "foot_none": "barefoot",
         "foot_heels_stiletto": "stiletto heels, pointed toe",
         "foot_heels_block": "block heels, chunky",
@@ -784,6 +868,7 @@
         "foot_mules": "mules, backless slip-on"
       },
       "head_covering": {
+        "head_from_reference": "head covering from reference image",
         "head_none": "no head covering",
         "head_baseball_cap": "baseball cap",
         "head_beanie": "beanie, knit hat",
@@ -797,6 +882,7 @@
     "pose": {
       "orientation": {
         "body_profile": {
+          "bodyprof_from_reference": "body profile from reference image",
           "bodyprof_front_facing": "subject fully facing camera, front profile",
           "bodyprof_back_facing": "subject facing away from camera, back profile",
           "bodyprof_side_profile": "subject in pure side profile",
@@ -1140,6 +1226,7 @@
     "properties": {
       "body": {
         "type": {
+          "type_from_reference": "body type from reference image",
           "type_slim": "slim build, lean frame, low body fat",
           "type_athletic": "athletic build, toned muscles, fit physique",
           "type_curvy": "curvy figure, pronounced curves, full silhouette",
@@ -1151,6 +1238,7 @@
           "type_hourglass": "hourglass figure, defined waist, balanced bust and hips"
         },
         "height": {
+          "height": "height from reference image",
           "height_very_short": "very short stature, under 150cm",
           "height_short": "short, 155-162cm",
           "height_average": "average height, 163-170cm",
@@ -1158,6 +1246,7 @@
           "height_very_tall": "very tall, over 178cm"
         },
         "bust": {
+          "bust_from_reference": "bust from reference image",
           "bust_small": "small bust",
           "bust_medium": "medium bust",
           "bust_full": "full bust",
@@ -1168,6 +1257,7 @@
           "bust_wide_set": "wide-set bust"
         },
         "flanks": {
+          "flanks_from_reference": "flanks from reference image",
           "flanks_narrow": "narrow flanks, minimal torso width",
           "flanks_natural": "very subtle body fat on flanks, average torso width",
           "flanks_average": "average flank width, balanced torso",
@@ -1175,6 +1265,7 @@
           "flanks_tapered": "tapered flanks, narrowing toward waist"
         },
         "waist": {
+          "waist_from_reference": "waist from reference image",
           "waist_very_narrow": "very narrow cinched waist",
           "waist_narrow": "narrow waist",
           "waist_defined": "defined waist, visible narrowing",
@@ -1182,6 +1273,7 @@
           "waist_soft": "soft waist, minimal definition"
         },
         "hips": {
+          "hips_from_reference": "hips from reference image",
           "hips_narrow": "narrow hips",
           "hips_average": "average hip width",
           "hips_wide": "wide hips",
@@ -1189,6 +1281,7 @@
           "hips_angular": "angular hip structure, prominent hip bones"
         },
         "legs": {
+          "legs_from_reference": "legs from reference image",
           "legs_long_lean": "long lean legs, slim proportions",
           "legs_athletic": "athletic legs, toned muscles",
           "legs_full_thighs": "full thighs, rounded leg shape",
@@ -1197,6 +1290,7 @@
           "legs_long": "long legs, elongated proportions"
         },
         "muscle_definition": {
+          "muscle_from_reference": "muscle definition from reference image",
           "muscle_none": "no visible muscle definition, soft appearance",
           "muscle_subtle": "subtle muscle tone, slightly defined",
           "muscle_moderate": "moderate muscle definition, clearly toned",
@@ -1204,6 +1298,7 @@
           "muscle_very_defined": "very defined musculature, strong athletic build"
         },
         "hands": {
+          "hands_from_reference": "hands from reference image",
           "hands_slender": "slender petite hands, slim delicate fingers",
           "hands_average": "average hand size",
           "hands_manicured": "well-manicured nails, groomed hands",
@@ -1211,6 +1306,7 @@
           "hands_painted_nails": "painted nails, polished finish"
         },
         "feet": {
+          "feet_from_reference": "feet from reference image",
           "feet_small": "small petite feet",
           "feet_average": "average size feet",
           "feet_arched": "high arched feet",
@@ -1218,19 +1314,35 @@
         }
       },
       "skin": {
-        "tone": {
-          "tone_fair": "fair skin, light complexion, cool undertones",
-          "tone_light": "light skin, warm undertones",
-          "tone_light_medium": "light medium skin tone, neutral undertones",
-          "tone_medium": "medium skin tone, balanced undertones",
-          "tone_medium_tan": "medium tan skin, warm golden undertones",
-          "tone_tan": "tan skin, sun-kissed tone",
-          "tone_olive": "olive skin tone, warm green undertones",
-          "tone_brown": "brown skin, rich warm tone",
-          "tone_deep_brown": "deep brown skin, dark rich complexion",
-          "tone_ebony": "ebony skin, very deep dark complexion"
+        "complexion": {
+          "complexion_from_reference": "complexion from reference image",
+          "complexion_fair": "fair skin, light complexion",
+          "complexion_light": "light skin",
+          "complexion_light_medium": "light medium skin tone",
+          "complexion_medium": "medium skin tone",
+          "complexion_medium_tan": "medium tan skin",
+          "complexion_tan": "tan skin",
+          "complexion_olive": "olive skin tone",
+          "complexion_brown": "brown skin",
+          "complexion_deep_brown": "deep brown skin",
+          "complexion_ebony": "ebony skin"
+        },
+        "undertone": {
+          "undertone_from_reference": "undertone from reference image",
+          "undertone_cool": "cool undertones, pink or red hints",
+          "undertone_warm": "warm undertones, golden or yellow hints",
+          "undertone_neutral": "neutral undertones, balanced warm and cool",
+          "undertone_olive": "olive undertones, greenish hints",
+          "undertone_peach": "peach undertones, pinkish-orange hints",
+          "undertone_golden": "golden undertones, yellow-orange hints",
+          "undertone_rosy": "rosy undertones, pinkish hints",
+          "undertone_sallow": "sallow undertones, yellowish-green hints",
+          "undertone_deep_warm": "deep skin with warm undertones",
+          "undertone_deep_cool": "deep skin with cool undertones",
+          "undertone_deep_neutral": "deep skin with neutral undertones"
         },
         "texture": {
+          "texture_from_reference": "texture from reference image",
           "texture_photorealistic": "photorealistic skin texture, visible pores, natural imperfections",
           "texture_smooth": "smooth skin, minimal visible texture",
           "texture_natural": "natural skin texture, realistic without heavy retouching",
@@ -1241,6 +1353,7 @@
           "texture_aged_natural": "natural aging texture, fine lines, authentic appearance"
         },
         "details": {
+          "detail_from_reference": "skin details from reference image",
           "detail_none": "no distinguishing skin details",
           "detail_light_freckles": "light freckles scattered across face and shoulders",
           "detail_heavy_freckles": "heavy freckles, dense scatter across face",
@@ -1253,6 +1366,7 @@
       },
       "hair": {
         "style": {
+          "hairstyle_from_reference": "hairstyle from reference image",
           "hairstyle_long_straight": "long straight hair, past shoulders",
           "hairstyle_long_wavy": "long wavy hair, loose waves",
           "hairstyle_long_curly": "long curly hair, defined curls",
@@ -1272,6 +1386,7 @@
           "hairstyle_slicked_back": "slicked back, smooth and controlled"
         },
         "color": {
+          "haircolor_from_reference": "haircolor from reference image",
           "haircolor_black": "black hair",
           "haircolor_dark_brown": "dark brown hair",
           "haircolor_medium_brown": "medium brown hair",
@@ -1287,6 +1402,7 @@
           "haircolor_ombre": "ombre, distinct gradient from dark to light"
         },
         "characteristics": {
+          "hairchar_from_reference": "hair characteristics from reference image",
           "hairchar_styled": "neatly styled, controlled appearance",
           "hairchar_unkempt": "unkempt, slightly dishevelled, undone look",
           "hairchar_windswept": "windswept, natural movement",
@@ -1299,6 +1415,7 @@
           "hairchar_natural_texture": "natural unprocessed texture"
         },
         "temple": {
+          "temple_from_reference": "temple hair design from reference image",
           "temple_full_temple": "full hairline at temples, no recession",
           "temple_soft_temple": "soft natural hairline at temples, slight feathering",
           "temple_widows_peak": "widow's peak, distinct V-shape at center hairline",
@@ -1307,6 +1424,7 @@
           "temple_swept_back_temples": "hair swept back at temples, clean and open"
         },
         "apex": {
+          "apex_from_reference": "apex hair design from reference image",
           "apex_flat_crown": "flat crown, minimal volume at apex",
           "apex_high_crown": "high crown, volume lifted at apex",
           "apex_cowlick": "cowlick at crown, natural directional growth",
@@ -1317,6 +1435,7 @@
       },
       "face": {
         "structure": {
+          "face_from_reference": "face structure from reference image",
           "face_oval": "oval face shape, balanced proportions",
           "face_round": "round face, soft wide features",
           "face_square": "square jaw, strong defined jawline",
@@ -1326,18 +1445,28 @@
           "face_angular": "angular facial structure, sharp defined edges"
         },
         "temple_width": {
+          "temple_from_reference": "temple width from reference image",
           "temple_narrow_temples": "narrow temple width, face tapers sharply from forehead",
           "temple_slightly_narrow": "slightly narrow temple width",
           "temple_average_temples": "average temple width, balanced upper face",
           "temple_wide_temples": "wide temples, broad upper face structure"
         },
+        "forehead": {
+          "forehead_from_reference": "forehead structure from reference image",
+          "forehead_narrow_forehead": "narrow forehead, face tapers sharply from forehead",
+          "forehead_slightly_narrow": "slightly narrow forehead",
+          "forehead_average_forehead": "average forehead, balanced proportions",
+          "forehead_wide_forehead": "wide forehead, broad upper face structure"
+        },
         "mid_face_width": {
+          "midface_from_reference": "mid face width from reference image",
           "midface_narrow_midface": "narrow mid-face, close-set cheekbones",
           "midface_slightly_narrow": "slightly narrow mid-face width",
           "midface_average_midface": "average mid-face width, balanced",
           "midface_wide_midface": "wide mid-face, prominent broad cheekbones"
         },
         "cheeks": {
+          "cheeks_from_reference": "cheeks structure from reference image",
           "cheeks_high_cheekbones": "high prominent cheekbones",
           "cheeks_full_cheeks": "full rounded cheeks",
           "cheeks_hollow_cheeks": "slightly hollow cheeks, defined contour",
@@ -1346,6 +1475,7 @@
           "cheeks_chiseled": "chiseled cheek definition, sharp contour"
         },
         "chin": {
+          "chin_from_reference": "chin structure from reference image",
           "chin_strong": "strong defined chin",
           "chin_soft": "soft rounded chin",
           "chin_extend": "soft rounded chin, slightly extended",
@@ -1354,6 +1484,7 @@
           "chin_recessed": "slightly recessed chin, softer profile"
         },
         "eyes": {
+          "eyes_from_reference": "eyes structure from reference image",
           "eyes_almond": "almond shaped eyes, classic balanced shape",
           "eyes_natural": "natural shaped eyes, balanced shape",
           "eyes_round": "round eyes, wide and open appearance",
@@ -1366,6 +1497,7 @@
           "eyes_deep_set": "deep-set eyes, strong brow prominence"
         },
         "eye_color": {
+          "eyecolor_from_reference": "eye color from reference image",
           "eyecolor_brown": "brown eyes",
           "eyecolor_black": "black eyes",
           "eyecolor_dark_brown": "dark brown, near black eyes",
@@ -1376,6 +1508,7 @@
           "eyecolor_amber": "amber eyes, warm golden-brown"
         },
         "nose": {
+          "nose_from_reference": "nose structure from reference image",
           "nose_straight": "straight nose, balanced bridge",
           "nose_button": "small button nose, rounded tip",
           "nose_aquiline": "aquiline nose, slight curved bridge",
@@ -1386,6 +1519,7 @@
           "nose_prominent": "prominent nose, strong defined presence"
         },
         "lips": {
+          "lips_from_reference": "lips structure from reference image",
           "lips_thin": "thin lips, minimal volume",
           "lips_average": "average lip volume, balanced upper and lower",
           "lips_full": "full lips, generous volume",
@@ -1396,6 +1530,7 @@
           "lips_pouty": "naturally pouty lips, heavy and full"
         },
         "eyebrows": {
+          "brows_from_reference": "eyebrows shape from reference image",
           "brows_thin_arched": "thin arched eyebrows",
           "brows_thick_straight": "thick straight eyebrows, strong brow",
           "brows_thick_arched": "thick arched eyebrows, defined arch",
@@ -1404,6 +1539,75 @@
           "brows_feathered": "feathered brows, soft individual hair strokes visible",
           "brows_sharp_defined": "sharp defined brows, clean precise edges",
           "brows_bushy": "bushy eyebrows, heavy and full"
+        },
+        "makeup_coverage": {
+          "coverage_none": "no makeup coverage, bare skin",
+          "coverage_light": "light coverage, sheer application",
+          "coverage_medium": "medium coverage, balanced application",
+          "coverage_full": "full coverage, complete coverage"
+        },
+        "makeup_style": {
+          "no_makeup": "no makeup, natural bare face",
+          "makeup_natural": "natural makeup, subtle enhancement",
+          "makeup_full": "full makeup, heavy application",
+          "makeup_smoky": "smoky eye makeup, dark and dramatic",
+          "makeup_bold": "bold makeup, statement colors",
+          "makeup_minimal": "minimal makeup, very light application",
+          "makeup_glamorous": "glamorous makeup, evening style",
+          "makeup_natural_glow": "natural glow makeup, dewy and radiant"
+        },
+        "eye_liner": {
+          "eyeliner_none": "no eyeliner",
+          "eyeliner_thin": "thin eyeliner",
+          "eyeliner_thick": "thick eyeliner",
+          "eyeliner_winged": "winged eyeliner",
+          "eyeliner_smoky": "smoky eyeliner",
+          "eyeliner_cat_eye": "cat eye eyeliner",
+          "eyeliner_tightline": "tightline eyeliner",
+          "eyeliner_graphic": "graphic eyeliner"
+        },
+        "eye_shadow": {
+          "eyeshadow_none": "no eyeshadow",
+          "eyeshadow_natural": "natural eyeshadow",
+          "eyeshadow_smoky": "smoky eyeshadow",
+          "eyeshadow_bold": "bold eyeshadow",
+          "eyeshadow_glamorous": "glamorous eyeshadow",
+          "eyeshadow_natural_glow": "natural glow eyeshadow"
+        },
+        "mascara": {
+          "mascara_none": "no mascara",
+          "mascara_light": "light mascara",
+          "mascara_full": "full mascara",
+          "mascara_dramatic": "dramatic mascara",
+          "mascara_natural": "natural mascara"
+        },
+        "blush": {
+          "blush_none": "no blush",
+          "blush_light": "light blush",
+          "blush_full": "full blush",
+          "blush_dramatic": "dramatic blush",
+          "blush_natural": "natural blush"
+        },
+        "lip_color": {
+          "lip_color_none": "no lip color",
+          "lip_color_light": "light lip color",
+          "lip_color_full": "full lip color",
+          "lip_color_dramatic": "dramatic lip color",
+          "lip_color_natural": "natural lip color"
+        },
+        "lip_gloss": {
+          "lip_gloss_none": "no lip gloss",
+          "lip_gloss_light": "light lip gloss",
+          "lip_gloss_full": "full lip gloss",
+          "lip_gloss_dramatic": "dramatic lip gloss",
+          "lip_gloss_natural": "natural lip gloss"
+        },
+        "eyebrow_color": {
+          "eyebrow_color_none": "no eyebrow color",
+          "eyebrow_color_light": "light eyebrow color",
+          "eyebrow_color_full": "full eyebrow color",
+          "eyebrow_color_dramatic": "dramatic eyebrow color",
+          "eyebrow_color_natural": "natural eyebrow color"
         }
       },
       "expression": {
@@ -1440,6 +1644,8 @@
         "expr_exhausted": "exhausted, heavy drooping lids, slight dark circles under eyes, mouth slightly open as if catching breath, slack facial muscles",
         "expr_stoic": "stoic, perfectly centered features, no visible muscle tension, eyes direct but devoid of emotional projection, flat lip line",
         "expr_sad": "sad, corners of the mouth turned down, inner brows raised and drawn together, heavy drooping eyelids, subtle lip quiver",
+        "expr_happy": "happy, eyes crinkled at the corners, wide smile showing teeth, cheeks lifted, joyful and energetic",
+        "expr_kissing": "kissing, lips pursed in a kissing motion, cheeks slightly lifted, playful and flirtatious",
         "expr_shocked": "shocked, jaw dropped open, eyes wide with visible sclera, eyebrows arched high, nostrils slightly flared",
         "expr_crying": "crying, eyes watery and red-rimmed, tears tracking down cheeks, squinted eyes, trembling lower lip, flushed skin",
         "expr_grieving": "grieving, intense brow furrow, mouth open in a silent wail, eyes tightly shut, deep lines of distress around the nose and mouth",
@@ -1459,7 +1665,10 @@
         "expr_wink_kiss": "blowing a kiss, one eye winking, lips pursed in a kissing motion, one cheek lifted, playful and flirtatious",
         "expr_peace_face": "peace face, squinted eyes, wide toothy grin, tongue often pressed against the back of teeth, energetic",
         "expr_genuine_kiss": "imaginary genuine kiss, eyes slightly wrinkled, lips pursed in kissing motion, cheeks slightly lifted, playful and flirtatious",
-        "expr_drunken_daze": "dazed and blissful, eyelids heavy and uneven, mouth softly parted, unfocused upward gaze, relaxed facial muscles"
+        "expr_drunken_daze": "dazed and blissful, eyelids heavy and uneven, mouth softly parted, unfocused upward gaze, relaxed facial muscles",
+        "expr_playful_gaze": "playful gaze, heavy-lidded eyes, direct eye contact, slight smirk, playful and flirtatious",
+        "expr_sleepy_kiss": "sleepy kiss, eyes half-closed and heavy, jaw relaxed, slight drooping of the features, looking dazed or near sleep",
+        "expr_sleeping": "sleeping, eyes closed, mouth slightly open, relaxed facial muscles, peaceful expression"
       }
     }
   },
@@ -1469,7 +1678,12 @@
       "conversational": "active conversation dynamic",
       "confrontational": "confrontational interaction dynamic",
       "supportive": "supportive interaction dynamic",
-      "playful": "playful interaction dynamic"
+      "playful": "playful interaction dynamic",
+      "intimate": "intimate interaction dynamic",
+      "passionate": "passionate interaction dynamic",
+      "romantic": "romantic interaction dynamic",
+      "sensual": "sensual interaction dynamic",
+      "erotic": "erotic interaction dynamic"
     },
     "distance": {
       "intimate": "very close interpersonal distance",
@@ -1481,13 +1695,29 @@
       "none": "no physical contact",
       "light": "light physical contact",
       "firm": "firm physical contact",
-      "embrace": "embrace or full-body contact"
+      "embrace": "embrace or full-body contact",
+      "kissing": "kissing or mouth-to-mouth contact",
+      "touching": "touching or caressing",
+      "holding": "holding or embracing",
+      "caressing": "caressing or stroking",
+      "fondling": "fondling or groping",
+      "grabbing": "grabbing or clutching",
+      "biting": "biting or nibbling",
+      "spanking": "spanking or slapping"
     },
     "energy": {
       "calm": "calm and controlled interaction energy",
       "balanced": "balanced interaction energy",
       "dynamic": "dynamic interaction energy",
-      "chaotic": "chaotic high-energy interaction"
+      "chaotic": "chaotic high-energy interaction",
+      "passionate": "passionate interaction energy",
+      "romantic": "romantic interaction energy",
+      "sensual": "sensual interaction energy",
+      "erotic": "erotic interaction energy",
+      "tender": "tender interaction energy",
+      "loving": "loving interaction energy",
+      "caring": "caring interaction energy",
+      "affectionate": "affectionate interaction energy"
     },
     "focus": {
       "mutual_gaze": "subjects maintain mutual eye contact",
@@ -1495,5 +1725,10 @@
       "one_sided": "one subject leads interaction focus",
       "group_attention": "attention distributed across group"
     }
+  },
+  "negative_prompts": {
+    "negative_for_realistic": "beautification filters, skin smoothing, plastic skin, airbrushed texture, stylized realism, editorial fashion proportions, more realistic reinterpretation",
+    "negative_for_anime": "3d, realistic, photorealistic, western comic style, messy sketch, thick lines, distorted anatomy, low resolution, dull colors, gradient hair (unless intended), simple background, cross-eyed",
+    "negative_for_architecture": "warped perspective, impossible geometry, messy clutter, distorted windows, nonsensical stairs, floating furniture, blurry textures, overlapping structures, mismatched wood grains, inconsistent lighting sources."
   }
 }

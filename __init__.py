@@ -352,7 +352,7 @@ def _register_afj_routes() -> None:
     try:
         from server import PromptServer
     except Exception as exc:
-        logger.warning("[AFJ] Could not import PromptServer for routes: %s", exc)
+        logger.warning("[JsonX] Could not import PromptServer for routes: %s", exc)
         return
 
     prompt_server = getattr(PromptServer, "instance", None)
@@ -363,7 +363,7 @@ def _register_afj_routes() -> None:
     try:
         register_visual_builder_routes(app)
     except Exception as exc:
-        logger.warning("[AFJ] Could not register API routes: %s", exc)
+        logger.warning("[JsonX] Could not register API routes: %s", exc)
 
 
 _register_afj_routes()

@@ -1,31 +1,56 @@
-# AFJ - Technical Documentation (Templates v2)
+# JsonX Technical Documentation
 
 ## 1. Purpose
-This project provides AFJ nodes for JSON-prompt authoring and runtime randomization in ComfyUI:
-1. `FluxVisualJsonBuilder` (display: `AFJ - Visual Builder`)
-2. `FluxTemplateRandomizer` (display: `AFJ - Template Randomizer`)
-3. `AFJPromptTemplateImporter` (display: `AFJ - Prompt Template Importer`)
+This project provides JsonX nodes for JSON-prompt generation, authoring, and runtime randomization in ComfyUI:
+1. `LLMToJsonX` (display: `LLM to JsonX`)
+2. `FluxVisualJsonBuilder` (display: `JsonX - Visual Builder`)
+3. `FluxTemplateRandomizer` (display: `JsonX - Template Randomizer`)
+4. legacy internal `AFJPromptTemplateImporter` (display: `JsonX - Prompt Template Importer`)
 
 ## 2. Active Components
 1. Package entry: `__init__.py`
 2. Backend:
    1. `visual_builder/api.py`
    2. `visual_builder/node.py`
-   3. `visual_builder/presets.json`
-   4. `visual_builder/templates/` (one JSON file per template)
+   3. `visual_builder/jsonx_llm.py`
+   4. `visual_builder/jsonx_backends/` (isolated provider and local-runtime implementations)
+   5. `visual_builder/presets.json`
+   6. `visual_builder/templates/` (one JSON file per template)
 3. Frontend extensions:
-   1. `web/flux_visual_builder.js`
-   2. `web/flux_template_randomizer.js`
-   3. `web/afj_prompt_template_importer.js`
+   1. `web/js/flux_visual_builder.js`
+   2. `web/js/flux_template_randomizer.js`
+   3. `web/js/afj_prompt_template_importer.js`
+   4. `web/js/llm_to_jsonx.js`
 
 ## 3. Node Contracts
-### 3.1 AFJ - Visual Builder
+### 3.1 LLM to JsonX
+
+Node class: `LLMToJsonXNode`
+
+1. Inputs: multiline `user_instructions`, `generation_mode`, `preset_context_mode`, UI-managed `generated_prompt_json`, optional `IMAGE`, and a reserved UI state string.
+2. Output: validated `prompt_json` string only.
+3. Provider calls happen only through the Generate action. Queue execution validates and returns the saved JSON without calling a provider.
+4. Browser provider configuration and credentials use JsonX-specific local-storage keys; the UI never writes them into node widgets or workflow properties.
+5. The read-only output preview mirrors `generated_prompt_json`; it is display-only and adds no serialized field.
+6. Response extraction accepts exactly one unambiguous JSON object, including a sole fence or common reasoning/preamble wrappers. Multiple object candidates are rejected before validation or repair.
+7. Gemini safety thresholds mirror Unified Autoprompter X and are transported in the transient `gemini_safety` request object.
+8. Canonicalization resolves recognized preset-ID keys to catalog paths/values, rebases misplaced known siblings, flattens leaf objects, and maps singular `subject` to `subjects` before final validation.
+9. A failed initial response and failed repair response are returned only as transient route diagnostics; neither is written to a widget, workflow, or `prompt_json`.
+10. Provider parity state includes full-list model pickers, per-backend timeouts, OpenAI unload, Ollama think/unload, and a JsonX-owned VRAM refresh helper.
+11. JsonX provider modules do not import Unified Autoprompter X. Local model discovery reads `ComfyUI/models/LLM` independently, and local inference uses only `vendor/jsonx-llama.cpp`.
+12. An empty Gemini candidates response is not retried. Sanitized prompt feedback is returned as transient diagnostics while the saved output remains unchanged.
+13. Stage 1 defaults require atomic parent/child/sub-child expansion to the deepest coherent catalog or custom paths. Deep maximizes relevant hierarchy; Exhaustive performs a broader branch-by-branch relevance pass. Neither mode has a numerical leaf target, depth ceiling, or maximum, and leaf count never acts as a stopping condition.
+14. `/workflowx/jsonx/instructions` returns packaged instruction templates. `/workflowx/jsonx/instructions/preview` returns exact effective Stage 1 and Stage 2 prompts without invoking a provider. Browser-local custom templates and detail level are sent transiently only during Generate.
+15. Generation route metadata includes hierarchy leaf, branch, depth, and root counts for UI troubleshooting; these metrics are not inserted into `prompt_json`.
+16. The always-appended open-world preset contract treats catalog entries as canonical guidance rather than an allow-list. Meaning-preserving matches are canonicalized, while unmatched known-path values and unknown nested branches remain custom prompt content. This invariant also applies when browser-local custom instruction templates replace the packaged editable text.
+
+### 3.2 JsonX - Visual Builder
 Node class: `FluxVisualJsonBuilderNode`
 1. Input widget: `prompt_json` (multiline string, optional)
 2. Output: `prompt_json` string
 3. UI writes compiled JSON directly to node `prompt_json`.
 
-### 3.2 AFJ - Template Randomizer
+### 3.3 JsonX - Template Randomizer
 Node class: `FluxTemplateRandomizerNode`
 1. Inputs:
    1. `template_name`
@@ -36,7 +61,7 @@ Node class: `FluxTemplateRandomizerNode`
    1. `prompt_json`
    2. `run_log`
 
-### 3.3 AFJ - Prompt Template Importer
+### 3.4 JsonX - Prompt Template Importer
 Node class: `AFJPromptTemplateImporterNode`
 1. Inputs:
    1. `template_name`
@@ -84,6 +109,15 @@ Template save rejects names that:
 5. `POST /fluxvisual/validate`
 6. `POST /fluxvisual/import/convert`
 
+Legacy `/fluxvisual` routes remain unchanged. JsonX generation additionally exposes:
+
+1. `GET /workflowx/jsonx/presets/info`
+2. `GET /workflowx/jsonx/local/models`
+3. `POST /workflowx/jsonx/gemini/models`
+4. `POST /workflowx/jsonx/openai/models`
+5. `POST /workflowx/jsonx/ollama/models`
+6. `POST /workflowx/jsonx/generate`
+
 ### `/fluxvisual/import/convert`
 Input:
 ```json
@@ -111,7 +145,7 @@ Output:
 
 ## 6. Importer Conversion Behavior
 1. Accepts **final prompt JSON object only**.
-2. Rejects AFJ metadata/template payloads (`tree`, `randomizer_checked`) with explicit error.
+2. Rejects JsonX metadata/template payloads (`tree`, `randomizer_checked`) with explicit error.
 3. Builds a minimal tree from the prompt object only (no starter blank sections).
 4. Unknown keys become custom fields/groups/arrays.
 5. Arrays support object items and primitive items (`value` field mapping for primitives).
@@ -143,14 +177,11 @@ State persists only on `Validate & Apply`.
 Edit `visual_builder/presets.json` leaf object values. UI picks up after reload.
 
 ### Add a new root category
-1. Add root key in `visual_builder/presets.json`
-2. Add root in `buildStarterTree()` inside `web/flux_visual_builder.js`
-3. Include in preset-library traversal used by attach-preset in `web/flux_visual_builder.js`
-4. Optional: add backend validation in `visual_builder/api.py`
+
+Add the root key in `visual_builder/presets.json`. Backend/frontend starter trees, preset attachment, importer hydration, randomizer lookup, and LLM schema generation traverse the catalog dynamically. Add bespoke backend validation only when the new category requires a structural rule beyond the generic prompt contract.
 
 ### Add subject subsection
-1. Add under `subject` in `visual_builder/presets.json`
-2. Add subsection in `buildSubjectItemTemplate()` in `web/flux_visual_builder.js`
+Add it under `subject` in `visual_builder/presets.json`; repeatable subject templates discover it dynamically.
 
 ## 10. Smoke Checklist
 1. Save/load/delete templates and verify per-file creation/removal under `visual_builder/templates/`
@@ -158,4 +189,7 @@ Edit `visual_builder/presets.json` leaf object values. UI picks up after reload.
 3. Visual Builder template list still works
 4. Template Randomizer resolves preset options dynamically from current `presets.json` using field binding metadata
 5. Importer Convert/Preview works with valid prompt JSON
-6. Importer rejects AFJ metadata payload with explicit message
+6. Importer rejects JsonX metadata payload with explicit message
+7. Optimized context contains every schema path and only a bounded ranked value subset
+8. Full context ends with the exact raw `presets.json` text and never falls back to Optimized
+9. Fast, Refined, malformed-JSON repair, optional-image, and context-limit failures preserve the node contract
