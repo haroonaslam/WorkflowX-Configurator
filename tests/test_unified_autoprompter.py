@@ -113,11 +113,13 @@ def test_prompt_profiles_capture_allowed_formats_and_negative_rules():
         "minimax_h3_official",
         "minimax_h3_alternate",
         "krea2",
+        "jsonx",
     }
     assert profiles.normalize_format("z_image", "json") == "natural"
     assert profiles.normalize_format("sdxl", "json") == "tags"
     assert profiles.normalize_format("flux2_dev", "json") == "json"
     assert profiles.normalize_format("wan2_2", "json") == "natural"
+    assert profiles.normalize_format("jsonx", "tags") == "json"
     assert profiles.normalize_format("ltx_2_3", "tags") == "natural"
     assert profiles.normalize_format("minimax_h3_official", "json") == "natural"
     assert profiles.normalize_format("minimax_h3_alternate", "tags") == "natural"
@@ -631,7 +633,7 @@ def test_profile_config_loads_and_recreates_node_local_json_when_missing():
     with _with_temp_profile_paths(profile_config):
         payload = profile_config.profile_config_payload()
 
-        assert payload["version"] == 3
+        assert payload["version"] == 4
         assert profile_config.config_path().exists()
         assert profile_config.config_path().name == "model_prompt_profiles.json"
         assert "ideogram4" in [profile["key"] for profile in payload["profiles"]]
@@ -1027,6 +1029,288 @@ def test_unified_frontend_keeps_additional_model_folders_in_browser_storage():
         "function positiveAndNegativePrompt", 1
     )[0]
     assert "additional_local_model_paths" not in serializable_section
+
+
+def test_unified_frontend_collapses_provider_model_settings_and_refits_the_node():
+    source = (ROOT / "web" / "js" / "unified_autoprompter.js").read_text(encoding="utf-8")
+    assert 'buildDom("details", "workflowx-uap-model-settings")' in source
+    assert 'buildDom("summary", "", "Model settings")' in source
+    assert "modelSettingsBody.appendChild(geminiPanel)" in source
+    assert "modelSettingsBody.appendChild(openaiPanel)" in source
+    assert "modelSettingsBody.appendChild(ollamaPanel)" in source
+    assert "modelSettingsBody.appendChild(localPanel)" in source
+    assert "model_settings_open: Boolean(saved.model_settings_open)" in source
+    assert 'modelSettingsDetails.addEventListener("toggle"' in source
+    assert "scheduleVisibleContentResize();" in source
+    assert 'modelSettingsBtn.textContent = "Profile settings"' in source
+    assert 'modelSettingsBtn.addEventListener("click", openModelSettingsModalV3)' in source
+    assert "openJsonXSettingsModal" not in source
+    assert "Unified JsonX Settings" not in source
+    assert "measureVisibleContentHeight" in source
+    assert "const clone = wrap.cloneNode(true)" in source
+    assert "wrap.scrollHeight" not in source
+
+
+def test_unified_jsonx_profile_editor_shows_effective_packaged_instructions():
+    source = (ROOT / "web" / "js" / "unified_autoprompter.js").read_text(encoding="utf-8")
+    assert '`${JSONX_ROUTE}/instructions`' in source
+    assert "jsonxInstructionDefault" in source
+    assert "config[key] || jsonxInstructionDefault(key)" in source
+    assert "normalizedJsonXConfig" in source
+    assert "unchanged defaults remain linked to the packaged engine instructions" in source
+
+    _load_package_modules()
+    engine = importlib.import_module("workflowx_unified_autoprompter_test.jsonx_profile.engine")
+    templates = engine.instruction_templates()
+    for key in ("stage_one", "template_fill", "refinement", "natural_language"):
+        assert templates[key].strip()
+
+
+def test_unified_jsonx_profiles_persist_engine_and_profile_owned_configuration():
+    _profiles, _prompt_io, _prompt_builder, _node, profile_config = _load_package_modules()
+    with _with_temp_profile_paths(profile_config):
+        payload = profile_config.profile_config_payload()
+        jsonx = next(profile for profile in payload["profiles"] if profile["key"] == "jsonx")
+        assert jsonx["engine"] == "jsonx"
+        assert jsonx["jsonx_config"]["generation_profile"] == "adaptive"
+        assert jsonx["jsonx_config"]["with_image_instructions"] == ""
+
+        duplicate = json.loads(json.dumps(jsonx))
+        duplicate["key"] = "jsonx_custom"
+        duplicate["label"] = "JsonX Custom"
+        duplicate["jsonx_config"]["generation_profile"] = "template_fill"
+        saved = profile_config.save_config({"profiles": payload["profiles"] + [duplicate]})
+        custom = next(profile for profile in saved["profiles"] if profile["key"] == "jsonx_custom")
+        assert custom["engine"] == "jsonx"
+        assert custom["jsonx_config"]["generation_profile"] == "template_fill"
+
+
+def test_unified_frontend_routes_shared_controls_to_isolated_jsonx_state():
+    source = (ROOT / "web" / "js" / "unified_autoprompter.js").read_text(encoding="utf-8")
+    assert 'return profile?.engine === "jsonx"' in source
+    assert '`${jsonx ? JSONX_ROUTE : ROUTE}/gemini/models`' in source
+    assert '`${jsonx ? JSONX_ROUTE : ROUTE}/openai/models`' in source
+    assert '`${jsonx ? JSONX_ROUTE : ROUTE}/ollama/models`' in source
+    assert '`${jsonx ? JSONX_ROUTE : ROUTE}/local/models`' in source
+    assert "persistJsonXProviderFromControls" in source
+    assert "workflowx_unified_jsonx_gemini_api_key" in source
+    assert "workflowx_unified_jsonx_openai_api_key" in source
+    assert 'if (isJsonXProfile()) {\n      persistJsonXProviderFromControls();\n      return;' in source
+
+
+def test_unified_jsonx_workflow_state_snapshots_provider_models_and_profile_config_without_secrets():
+    source = (ROOT / "web" / "js" / "unified_autoprompter.js").read_text(encoding="utf-8")
+    provider_snapshot = source.split("function workflowJsonXProviderSettings", 1)[1].split(
+        "function normalizeUnifiedReasoning", 1
+    )[0]
+    serializable = source.split("function serializableState(state)", 1)[1].split(
+        "function positiveAndNegativePrompt", 1
+    )[0]
+
+    for field in ("backend", "gemini_model", "openai_model", "ollama_model", "local_model", "local_options"):
+        assert field in provider_snapshot
+    for private_field in ("api_key", "gemini_key", "openai_key", "additional_model_paths", "openai_base_url", "ollama_host"):
+        assert private_field not in provider_snapshot
+
+    assert "jsonx_provider: workflowJsonXProviderSettings(saved.jsonx_provider)" in source
+    assert "jsonx_profile_configs: saved.jsonx_profile_configs" in source
+    assert "jsonx_provider: workflowJsonXProviderSettings(rest.jsonx_provider)" in serializable
+    assert "state.jsonx_provider = workflowJsonXProviderSettings(provider)" in source
+    assert "ensureJsonXConfigSnapshot" in source
+    assert "const jsonx = effectiveJsonXConfig();" in source
+    assert "const snapshot = state.jsonx_profile_configs?.[profile.key]" in source
+    assert 'localModelSelect.addEventListener("change", () => {\n' in source
+    local_model_handler = source.split('localModelSelect.addEventListener("change", () => {', 1)[1].split("});", 1)[0]
+    assert "persistModelSelection();" in local_model_handler
+    assert "syncPreview();" in local_model_handler
+
+
+def test_unified_profile_editor_uses_close_for_discard_and_explains_ambiguous_controls():
+    source = (ROOT / "web" / "js" / "unified_autoprompter.js").read_text(encoding="utf-8")
+
+    assert '"Revert"' not in source
+    assert "revertBtn" not in source
+    assert source.count('closeBtn.title = "Close without saving editor changes"') == 2
+    assert 'resetOneBtn.title = "Restore the selected built-in profile defaults in this draft; click Save to apply"' in source
+    assert 'resetAllBtn.title = "Immediately replace every saved profile with the packaged WorkflowX defaults"' in source
+    assert 'cancelJsonXBtn.title = "Stop the active JsonX generation and keep the previous output"' in source
+    assert 'modelSettingsBtn.title = "Edit prompt profiles and JsonX generation settings"' in source
+
+
+def test_unified_jsonx_profile_is_private_and_has_the_expected_contract():
+    root = ROOT / "unified_autoprompter" / "jsonx_profile"
+    assert (root / "presets.json").read_bytes() == (
+        ROOT / "afj_awesome_flex_json_v2" / "visual_builder" / "presets.json"
+    ).read_bytes()
+    sources = "\n".join(path.read_text(encoding="utf-8") for path in root.rglob("*.py"))
+    assert "afj_awesome_flex_json_v2" not in sources
+    assert "unified_autoprompter.gemini_backend" not in sources
+    assert "vendor\" / \"unified-jsonx-llama.cpp" in sources
+    route_source = (root / "routes.py").read_text(encoding="utf-8")
+    assert 'ROUTE_PREFIX = "/workflowx/unified_autoprompter/jsonx"' in route_source
+    assert 'f"{ROUTE_PREFIX}/generate"' in route_source
+    assert "result[\"positive\"] = result.get(\"prompt\", \"\")" in route_source
+    assert "_negative_text(stage_one)" in route_source
+
+
+def test_unified_jsonx_profile_image_mode_instructions_reach_both_stages():
+    _load_package_modules()
+    engine = importlib.import_module("workflowx_unified_autoprompter_test.jsonx_profile.engine")
+    preview = engine.effective_instruction_preview({
+        "user_instructions": "Create a detailed portrait.",
+        "generation_profile": "adaptive",
+        "generation_mode": "refined",
+        "output_format": "natural",
+        "preset_context_mode": "optimized",
+        "detail_level": "deep",
+        "has_image": True,
+        "with_image_instructions": "Preserve the reference identity exactly.",
+        "without_image_instructions": "Invent a coherent identity from text.",
+    })
+    assert "Preserve the reference identity exactly." in preview["stage_one"]
+    assert "Preserve the reference identity exactly." in preview["refinement"]
+    assert "Invent a coherent identity from text." not in preview["stage_one"]
+
+
+def test_unified_jsonx_natural_validator_normalizes_provider_formatting():
+    _load_package_modules()
+    engine = importlib.import_module("workflowx_unified_autoprompter_test.jsonx_profile.engine")
+
+    fenced = "```prose\n## Scene\nA quiet beach under soft daylight.\n```"
+    assert engine.validate_natural_prompt(fenced) == "## Scene\nA quiet beach under soft daylight."
+
+    formatted = (
+        "Here is the detailed natural-language prompt:\n"
+        "## Scene\n"
+        "- A quiet beach\n"
+        "- Soft overcast daylight\n\n"
+        "## Camera\n"
+        "1. An eye-level portrait\n"
+        "2. Shallow depth of field"
+    )
+    normalized = engine.validate_natural_prompt(formatted)
+    assert normalized == (
+        "## Scene\n"
+        "A quiet beach. Soft overcast daylight.\n\n"
+        "## Camera\n"
+        "An eye-level portrait. Shallow depth of field."
+    )
+
+    for invalid in (
+        '{"scene":"quiet beach"}',
+        "Prompt prose followed by {\"scene\": \"quiet beach\"}",
+        "Analysis: I will convert the prompt next.",
+    ):
+        try:
+            engine.validate_natural_prompt(invalid)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"Expected invalid Unified JsonX natural output: {invalid!r}")
+
+
+def test_unified_jsonx_gemini_uses_json_then_plain_text_for_natural_output(monkeypatch):
+    _load_package_modules()
+    engine = importlib.import_module("workflowx_unified_autoprompter_test.jsonx_profile.engine")
+    mime_types = []
+
+    def fake_generate(*args, **kwargs):
+        mime_type = kwargs.get("response_mime_type")
+        mime_types.append(mime_type)
+        if mime_type == "text/plain":
+            return "## Scene\nA quiet beach under soft daylight."
+        return '{"scene":{"environment":"quiet beach"}}'
+
+    monkeypatch.setattr(engine.gemini_backend, "generate", fake_generate)
+    result = engine.generate_jsonx(
+        {
+            "backend": "gemini",
+            "api_key": "test-key",
+            "model": "gemini-test",
+            "user_instructions": "quiet beach",
+            "output_format": "natural",
+        }
+    )
+
+    assert mime_types == ["application/json", "text/plain"]
+    assert result["prompt"].startswith("## Scene")
+    assert "natural_fallback" not in result
+
+
+def test_unified_jsonx_gemini_backend_honors_plain_text_mime(monkeypatch):
+    _load_package_modules()
+    engine = importlib.import_module("workflowx_unified_autoprompter_test.jsonx_profile.engine")
+    bodies = []
+
+    def fake_post(*args, **kwargs):
+        bodies.append(kwargs["json"])
+        return _FakeResponse({"candidates": [{"content": {"parts": [{"text": "plain prompt"}]}}]})
+
+    monkeypatch.setattr(engine.gemini_backend.requests, "post", fake_post)
+    raw = engine.gemini_backend.generate(
+        "test-key",
+        "gemini-test",
+        "system",
+        "user",
+        response_mime_type="text/plain",
+    )
+
+    assert raw == "plain prompt"
+    assert bodies[0]["generationConfig"]["responseMimeType"] == "text/plain"
+
+
+def test_unified_jsonx_natural_uses_validated_draft_after_two_invalid_provider_responses(monkeypatch):
+    _load_package_modules()
+    engine = importlib.import_module("workflowx_unified_autoprompter_test.jsonx_profile.engine")
+    calls = []
+    responses = iter(
+        [
+            '{"scene":{"environment":"quiet beach"}}',
+            '{"scene":"still json"}',
+            '["also", "json"]',
+        ]
+    )
+    def fake_call(data, *args, **kwargs):
+        calls.append(data)
+        return next(responses)
+
+    monkeypatch.setattr(engine, "_call_provider", fake_call)
+
+    result = engine.generate_jsonx(
+        {
+            "backend": "local",
+            "user_instructions": "quiet beach",
+            "output_format": "natural",
+        }
+    )
+
+    assert result["prompt"] == "## Scene\nquiet beach."
+    assert result["natural_fallback"] is True
+    assert result["diagnostics"]["stage"] == "Natural Language Stage 2"
+    assert "_gemini_response_mime_type" not in calls[0]
+    assert calls[1]["_gemini_response_mime_type"] == "text/plain"
+    assert calls[2]["_gemini_response_mime_type"] == "text/plain"
+    assert engine.validate_natural_prompt(result["prompt"]) == result["prompt"]
+
+
+def test_unified_jsonx_frontend_reports_natural_validation_reasons():
+    source = (ROOT / "web" / "js" / "unified_autoprompter.js").read_text(encoding="utf-8")
+    assert 'diagnostics.initial_error&&`Initial: ${diagnostics.initial_error}`' in source
+    assert 'diagnostics.repair_error&&`Repair: ${diagnostics.repair_error}`' in source
+    assert 'data.natural_fallback?" · used canonical JsonX prose fallback.":"."' in source
+
+
+def test_unified_local_mtp_runtime_and_frontend_controls_are_isolated():
+    binary = (ROOT / "unified_autoprompter" / "llama_binary.py").read_text(encoding="utf-8")
+    backend = (ROOT / "unified_autoprompter" / "local_llama_backend.py").read_text(encoding="utf-8")
+    frontend = (ROOT / "web" / "js" / "unified_autoprompter.js").read_text(encoding="utf-8")
+    assert 'LLAMA_CPP_RELEASE_TAG = "b10252"' in binary
+    assert "pinned_install = VENDOR_ROOT / LLAMA_CPP_RELEASE_TAG / spec.key" in binary
+    assert '"--spec-type", "draft-mtp"' in backend
+    assert '"--spec-draft-n-max"' in backend
+    assert '"workflowx-uap-system-"' in backend
+    assert "Speculative: Auto (detect embedded MTP)" in frontend
+    assert "workflowx_unified_jsonx_provider_settings" in frontend
 
 
 def test_unified_autoprompter_node_is_registered_and_builds_outputs():

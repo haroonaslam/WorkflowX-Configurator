@@ -15,9 +15,13 @@ JsonX provides four nodes under `WorkflowX/Prompting/JsonX`:
 3. Choose a provider and model in the embedded JsonX panel.
 4. Keep `fast` for one generation call, or select `refined` for a preset-aware first pass plus a preset-agnostic coherence pass.
 5. Keep `optimized` to send every live schema path plus a bounded, deterministically ranked set of relevant preset values. Select `full` only when the model can accept the complete preset catalog; JsonX shows an estimated size warning and never silently falls back.
-6. Click `Generate`. The validated result is saved in the node, displayed in the read-only `Generated JsonX output` box, and returned from `prompt_json` when queued; the prior result is retained if generation or validation fails.
+6. Click `Generate`. The validated result is saved in the node, displayed in the read-only output box, and returned from the generic `prompt` output when queued; the prior result is retained if generation or validation fails.
 
 The Settings modal offers **Adaptive** and **Template Fill** profiles. Adaptive is the existing default and continues to follow the node's Optimized/Full selector. Template Fill instead supplies the complete blank JsonX hierarchy with `null` leaves. Enable **Use Presets** to append the full preset catalog verbatim; suitable catalog values are preferred, while missing concepts receive a custom value written in the same style. Leave it disabled to send only the blank hierarchy. The model retains `null` where a leaf genuinely does not apply, and the backend removes those leaves and empty containers before validation. Refined Template Fill improves coherence and wording without replacing or restructuring the populated Stage 1 tree.
+
+**Output format** is saved per node and defaults to **JsonX JSON**. Choose **Natural language** to automatically use Refined and run two passes for either profile. Stage 1 produces the same validated canonical JsonX in memory; Stage 2 uses the same provider to improve coherence while converting every non-null detail into prose. It may use top-level headings, expresses `negative` as avoidance guidance, preserves multiple subjects and interactions, and includes all nine framing regions when enabled. Only the final prose is saved and returned from `prompt`.
+
+Enable **Framing & placement (3x3 rule-of-thirds map)** to add an explicit nine-region composition map in Adaptive or Template Fill. Each top/middle/bottom and left/center/right region receives a concrete description of the visible image content. Background and negative space are described rather than left blank, and a subject or object spanning regions is described in every affected region. This checkbox is saved on the individual node and travels with the workflow; Reset defaults turns it off.
 
 JsonX defaults to **Deep** hierarchy generation. It asks the model to decompose visible concepts into atomic leaves and use the catalog's deepest compatible paths—for example nested clothing, pose, appearance, lens, and exposure branches—while omitting details unsupported by framing. Click `Settings` to select **Exhaustive** when you want still broader visible-detail coverage.
 
@@ -25,15 +29,15 @@ Neither mode uses a numerical leaf range or maximum. Deep maximizes all relevant
 
 The preset catalog is not an exhaustive vocabulary. JsonX chooses a preset only when it faithfully matches the intended detail. If no supplied value fits, it reasons out a concise custom value on the appropriate catalog path; if no path fits either, it adds a small descriptive subtree under the nearest logical parent. Custom keys use readable `lower_snake_case`, custom values use natural visual wording, and independent attributes stay as separate atomic leaves. Missing preset coverage never causes a requested or visible concept to be silently dropped.
 
-The Settings modal also exposes the editable Adaptive Stage 1, Template Fill Stage 1, and Stage 2 refinement system instructions. `Refresh effective preview` shows the exact backend prompts, blank hierarchy, and any selected preset context. `Reset defaults` restores the packaged instructions. Saved custom instructions remain only in JsonX browser storage and are not embedded in workflow JSON.
+The Settings modal also exposes the editable Adaptive Stage 1, Template Fill Stage 1, JSON refinement, and Natural Language Stage 2 system instructions. `Refresh effective preview` shows the exact selected backend prompts, output format, blank hierarchy, framing-map state, and preset context. `Reset defaults` restores JsonX JSON, Fast mode, and the packaged instructions. Saved custom instructions remain only in JsonX browser storage and are not embedded in workflow JSON.
 
 After Generate, the status line reports the resulting atomic leaf count, maximum hierarchy depth, and number of root groups. These measurements are diagnostic only and are never generation targets or stopping conditions; visibility, relevance, and evidence govern the content.
 
-Provider settings and credentials are stored in JsonX-specific browser storage. API keys are not saved in workflow JSON or returned through the node output. Queueing a workflow emits the saved, validated `prompt_json`; it does not invoke the provider again.
+Provider settings and credentials are stored in JsonX-specific browser storage. API keys are not saved in workflow JSON or returned through the node output. Queueing emits the saved JSON or natural-language `prompt`; it does not invoke the provider again.
 
 For Gemini, expand `Gemini safety settings` to configure harassment, hate-speech, sexually-explicit, and dangerous-content blocking thresholds. These match Unified Autoprompter X and default to `BLOCK_NONE`.
 
-If Gemini returns no candidates, JsonX does not retry. `Generation diagnostics` shows the provider's sanitized prompt feedback or blocking reason without exposing the API key, and the previous generated JSON remains saved.
+If Gemini returns no candidates, JsonX does not retry. `Generation diagnostics` shows the provider's sanitized prompt feedback or blocking reason without exposing the API key, and the previous JSON or natural-language output remains saved.
 
 Fetched provider models appear in full-list pickers. OpenAI-compatible and Ollama panels expose unload controls, Ollama also exposes think mode, and `Refresh VRAM` can unload active ComfyUI models before generation. Timeout values are remembered separately per backend.
 

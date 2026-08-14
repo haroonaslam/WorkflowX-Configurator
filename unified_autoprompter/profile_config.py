@@ -17,12 +17,28 @@ from .profiles import (
 )
 
 
-CONFIG_VERSION = 3
+CONFIG_VERSION = 4
 CONFIG_FILENAME = "model_prompt_profiles.json"
 DEFAULT_CONFIG_FILENAME = "model_prompt_profiles.defaults.json"
 ALLOWED_FORMATS = set(ALL_FORMATS)
 ALLOWED_MEDIA_TYPES = {"image", "video"}
+ALLOWED_ENGINES = {"standard", "jsonx"}
 KEY_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_]*$")
+
+DEFAULT_JSONX_CONFIG: dict[str, Any] = {
+    "generation_profile": "adaptive",
+    "generation_mode": "fast",
+    "preset_context_mode": "optimized",
+    "template_use_presets": False,
+    "enable_framing_and_placement": False,
+    "detail_level": "deep",
+    "stage_one_instructions": "",
+    "template_fill_instructions": "",
+    "refinement_instructions": "",
+    "natural_language_instructions": "",
+    "with_image_instructions": "",
+    "without_image_instructions": "",
+}
 
 
 def config_path() -> Path:
@@ -70,6 +86,19 @@ def _rule_from_dict(data: dict[str, Any] | None) -> PromptFormatRule:
         with_image_reference_instructions=str(data.get("with_image_reference_instructions") or "").strip(),
         without_image_reference_instructions=str(data.get("without_image_reference_instructions") or "").strip(),
     )
+
+
+def _jsonx_config_from_dict(data: Any) -> dict[str, Any]:
+    source = data if isinstance(data, dict) else {}
+    config = dict(DEFAULT_JSONX_CONFIG)
+    for key in config:
+        if key not in source:
+            continue
+        if isinstance(config[key], bool):
+            config[key] = bool(source[key])
+        else:
+            config[key] = str(source[key] or "").strip()
+    return config
 
 
 def _legacy_contract(prompt_format: str, negative_enabled: bool) -> str:
@@ -159,6 +188,8 @@ def _profile_from_dict(data: dict[str, Any]) -> PromptProfile:
     notes = str(data.get("notes") or "").strip()
     raw_formats = data.get("formats") if isinstance(data.get("formats"), dict) else {}
     formats = {format_key: _rule_from_dict(raw_formats.get(format_key)) for format_key in ALL_FORMATS}
+    engine = str(data.get("engine") or ("jsonx" if key == "jsonx" else "standard")).strip().lower()
+    jsonx_config = _jsonx_config_from_dict(data.get("jsonx_config")) if engine == "jsonx" else {}
     return PromptProfile(
         key=key,
         label=label,
@@ -168,6 +199,8 @@ def _profile_from_dict(data: dict[str, Any]) -> PromptProfile:
         json_supported=json_supported,
         notes=notes,
         formats=formats,
+        engine=engine,
+        jsonx_config=jsonx_config,
     )
 
 
@@ -180,6 +213,8 @@ def validate_profile(profile: PromptProfile, seen: set[str] | None = None) -> No
         raise ValueError(f"Profile {profile.key} needs a display label.")
     if profile.media_type not in ALLOWED_MEDIA_TYPES:
         raise ValueError(f"Profile {profile.key} media_type must be image or video.")
+    if profile.engine not in ALLOWED_ENGINES:
+        raise ValueError(f"Profile {profile.key} engine must be standard or jsonx.")
     active_formats = enabled_formats(profile)
     if not active_formats:
         raise ValueError(f"Profile {profile.key} needs at least one enabled prompt format.")
@@ -200,6 +235,20 @@ def validate_profile(profile: PromptProfile, seen: set[str] | None = None) -> No
             missing.append("negative-on output contract")
         if missing:
             raise ValueError(f"Profile {profile.key} {format_key} is missing: {', '.join(missing)}.")
+    if profile.engine == "jsonx":
+        if profile.media_type != "image":
+            raise ValueError(f"JsonX profile {profile.key} must use image media type.")
+        if set(active_formats) - {FORMAT_JSON, FORMAT_NATURAL}:
+            raise ValueError(f"JsonX profile {profile.key} supports only json and natural formats.")
+        config = _jsonx_config_from_dict(profile.jsonx_config)
+        if config["generation_profile"] not in {"adaptive", "template_fill"}:
+            raise ValueError(f"JsonX profile {profile.key} has an invalid generation profile.")
+        if config["generation_mode"] not in {"fast", "refined"}:
+            raise ValueError(f"JsonX profile {profile.key} has an invalid generation mode.")
+        if config["preset_context_mode"] not in {"optimized", "full"}:
+            raise ValueError(f"JsonX profile {profile.key} has an invalid preset context mode.")
+        if config["detail_level"] not in {"deep", "exhaustive"}:
+            raise ValueError(f"JsonX profile {profile.key} has an invalid hierarchy depth.")
 
 
 def validate_profiles(profiles: list[PromptProfile]) -> None:

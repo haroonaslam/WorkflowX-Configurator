@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "profiles": [
     {
       "key": "ideogram4",
@@ -418,6 +418,56 @@
           "output_contract_negative_on": "",
           "with_image_reference_instructions": "",
           "without_image_reference_instructions": ""
+        }
+      }
+    },
+    {
+      "key": "jsonx",
+      "label": "JsonX",
+      "engine": "jsonx",
+      "media_type": "image",
+      "default_format": "json",
+      "negative_supported": true,
+      "json_supported": true,
+      "notes": "JsonX structured prompt profile.",
+      "jsonx_config": {
+        "generation_profile": "adaptive",
+        "generation_mode": "fast",
+        "preset_context_mode": "optimized",
+        "template_use_presets": false,
+        "enable_framing_and_placement": false,
+        "detail_level": "deep",
+        "stage_one_instructions": "",
+        "template_fill_instructions": "",
+        "refinement_instructions": "",
+        "natural_language_instructions": "",
+        "with_image_instructions": "",
+        "without_image_instructions": ""
+      },
+      "formats": {
+        "natural": {
+          "enabled": true,
+          "common_instructions": "Generate a validated JsonX draft and convert it into detailed natural language.",
+          "output_contract_negative_off": "Return the final natural-language prompt.",
+          "output_contract_negative_on": "Return the final natural-language prompt and derive negative output from the JsonX negative branch.",
+          "with_image_reference_instructions": "Use connected images as visual evidence.",
+          "without_image_reference_instructions": "Build from the Unified prompt fields without image evidence."
+        },
+        "tags": {
+          "enabled": false,
+          "common_instructions": "",
+          "output_contract_negative_off": "",
+          "output_contract_negative_on": "",
+          "with_image_reference_instructions": "",
+          "without_image_reference_instructions": ""
+        },
+        "json": {
+          "enabled": true,
+          "common_instructions": "Generate a validated JsonX prompt object.",
+          "output_contract_negative_off": "Return the final JsonX prompt object.",
+          "output_contract_negative_on": "Return the final JsonX prompt object and derive negative output from its negative branch.",
+          "with_image_reference_instructions": "Use connected images as visual evidence.",
+          "without_image_reference_instructions": "Build from the Unified prompt fields without image evidence."
         }
       }
     }

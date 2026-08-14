@@ -4,6 +4,7 @@ import base64
 import os
 import re
 import shlex
+import struct
 import subprocess
 import tempfile
 import time
@@ -30,11 +31,21 @@ MMPROJ_EMBEDDING_MISMATCH_RE = re.compile(
     r"mismatch between text model \(n_embd = (?P<model>\d+)\) and mmproj \(n_embd = (?P<mmproj>\d+)\)",
     flags=re.IGNORECASE,
 )
+MTP_LOADER_MISMATCH_RE = re.compile(
+    r"missing tensor ['\"]blk\.\d+\.ssm_conv1d\.weight['\"]",
+    flags=re.IGNORECASE,
+)
 START_THINKING = "[Start thinking]"
 END_THINKING = "[End thinking]"
 LLAMA_RANDOM_SEED = -1
 LLAMA_SEED_MODULUS = 2**32
 MAX_LLAMA_SEED = LLAMA_SEED_MODULUS - 1
+GGUF_METADATA_TYPES = {
+    0: ("B", 1), 1: ("b", 1), 2: ("H", 2), 3: ("h", 2),
+    4: ("I", 4), 5: ("i", 4), 6: ("f", 4), 7: ("?", 1),
+    10: ("Q", 8), 11: ("q", 8), 12: ("d", 8),
+}
+MTP_METADATA_KEYS = ("qwen35.nextn_predict_layers", "qwen3next.nextn_predict_layers")
 
 
 def _write_temp_text_file(prefix: str, text: str) -> Path:
@@ -47,6 +58,16 @@ def _write_temp_text_file(prefix: str, text: str) -> Path:
 
 def _write_prompt_file(prompt: str) -> Path:
     return _write_temp_text_file("workflowx-uap-prompt-", str(prompt).strip() + PROMPT_PADDING)
+
+
+def _cleanup_temp_paths(paths: list[Path | None] | tuple[Path | None, ...]) -> None:
+    for path in paths:
+        if path is None:
+            continue
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def _pil_to_temp_png(pil_image: Image.Image) -> Path:
@@ -85,6 +106,79 @@ def normalize_llama_seed(seed: int) -> int:
     return seed % LLAMA_SEED_MODULUS
 
 
+def normalize_reasoning_mode(value: Any) -> str:
+    mode = str(value or "auto").strip().lower()
+    if mode == "none":
+        return "off"
+    if mode in {"deepseek", "qwen3"}:
+        return "auto"
+    return mode if mode in {"auto", "on", "off"} else "auto"
+
+
+def _read_exact(handle, size: int) -> bytes:
+    data = handle.read(size)
+    if len(data) != size:
+        raise ValueError("Unexpected end of GGUF metadata.")
+    return data
+
+
+def _read_u32(handle) -> int:
+    return struct.unpack("<I", _read_exact(handle, 4))[0]
+
+
+def _read_u64(handle) -> int:
+    return struct.unpack("<Q", _read_exact(handle, 8))[0]
+
+
+def _read_gguf_string(handle) -> str:
+    length = _read_u64(handle)
+    if length > 16 * 1024 * 1024:
+        raise ValueError("GGUF metadata string is unreasonably large.")
+    return _read_exact(handle, length).decode("utf-8", errors="replace")
+
+
+def _skip_gguf_value(handle, value_type: int, capture: bool) -> Any:
+    primitive = GGUF_METADATA_TYPES.get(value_type)
+    if primitive:
+        fmt, size = primitive
+        raw = _read_exact(handle, size)
+        return struct.unpack(f"<{fmt}", raw)[0] if capture else None
+    if value_type == 8:
+        value = _read_gguf_string(handle)
+        return value if capture else None
+    if value_type == 9:
+        element_type, count = _read_u32(handle), _read_u64(handle)
+        if count > 10_000_000:
+            raise ValueError("GGUF metadata array is unreasonably large.")
+        primitive_element = GGUF_METADATA_TYPES.get(element_type)
+        if primitive_element and not capture:
+            handle.seek(primitive_element[1] * count, 1)
+            return None
+        values = [_skip_gguf_value(handle, element_type, capture) for _ in range(count)]
+        return values if capture else None
+    raise ValueError(f"Unsupported GGUF metadata value type: {value_type}")
+
+
+def model_has_embedded_mtp(model_path: Path) -> bool:
+    try:
+        with model_path.open("rb") as handle:
+            if _read_exact(handle, 4) != b"GGUF":
+                return False
+            if _read_u32(handle) not in {2, 3}:
+                return False
+            _read_u64(handle)
+            metadata_count = _read_u64(handle)
+            for _ in range(metadata_count):
+                key = _read_gguf_string(handle)
+                value = _skip_gguf_value(handle, _read_u32(handle), key in MTP_METADATA_KEYS)
+                if key in MTP_METADATA_KEYS:
+                    return int(value or 0) > 0
+    except (OSError, TypeError, ValueError):
+        pass
+    filename = model_path.stem.lower().replace("_", "-")
+    return "mtp" in filename and "no-mtp" not in filename and "nomtp" not in filename
+
+
 def _int_value(value: Any, default: int, minimum: int | None = None, maximum: int | None = None) -> int:
     try:
         number = int(value)
@@ -121,6 +215,10 @@ def build_command(
 ) -> tuple[list[str], tuple[Path | None, ...]]:
     cleanup_paths: list[Path | None] = []
     cli_paths = ensure_llama_cli_paths()
+    speculative_mode = str(options.get("speculative_mode") or "auto").strip().lower()
+    if speculative_mode not in {"auto", "off", "mtp"}:
+        raise ValueError(f"Unsupported local speculative decoding mode: {speculative_mode}")
+    extra_args = split_extra_args(str(options.get("extra_args") or ""))
     image_paths: list[Path] = []
     images = list(pil_images or [])
     if not images and pil_image is not None:
@@ -129,14 +227,34 @@ def build_command(
         if mmproj_path is None:
             raise ValueError("Reference image input requires a selected mmproj GGUF file.")
         for image in images:
-            image_path = _pil_to_temp_png(image)
+            try:
+                image_path = _pil_to_temp_png(image)
+            except BaseException:
+                _cleanup_temp_paths(cleanup_paths)
+                raise
             image_paths.append(image_path)
             cleanup_paths.append(image_path)
 
-    prompt_path = _write_prompt_file(prompt)
+    try:
+        prompt_path = _write_prompt_file(prompt)
+    except BaseException:
+        _cleanup_temp_paths(cleanup_paths)
+        raise
     cleanup_paths.append(prompt_path)
     memory_mode = str(options.get("memory_mode") or "auto")
-    reasoning = str(options.get("reasoning") or "auto")
+    reasoning = normalize_reasoning_mode(options.get("reasoning"))
+    if str(system_prompt_text or "").strip():
+        # Passing a full system prompt through -sys can exceed Windows' command
+        # line limit. A short unique file is removed with all other temp input.
+        try:
+            system_prompt_path = _write_temp_text_file("workflowx-uap-system-", system_prompt_text)
+        except BaseException:
+            _cleanup_temp_paths(cleanup_paths)
+            raise
+        cleanup_paths.append(system_prompt_path)
+    use_mtp = speculative_mode == "mtp" or (
+        speculative_mode == "auto" and model_has_embedded_mtp(model_path)
+    )
 
     command = [
         str(cli_paths.cli),
@@ -152,15 +270,20 @@ def build_command(
         "--reasoning", reasoning,
     ]
 
+    if use_mtp:
+        command.extend([
+            "--spec-type", "draft-mtp",
+            "--spec-draft-n-max", str(_int_value(options.get("mtp_draft_tokens"), 2, 1, 8)),
+        ])
+    elif speculative_mode == "off":
+        command.extend(["--spec-type", "none"])
+
     if memory_mode in {"gpu_layers", "gpu_and_cpu_moe_layers"}:
         command.extend(["-ngl", str(_int_value(options.get("n_gpu_layers"), 99, 0, 999))])
     if memory_mode in {"cpu_moe_layers", "gpu_and_cpu_moe_layers"}:
         command.extend(["--n-cpu-moe", str(_int_value(options.get("n_cpu_moe_layers"), 0, 0, 999))])
 
-    direct_system_prompt = str(system_prompt_text or "")
-    if direct_system_prompt.strip():
-        command.extend(["-sys", direct_system_prompt])
-    elif system_prompt_path is not None:
+    if system_prompt_path is not None:
         command.extend(["-sysf", str(system_prompt_path)])
 
     command.extend(["-f", str(prompt_path)])
@@ -169,7 +292,7 @@ def build_command(
         command.extend(["--mmproj", str(mmproj_path)])
         command.extend(["--image", ",".join(str(path) for path in image_paths)])
 
-    command.extend(split_extra_args(str(options.get("extra_args") or "")))
+    command.extend(extra_args)
     return command, tuple(cleanup_paths)
 
 
@@ -315,10 +438,15 @@ def _parse_response(text: str) -> tuple[str, str, str]:
 
 def _parse_llama_error(stderr: str) -> str:
     match = MMPROJ_EMBEDDING_MISMATCH_RE.search(str(stderr or ""))
-    if not match:
-        return ""
-    return (
-        "Selected mmproj does not match the text model "
-        f"(model n_embd={match.group('model')}, mmproj n_embd={match.group('mmproj')}). "
-        "Choose the mmproj file that belongs to the selected GGUF model."
-    )
+    if match:
+        return (
+            "Selected mmproj does not match the text model "
+            f"(model n_embd={match.group('model')}, mmproj n_embd={match.group('mmproj')}). "
+            "Choose the mmproj file that belongs to the selected GGUF model."
+        )
+    if MTP_LOADER_MISMATCH_RE.search(str(stderr or "")):
+        return (
+            "This MTP/NVFP4 GGUF needs the current Unified llama.cpp runtime. "
+            "Refresh the local model after the b10252 runtime download completes; do not select an old vendor/llama.cpp runtime."
+        )
+    return ""

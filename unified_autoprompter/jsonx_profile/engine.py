@@ -10,13 +10,13 @@ from typing import Any
 
 from PIL import Image
 
-from .jsonx_backends import JsonXProviderError
-from .jsonx_backends import gemini as gemini_backend
-from .jsonx_backends import local_llama as local_llama_backend
-from .jsonx_backends import local_models
-from .jsonx_backends import ollama as ollama_backend
-from .jsonx_backends import openai_compatible as openai_backend
-from .jsonx_backends import runtime
+from .backends import JsonXProviderError
+from .backends import gemini as gemini_backend
+from .backends import local_llama as local_llama_backend
+from .backends import local_models
+from .backends import ollama as ollama_backend
+from .backends import openai_compatible as openai_backend
+from .backends import runtime
 
 
 PRESETS_PATH = Path(__file__).with_name("presets.json")
@@ -1138,6 +1138,20 @@ def natural_language_system_prompt(
     return f"{base}\n\nImage rule: {image_rule}\n\n{framing_rule}"
 
 
+def profile_image_mode_guidance(data: dict[str, Any], has_image: bool) -> str:
+    """Return the profile-specific image-mode addition without replacing core rules."""
+    key = "with_image_instructions" if has_image else "without_image_instructions"
+    text = str(data.get(key) or "").strip()
+    if len(text) > 50_000:
+        raise ValueError("JsonX image-mode instructions must be 50,000 characters or fewer.")
+    return text
+
+
+def append_profile_image_guidance(prompt: str, data: dict[str, Any], has_image: bool) -> str:
+    guidance = profile_image_mode_guidance(data, has_image)
+    return f"{prompt}\n\nProfile image-mode instructions:\n{guidance}" if guidance else prompt
+
+
 def instruction_templates() -> dict[str, Any]:
     return {
         "stage_one": DEFAULT_STAGE_ONE_INSTRUCTIONS,
@@ -1218,6 +1232,8 @@ def effective_instruction_preview(data: dict[str, Any]) -> dict[str, Any]:
             )
         )
         effective_preset_mode = context_mode
+    stage_one = append_profile_image_guidance(stage_one, data, has_image)
+    refinement = append_profile_image_guidance(refinement, data, has_image)
     return {
         "stage_one": stage_one,
         "refinement": refinement,
@@ -1579,18 +1595,59 @@ def _parse_or_repair(
             ) from repair_error
 
 
+def _normalize_natural_paragraphs(text: str) -> str:
+    """Turn Markdown list presentation into paragraphs without changing its words."""
+    output: list[str] = []
+    pending_items: list[str] = []
+
+    def flush_items() -> None:
+        if not pending_items:
+            return
+        sentences = []
+        for item in pending_items:
+            value = item.strip()
+            if value and value[-1:] not in ".!?;:":
+                value += "."
+            if value:
+                sentences.append(value)
+        if sentences:
+            output.append(" ".join(sentences))
+        pending_items.clear()
+
+    for line in text.splitlines():
+        item = re.match(r"^\s*(?:[-*+]\s+|\d+[.)]\s+)(.+?)\s*$", line)
+        if item:
+            pending_items.append(item.group(1))
+            continue
+        flush_items()
+        output.append(line.rstrip())
+    flush_items()
+    return "\n".join(output).strip()
+
+
 def validate_natural_prompt(raw: str) -> str:
     """Normalize one prose response and reject JSON or process-oriented output."""
     text = _strip_reasoning_blocks(raw).strip()
+    # Providers use several harmless language labels for a single prose fence.
+    # The content contract below, rather than the label, decides whether it is prose.
     fence = re.fullmatch(
-        r"```(?:text|plaintext|markdown)?\s*(.*?)\s*```",
+        r"```[^\r\n`]*\r?\n(.*?)\r?\n?```",
         text,
         flags=re.IGNORECASE | re.DOTALL,
     )
     if fence:
         text = fence.group(1).strip()
     elif "```" in text:
-        raise ValueError("Natural-language output must be plain prose or one generic text fence.")
+        raise ValueError("Natural-language output must be plain prose or one fenced text block.")
+
+    # A one-line handoff phrase is formatting, not semantic prompt content.
+    text = re.sub(
+        r"^\s*(?:here(?:'s| is)|certainly|sure)[^\r\n]*(?:prompt|response)[^\r\n]*:?\s*(?:\r?\n)+",
+        "",
+        text,
+        count=1,
+        flags=re.IGNORECASE,
+    ).strip()
     if not text:
         raise ValueError("Natural-language output is empty.")
 
@@ -1611,17 +1668,55 @@ def validate_natural_prompt(raw: str) -> str:
             continue
         if isinstance(embedded, (dict, list)):
             raise ValueError("Natural-language output contains mixed prose and JSON structure.")
-    if re.match(
-        r"^\s*(?:here(?:'s| is)|certainly|sure)[^\n]*(?:prompt|response)",
-        text,
-        flags=re.IGNORECASE,
-    ):
-        raise ValueError("Natural-language output contains assistant commentary before the prompt.")
     if re.match(r"^\s*(?:analysis|reasoning|process|debug)\s*:", text, flags=re.IGNORECASE):
         raise ValueError("Natural-language output contains process metadata.")
-    if re.search(r"^\s*(?:[-*+]\s+|\d+[.)]\s+)", text, flags=re.MULTILINE):
-        raise ValueError("Natural-language output must use prose paragraphs rather than bullet lists.")
-    return text
+    return _normalize_natural_paragraphs(text)
+
+
+def _natural_section_title(key: str) -> str:
+    """Format a JsonX root key as a readable prose-section heading."""
+    words = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", str(key or ""))
+    words = re.sub(r"[_\-]+", " ", words).strip()
+    return words.title() if words else "Prompt"
+
+
+def _natural_scalar_values(value: Any) -> list[str]:
+    """Collect every prompt-bearing leaf in source order without exposing paths."""
+    if value is None:
+        return []
+    if isinstance(value, dict):
+        return [item for child in value.values() for item in _natural_scalar_values(child)]
+    if isinstance(value, list):
+        return [item for child in value for item in _natural_scalar_values(child)]
+    if isinstance(value, bool):
+        return ["enabled"] if value else []
+    text = str(value).strip()
+    return [text] if text else []
+
+
+def natural_prompt_from_validated_jsonx(stage_one: dict[str, Any], user_prompt: str = "") -> str:
+    """Render a validated draft as prose when both model conversions fail.
+
+    Canonical leaf values already carry the visual wording that must be preserved;
+    JsonX paths remain internal implementation detail and are not exposed.
+    """
+    sections: list[str] = []
+    for key, value in stage_one.items():
+        leaves = _natural_scalar_values(value)
+        prose = ". ".join(item.rstrip(". ") for item in leaves if item.strip()).strip()
+        if not prose:
+            continue
+        if str(key).strip().lower() in {"negative", "negative_prompt", "avoid"}:
+            sections.append(f"## Avoid\nAvoid {prose}.")
+        else:
+            sections.append(f"## {_natural_section_title(str(key))}\n{prose}.")
+    if sections:
+        return validate_natural_prompt("\n\n".join(sections))
+
+    # A valid Stage 1 normally has leaves. Retain the original request rather
+    # than failing a successful generation if a custom schema is empty.
+    fallback = str(user_prompt or "").strip() or "Create the image described by the validated draft."
+    return validate_natural_prompt(f"## Prompt\n{fallback}")
 
 
 def _parse_or_repair_natural(
@@ -1636,14 +1731,15 @@ def _parse_or_repair_natural(
         return validate_natural_prompt(raw)
     except Exception as first_error:
         repair_system = (
-            natural_language_system_prompt(
+            append_profile_image_guidance(natural_language_system_prompt(
                 image is not None,
                 data.get("natural_language_instructions"),
                 bool(data.get("enable_framing_and_placement", False)),
-            )
+            ), data, image is not None)
             + "\n\nRepair rule: Rewrite the malformed response into the final natural-language prompt. "
             "Use the validated JsonX draft below as the complete semantic source of truth. "
-            "Preserve all of its non-null details and return prompt prose only."
+            "Preserve all of its non-null details and return prompt prose only. "
+            "Do not return JSON, a code fence, list markers, a preamble, or process commentary."
         )
         repair_user = (
             f"Validation error: {first_error}\n\n"
@@ -1687,16 +1783,14 @@ def _parse_or_repair_natural(
         try:
             return validate_natural_prompt(repaired)
         except Exception as repair_error:
-            raise JsonXGenerationError(
-                f"{stage} response and its repair were not valid natural-language prompt text.",
-                {
-                    "stage": stage,
-                    "initial_error": str(first_error),
-                    "raw_response": raw,
-                    "repair_error": str(repair_error),
-                    "repair_response": repaired,
-                },
-            ) from repair_error
+            # Stage 1 is canonical and contains every semantic detail. Do not
+            # discard it merely because a provider ignored both prose-only calls.
+            data["_natural_fallback_diagnostics"] = {
+                "stage": stage,
+                "initial_error": str(first_error),
+                "repair_error": str(repair_error),
+            }
+            return natural_prompt_from_validated_jsonx(stage_one, user_prompt)
 
 
 def _is_context_limit_error(error: Exception) -> bool:
@@ -1760,6 +1854,7 @@ def generate_jsonx(data: dict[str, Any]) -> dict[str, Any]:
             enable_framing_and_placement,
         )
         effective_preset_mode = context_mode
+    stage_one_prompt = append_profile_image_guidance(stage_one_prompt, data, image is not None)
     full_context_sent = effective_preset_mode == "full"
     user_prompt = instructions or "Describe the provided image as a complete JsonX prompt."
     if bool(data.get("refresh_vram", False)):
@@ -1823,11 +1918,11 @@ def generate_jsonx(data: dict[str, Any]) -> dict[str, Any]:
             natural_data["_gemini_response_mime_type"] = "text/plain"
             raw_natural = _call_provider(
                 natural_data,
-                natural_language_system_prompt(
+                append_profile_image_guidance(natural_language_system_prompt(
                     image is not None,
                     data.get("natural_language_instructions"),
                     enable_framing_and_placement,
-                ),
+                ), data, image is not None),
                 natural_user,
                 image,
             )
@@ -1851,7 +1946,7 @@ def generate_jsonx(data: dict[str, Any]) -> dict[str, Any]:
         try:
             raw_refined = _call_provider(
                 data,
-                template_fill_refinement_system_prompt(
+                append_profile_image_guidance((template_fill_refinement_system_prompt(
                     image is not None,
                     data.get("refinement_instructions"),
                     detail_level,
@@ -1863,7 +1958,7 @@ def generate_jsonx(data: dict[str, Any]) -> dict[str, Any]:
                     data.get("refinement_instructions"),
                     detail_level,
                     enable_framing_and_placement,
-                ),
+                )), data, image is not None),
                 refinement_user,
                 image,
             )
@@ -1882,6 +1977,9 @@ def generate_jsonx(data: dict[str, Any]) -> dict[str, Any]:
 
     result = {
         "prompt": final_output,
+        # Route code consumes this only to populate Unified's legacy negative
+        # output. It is removed before the HTTP response and never persisted.
+        "_stage_one": stage_one,
         "output_format": output_format,
         "generation_mode": generation_mode,
         "generation_profile": generation_profile,
@@ -1894,4 +1992,8 @@ def generate_jsonx(data: dict[str, Any]) -> dict[str, Any]:
     }
     if output_format == "json":
         result["prompt_json"] = final_output
+    natural_fallback_diagnostics = data.get("_natural_fallback_diagnostics")
+    if isinstance(natural_fallback_diagnostics, dict):
+        result["natural_fallback"] = True
+        result["diagnostics"] = natural_fallback_diagnostics
     return result

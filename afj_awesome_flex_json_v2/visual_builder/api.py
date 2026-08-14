@@ -2,6 +2,9 @@ import asyncio
 import copy
 import json
 import os
+import threading
+import time
+from pathlib import Path
 
 from . import jsonx_llm
 
@@ -32,6 +35,57 @@ _RESERVED_NAMES = {
     "LPT9",
 }
 
+_JSONX_INSTRUCTION_OVERRIDE_KEYS = (
+    "stage_one_instructions",
+    "template_fill_instructions",
+    "refinement_instructions",
+    "natural_language_instructions",
+)
+_JSONX_USER_SETTINGS_LOCK = threading.RLock()
+
+
+class JsonXCancellationRegistry:
+    """Short-lived, per-browser-request cancellation events for JsonX generation."""
+
+    _lock = threading.RLock()
+    _states: dict[str, dict[str, object]] = {}
+    _MAX_AGE_SECONDS = 600
+
+    @classmethod
+    def _prune(cls) -> None:
+        cutoff = time.monotonic() - cls._MAX_AGE_SECONDS
+        for key, state in list(cls._states.items()):
+            if float(state.get("updated", 0.0)) < cutoff:
+                cls._states.pop(key, None)
+
+    @classmethod
+    def begin(cls, generation_id: str) -> threading.Event:
+        with cls._lock:
+            cls._prune()
+            state = cls._states.setdefault(
+                generation_id,
+                {"event": threading.Event(), "updated": time.monotonic()},
+            )
+            state["updated"] = time.monotonic()
+            return state["event"]  # type: ignore[return-value]
+
+    @classmethod
+    def cancel(cls, generation_id: str) -> bool:
+        with cls._lock:
+            cls._prune()
+            state = cls._states.setdefault(
+                generation_id,
+                {"event": threading.Event(), "updated": time.monotonic()},
+            )
+            state["updated"] = time.monotonic()
+            state["event"].set()  # type: ignore[union-attr]
+            return True
+
+    @classmethod
+    def finish(cls, generation_id: str) -> None:
+        with cls._lock:
+            cls._states.pop(generation_id, None)
+
 
 def _base_dir():
     return os.path.dirname(__file__)
@@ -43,6 +97,64 @@ def _presets_path():
 
 def _templates_dir():
     return os.path.join(_base_dir(), "templates")
+
+
+def _jsonx_user_settings_path() -> Path:
+    """Return the per-user JsonX settings file, never the workflow/package path."""
+    import folder_paths
+
+    user_directory = Path(folder_paths.get_user_directory()).resolve()
+    return user_directory / "workflowx" / "jsonx_settings.json"
+
+
+def _empty_jsonx_instruction_overrides() -> dict[str, str]:
+    return {key: "" for key in _JSONX_INSTRUCTION_OVERRIDE_KEYS}
+
+
+def _normalize_jsonx_instruction_overrides(value) -> dict[str, str]:
+    source = value if isinstance(value, dict) else {}
+    normalized = _empty_jsonx_instruction_overrides()
+    for key in _JSONX_INSTRUCTION_OVERRIDE_KEYS:
+        item = source.get(key, "")
+        if not isinstance(item, str):
+            raise ValueError(f"JsonX instruction override '{key}' must be a string.")
+        text = item.strip()
+        if len(text) > 50_000:
+            raise ValueError(f"JsonX instruction override '{key}' is limited to 50,000 characters.")
+        normalized[key] = text
+    return normalized
+
+
+def load_jsonx_user_instruction_overrides() -> dict[str, str]:
+    """Load non-secret JsonX instruction overrides from the ComfyUI user profile."""
+    path = _jsonx_user_settings_path()
+    with _JSONX_USER_SETTINGS_LOCK:
+        if not path.is_file():
+            return _empty_jsonx_instruction_overrides()
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            return _normalize_jsonx_instruction_overrides(
+                data.get("instruction_overrides") if isinstance(data, dict) else {},
+            )
+        except (OSError, ValueError, json.JSONDecodeError):
+            # A malformed optional profile file must not prevent JsonX from loading.
+            return _empty_jsonx_instruction_overrides()
+
+
+def save_jsonx_user_instruction_overrides(value) -> dict[str, str]:
+    """Atomically persist non-secret overrides under ComfyUI/user/workflowx."""
+    overrides = _normalize_jsonx_instruction_overrides(value)
+    path = _jsonx_user_settings_path()
+    payload = {"version": 1, "instruction_overrides": overrides}
+    with _JSONX_USER_SETTINGS_LOCK:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix(".tmp")
+        temporary.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(temporary, path)
+    return overrides
 
 
 def _ensure_templates_dir():
@@ -842,6 +954,27 @@ def register_visual_builder_routes(app):
     async def jsonx_instruction_templates_handler(request):
         return web.json_response(jsonx_llm.instruction_templates())
 
+    async def jsonx_user_settings_handler(request):
+        try:
+            return web.json_response(
+                {"instruction_overrides": load_jsonx_user_instruction_overrides()}
+            )
+        except Exception as exc:
+            return web.json_response({"error": str(exc)}, status=500)
+
+    async def jsonx_user_settings_save_handler(request):
+        try:
+            body = await request.json()
+            body = body if isinstance(body, dict) else {}
+            overrides = save_jsonx_user_instruction_overrides(
+                body.get("instruction_overrides")
+            )
+            return web.json_response({"instruction_overrides": overrides})
+        except ValueError as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+        except Exception as exc:
+            return web.json_response({"error": str(exc)}, status=500)
+
     async def jsonx_instruction_preview_handler(request):
         try:
             body = await request.json()
@@ -911,11 +1044,22 @@ def register_visual_builder_routes(app):
             return web.json_response({"error": str(exc)}, status=400)
 
     async def jsonx_generate_handler(request):
+        generation_id = ""
         try:
             body = await request.json()
+            body = body if isinstance(body, dict) else {}
+            generation_id = str(body.get("generation_id") or "").strip()
+            if not generation_id or len(generation_id) > 128:
+                return web.json_response({"error": "Invalid JsonX generation ID."}, status=400)
+            body["_cancel_event"] = JsonXCancellationRegistry.begin(generation_id)
             loop = asyncio.get_event_loop()
             result = await loop.run_in_executor(None, jsonx_llm.generate_jsonx, body)
             return web.json_response(result)
+        except jsonx_llm.JsonXGenerationCancelled:
+            return web.json_response(
+                {"error": "JsonX generation cancelled.", "cancelled": True},
+                status=409,
+            )
         except jsonx_llm.JsonXGenerationError as exc:
             return web.json_response(
                 {"error": str(exc), "diagnostics": exc.diagnostics},
@@ -923,6 +1067,20 @@ def register_visual_builder_routes(app):
             )
         except Exception as exc:
             return web.json_response({"error": str(exc)}, status=400)
+        finally:
+            if generation_id:
+                JsonXCancellationRegistry.finish(generation_id)
+
+    async def jsonx_cancel_handler(request):
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        generation_id = str(body.get("generation_id") or "").strip() if isinstance(body, dict) else ""
+        if not generation_id or len(generation_id) > 128:
+            return web.json_response({"error": "Invalid JsonX generation ID."}, status=400)
+        JsonXCancellationRegistry.cancel(generation_id)
+        return web.json_response({"cancelled": True, "generation_id": generation_id})
 
     if "/fluxvisual/presets" not in route_paths:
         app.router.add_get("/fluxvisual/presets", presets_handler)
@@ -940,6 +1098,10 @@ def register_visual_builder_routes(app):
         app.router.add_get("/workflowx/jsonx/presets/info", jsonx_presets_info_handler)
     if "/workflowx/jsonx/instructions" not in route_paths:
         app.router.add_get("/workflowx/jsonx/instructions", jsonx_instruction_templates_handler)
+    if "/workflowx/jsonx/user-settings" not in route_paths:
+        app.router.add_get("/workflowx/jsonx/user-settings", jsonx_user_settings_handler)
+    if ("POST", "/workflowx/jsonx/user-settings") not in route_methods:
+        app.router.add_post("/workflowx/jsonx/user-settings", jsonx_user_settings_save_handler)
     if "/workflowx/jsonx/instructions/preview" not in route_paths:
         app.router.add_post("/workflowx/jsonx/instructions/preview", jsonx_instruction_preview_handler)
     if ("GET", "/workflowx/jsonx/local/models") not in route_methods:
@@ -954,5 +1116,7 @@ def register_visual_builder_routes(app):
         app.router.add_post("/workflowx/jsonx/ollama/models", jsonx_ollama_models_handler)
     if "/workflowx/jsonx/generate" not in route_paths:
         app.router.add_post("/workflowx/jsonx/generate", jsonx_generate_handler)
+    if "/workflowx/jsonx/cancel" not in route_paths:
+        app.router.add_post("/workflowx/jsonx/cancel", jsonx_cancel_handler)
 
     print("[JsonX] Registered legacy-compatible /fluxvisual API routes.")

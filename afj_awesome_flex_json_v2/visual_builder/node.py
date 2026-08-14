@@ -4,7 +4,7 @@ import random
 import re
 
 from .api import convert_prompt_json_text_to_template, load_visual_presets, load_visual_templates
-from .jsonx_llm import parse_prompt_json
+from .jsonx_llm import enforce_framing_and_placement, parse_prompt_json
 
 
 DEFAULT_PROMPT = {}
@@ -496,7 +496,7 @@ class AFJPromptTemplateImporterNode:
 class LLMToJsonXNode:
     CATEGORY = "WorkflowX/Prompting/JsonX"
     RETURN_TYPES = ("STRING",)
-    RETURN_NAMES = ("prompt_json",)
+    RETURN_NAMES = ("prompt",)
     FUNCTION = "build"
 
     @classmethod
@@ -515,7 +515,7 @@ class LLMToJsonXNode:
                 "preset_context_mode": (["optimized", "full"], {"default": "optimized"}),
                 "generated_prompt_json": (
                     "STRING",
-                    {"multiline": True, "default": "{}", "tooltip": "Managed by the JsonX generation UI."},
+                    {"multiline": True, "default": "{}", "tooltip": "Managed final output from the JsonX generation UI."},
                 ),
             },
             "optional": {
@@ -526,6 +526,41 @@ class LLMToJsonXNode:
                         "multiline": True,
                         "default": "{}",
                         "tooltip": "Managed by the JsonX UI. Credentials are never stored here.",
+                    },
+                ),
+                "enable_framing_and_placement": (
+                    "BOOLEAN",
+                    {
+                        "default": False,
+                        "tooltip": "UI-managed per-node setting for the optional 3x3 rule-of-thirds framing map.",
+                    },
+                ),
+                "output_format": (
+                    ["json", "natural"],
+                    {
+                        "default": "json",
+                        "tooltip": "UI-managed per-node final output format.",
+                    },
+                ),
+                "generation_profile": (
+                    ["adaptive", "template_fill"],
+                    {
+                        "default": "adaptive",
+                        "tooltip": "UI-managed per-node JsonX generation profile.",
+                    },
+                ),
+                "template_use_presets": (
+                    "BOOLEAN",
+                    {
+                        "default": False,
+                        "tooltip": "UI-managed per-node Template Fill preset-context setting.",
+                    },
+                ),
+                "detail_level": (
+                    ["deep", "exhaustive"],
+                    {
+                        "default": "deep",
+                        "tooltip": "UI-managed per-node JsonX hierarchy depth.",
                     },
                 ),
             },
@@ -539,7 +574,31 @@ class LLMToJsonXNode:
         generated_prompt_json="{}",
         image=None,
         ui_state="{}",
+        enable_framing_and_placement=False,
+        output_format="json",
+        generation_profile="adaptive",
+        template_use_presets=False,
+        detail_level="deep",
     ):
-        _ = (user_instructions, generation_mode, preset_context_mode, image, ui_state)
+        _ = (
+            user_instructions,
+            generation_mode,
+            preset_context_mode,
+            image,
+            ui_state,
+            enable_framing_and_placement,
+            generation_profile,
+            template_use_presets,
+            detail_level,
+        )
+        format_name = str(output_format or "json").strip().lower()
+        if format_name == "natural":
+            return (str(generated_prompt_json or "").strip(),)
+        if format_name != "json":
+            raise ValueError(f"Unsupported JsonX output format: {format_name}")
         prompt = parse_prompt_json(str(generated_prompt_json or "{}").strip() or "{}")
+        prompt = enforce_framing_and_placement(
+            prompt,
+            bool(enable_framing_and_placement),
+        )
         return (json.dumps(prompt, indent=2, ensure_ascii=False),)

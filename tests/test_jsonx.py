@@ -4,6 +4,7 @@ import importlib
 import hashlib
 import json
 import pathlib
+import threading
 import types
 
 from PIL import Image
@@ -11,7 +12,7 @@ from PIL import Image
 from test_packaging import ROOT, _load_package
 
 
-EXPECTED_PRESET_SHA256 = "F8DF0D674C501534C544C4769570F40BE2DAF5559896C5648B1343D7F4E2B247"
+EXPECTED_PRESET_SHA256 = "EFC4B7C2B24394EF33F632A688DB6FEC9911696395BCA8CABECB6B559B9F0A14"
 
 
 def _modules():
@@ -31,13 +32,23 @@ def test_provided_presets_are_the_verbatim_jsonx_source():
     path = ROOT / "afj_awesome_flex_json_v2" / "visual_builder" / "presets.json"
     raw_bytes = path.read_bytes()
     raw = raw_bytes.decode("utf-8")
-    assert len(raw_bytes) == 116_717
+    assert len(raw_bytes) == 125_143
     assert hashlib.sha256(raw_bytes).hexdigest().upper() == EXPECTED_PRESET_SHA256
     assert llm.raw_presets_text() == raw
     assert llm.load_presets() == json.loads(raw.lstrip("\ufeff"))
     assert llm.preset_schema_paths()
     presets = llm.load_presets()
+    leaves = llm.flatten_preset_leaves(presets)
+    preset_ids = [preset_id for options in leaves.values() for preset_id in options]
+    assert len(preset_ids) == len(set(preset_ids)), "JsonX preset IDs must be globally unique"
     assert "negative_prompts" in presets
+    assert list(presets).index("camera") < list(presets).index("framing_and_placement")
+    assert list(presets).index("framing_and_placement") < list(presets).index("mood")
+    assert list(presets["framing_and_placement"]) == list(llm.FRAMING_AND_PLACEMENT_KEYS)
+    assert all(
+        len(options) == 7
+        for options in presets["framing_and_placement"].values()
+    )
     tree = api._build_starter_tree(api._new_id_factory(), presets)
     actual_roots = [child["key"] for child in tree["children"]]
     expected_roots = [
@@ -45,6 +56,69 @@ def test_provided_presets_are_the_verbatim_jsonx_source():
         for key in presets
     ]
     assert actual_roots == [*expected_roots, "negative"]
+
+
+def test_jsonx_generation_cancellation_skips_the_provider_call(monkeypatch):
+    _package, _api, llm = _modules()
+    cancelled = threading.Event()
+    cancelled.set()
+    monkeypatch.setattr(
+        llm,
+        "_call_provider",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("provider should not run")),
+    )
+    try:
+        llm.generate_jsonx(
+            {
+                "user_instructions": "quiet beach portrait",
+                "_cancel_event": cancelled,
+            }
+        )
+    except llm.JsonXGenerationCancelled as error:
+        assert "cancelled" in str(error).lower()
+    else:
+        raise AssertionError("Expected JsonX generation cancellation")
+
+
+def test_jsonx_local_cancellation_reaches_the_isolated_llama_backend(monkeypatch):
+    _package, _api, llm = _modules()
+    cancelled = threading.Event()
+    received = {}
+
+    def fake_generate(**kwargs):
+        received.update(kwargs)
+        cancelled.set()
+        raise RuntimeError("JsonX local generation cancelled.")
+
+    monkeypatch.setattr(llm.local_llama_backend, "generate", fake_generate)
+    try:
+        llm._call_provider(
+            {
+                "backend": "local",
+                "model": "test.gguf",
+                "_cancel_event": cancelled,
+            },
+            "system",
+            "user",
+            None,
+        )
+    except llm.JsonXGenerationCancelled:
+        pass
+    else:
+        raise AssertionError("Expected local JsonX cancellation")
+    assert received["cancel_event"] is cancelled
+
+
+def test_jsonx_cancellation_registry_preserves_an_early_cancel_until_generation_begins():
+    _package, api, _llm = _modules()
+    generation_id = "jsonx-test-cancel-registry"
+    api.JsonXCancellationRegistry.finish(generation_id)
+    assert api.JsonXCancellationRegistry.cancel(generation_id) is True
+    event = api.JsonXCancellationRegistry.begin(generation_id)
+    assert event.is_set()
+    api.JsonXCancellationRegistry.finish(generation_id)
+    assert not api.JsonXCancellationRegistry.begin(generation_id).is_set()
+    api.JsonXCancellationRegistry.finish(generation_id)
 
 
 def test_starter_tree_discovers_future_root_subject_and_interaction_categories():
@@ -164,6 +238,34 @@ def test_template_fill_context_sends_no_presets_or_full_verbatim_presets():
     assert chars_without == chars_with == len(raw)
 
 
+def test_framing_map_is_an_opt_in_template_fill_root():
+    _package, _api, llm = _modules()
+    presets = {
+        "scene": {"environment": {"env_home": "home interior"}},
+        "framing_and_placement": {
+            key: {f"frame_{key}": f"content in {key}"}
+            for key in llm.FRAMING_AND_PLACEMENT_KEYS
+        },
+    }
+    disabled = llm.template_fill_hierarchy(presets)
+    enabled = llm.template_fill_hierarchy(
+        presets,
+        enable_framing_and_placement=True,
+    )
+    assert "framing_and_placement" not in disabled
+    assert enabled["framing_and_placement"] == {
+        key: None for key in llm.FRAMING_AND_PLACEMENT_KEYS
+    }
+
+    context, _chars = llm.template_fill_context(
+        False,
+        enable_framing_and_placement=True,
+    )
+    assert '"framing_and_placement"' in context
+    assert '"top_left": null' in context
+    assert "Complete JsonX presets.json (verbatim):" not in context
+
+
 def test_deep_instruction_contract_and_effective_preview():
     _package, _api, llm = _modules()
     prompt = llm.stage_one_system_prompt("CATALOG", True, detail_level="deep")
@@ -200,6 +302,20 @@ def test_deep_instruction_contract_and_effective_preview():
     assert "custom JsonX paths and values are valid prompt content" in exhaustive["refinement"]
     assert exhaustive["detail_level"] == "exhaustive"
     assert exhaustive["stage_one_characters"] == len(exhaustive["stage_one"])
+    assert exhaustive["enable_framing_and_placement"] is False
+    assert "Framing and placement map is disabled" in exhaustive["stage_one"]
+
+    framed_adaptive = llm.effective_instruction_preview(
+        {
+            "user_instructions": "portrait on the right third",
+            "enable_framing_and_placement": True,
+        }
+    )
+    assert framed_adaptive["enable_framing_and_placement"] is True
+    assert "Framing and placement map is enabled and mandatory" in framed_adaptive["stage_one"]
+    assert "top_left, top_center, top_right" in framed_adaptive["stage_one"]
+    assert "Do not output numeric coordinates or bounding boxes" in framed_adaptive["stage_one"]
+    assert "Framing and placement map is enabled and mandatory" in framed_adaptive["refinement"]
 
     template = llm.effective_instruction_preview(
         {
@@ -208,6 +324,7 @@ def test_deep_instruction_contract_and_effective_preview():
             "template_use_presets": False,
             "preset_context_mode": "full",
             "has_image": True,
+            "enable_framing_and_placement": True,
         }
     )
     assert template["generation_profile"] == "template_fill"
@@ -215,7 +332,10 @@ def test_deep_instruction_contract_and_effective_preview():
     assert "Blank JsonX hierarchy to fill:" in template["stage_one"]
     assert "Complete JsonX presets.json (verbatim):" not in template["stage_one"]
     assert "Leave a leaf as JSON `null`" in template["stage_one"]
+    assert '"framing_and_placement"' in template["stage_one"]
+    assert '"bottom_right": null' in template["stage_one"]
     assert "Template Fill refinement constraint" in template["refinement"]
+    assert template["enable_framing_and_placement"] is True
 
     template_with_presets = llm.effective_instruction_preview(
         {
@@ -227,6 +347,43 @@ def test_deep_instruction_contract_and_effective_preview():
     assert template_with_presets["preset_context_mode"] == "full"
     assert template_with_presets["stage_one"].endswith(llm.raw_presets_text())
     assert "If no preset value is suitable" in template_with_presets["stage_one"]
+
+
+def test_natural_instruction_preview_exposes_forced_two_pass_contract():
+    _package, _api, llm = _modules()
+    templates = llm.instruction_templates()
+    assert templates["default_output_format"] == "json"
+    assert templates["output_formats"] == ["json", "natural"]
+    assert "Return only the final prompt text" in templates["natural_language"]
+
+    adaptive = llm.effective_instruction_preview(
+        {
+            "user_instructions": "a quiet beach portrait",
+            "generation_profile": "adaptive",
+            "generation_mode": "fast",
+            "output_format": "natural",
+            "enable_framing_and_placement": True,
+        }
+    )
+    assert adaptive["output_format"] == "natural"
+    assert adaptive["generation_mode"] == "refined"
+    assert adaptive["forced_two_pass"] is True
+    assert "Return only the final prompt text" in adaptive["refinement"]
+    assert "all nine named regions" in adaptive["refinement"]
+    assert "Complete JsonX presets.json (verbatim):" not in adaptive["refinement"]
+
+    template = llm.effective_instruction_preview(
+        {
+            "generation_profile": "template_fill",
+            "template_use_presets": True,
+            "output_format": "natural",
+            "natural_language_instructions": "CUSTOM NATURAL CONTRACT",
+        }
+    )
+    assert template["generation_mode"] == "refined"
+    assert template["preset_context_mode"] == "full"
+    assert template["refinement"].startswith("CUSTOM NATURAL CONTRACT")
+    assert "Complete JsonX presets.json (verbatim):" not in template["refinement"]
 
 
 def test_custom_instructions_are_transient_and_generation_receives_depth(monkeypatch):
@@ -357,6 +514,91 @@ def test_canonicalizer_preserves_custom_expansion_beside_catalog_scalar_leaf():
     }
 
 
+def test_nested_leaf_detail_names_do_not_collide_with_catalog_siblings():
+    _package, _api, llm = _modules()
+    presets = {
+        "lighting": {
+            "shadows": {"shadow_soft": "soft shallow shadows"},
+            "highlights": {"highlight_gentle": "gentle highlights"},
+            "intensity": {"intensity_moderate": "moderate exposure"},
+        }
+    }
+    prompt = {
+        "lighting": {
+            "shadows": {
+                "intensity": "very soft",
+                "definition": "subtle",
+                "location": "under chin and arms",
+            },
+            "highlights": {
+                "intensity": "gentle",
+                "location": "shoulders and cheekbones",
+            },
+        }
+    }
+    assert llm.canonicalize_prompt_structure(prompt, presets) == {
+        "lighting": {
+            "shadows_details": {
+                "intensity": "very soft",
+                "definition": "subtle",
+                "location": "under chin and arms",
+            },
+            "highlights_details": {
+                "intensity": "gentle",
+                "location": "shoulders and cheekbones",
+            },
+        }
+    }
+
+
+def test_leaf_object_moves_sibling_only_with_explicit_preset_evidence():
+    _package, _api, llm = _modules()
+    presets = {
+        "scene": {
+            "environment": {"env_home": "home interior"},
+            "background": {"bg_blur": "softly blurred background"},
+        }
+    }
+    assert llm.canonicalize_prompt_structure(
+        {"scene": {"environment": {"background": {"bg_blur": "model wording"}}}},
+        presets,
+    ) == {"scene": {"background": "softly blurred background"}}
+
+
+def test_unknown_child_stays_inside_established_nested_catalog_branch():
+    _package, _api, llm = _modules()
+    presets = {
+        "subject": {
+            "properties": {
+                "skin": {"texture": {"skin_natural": "natural skin texture"}},
+                "hair": {
+                    "color": {"hair_black": "black hair"},
+                    "style": {"hair_pony": "low ponytail"},
+                },
+            }
+        }
+    }
+    prompt = {
+        "subjects": [
+            {
+                "properties": {
+                    "skin": {"texture": "visible natural pores"},
+                    "hair": {
+                        "color": "black",
+                        "style": "low ponytail",
+                        "texture": "straight with slightly wavy ends",
+                    },
+                }
+            }
+        ]
+    }
+    canonical = llm.canonicalize_prompt_structure(prompt, presets)
+    assert canonical["subjects"][0]["properties"]["skin"]["texture"] == "visible natural pores"
+    assert canonical["subjects"][0]["properties"]["hair"]["texture"] == (
+        "straight with slightly wavy ends"
+    )
+
+
 def test_canonicalizer_converts_internal_id_keys_and_subject_alias():
     _package, _api, llm = _modules()
     presets = {
@@ -387,6 +629,144 @@ def test_canonicalizer_converts_internal_id_keys_and_subject_alias():
         },
         "subjects": [{"pose": {"action": "waving toward camera"}}],
     }
+
+
+def test_canonicalizer_merges_compatible_duplicate_leaf_aliases():
+    _package, _api, llm = _modules()
+    presets = {
+        "subject": {
+            "pose": {
+                "contact_points": {
+                    "contact_hand_on_knee": "hand resting on own knee",
+                    "contact_seated_floor": "seated, contact with floor",
+                    "contact_none": "no contact with environment",
+                }
+            }
+        }
+    }
+    prompt = {
+        "subjects": [
+            {
+                "pose": {
+                    "contact_points": "seated on a white towel",
+                    "contact_hand_on_knee": "ignored model explanation",
+                }
+            }
+        ]
+    }
+
+    assert llm.canonicalize_prompt_structure(prompt, presets) == {
+        "subjects": [
+            {
+                "pose": {
+                    "contact_points": "seated on a white towel; hand resting on own knee"
+                }
+            }
+        ]
+    }
+
+
+def test_canonicalizer_uses_parent_context_for_reused_preset_ids():
+    _package, _api, llm = _modules()
+    presets = {
+        "subject": {
+            "properties": {
+                "hair": {"temple": {"temple_from_reference": "soft hair at temples"}},
+                "face": {"temple_width": {"temple_from_reference": "medium temple width"}},
+            }
+        },
+        "mood": {"tension": {"tension_neutral": "neutral emotional tension"}},
+        "subject_extra": {"not_used": {"tension_neutral": "unrelated value"}},
+    }
+    prompt = {
+        "subjects": [
+            {
+                "properties": {
+                    "hair": {"temple_from_reference": "ignored model explanation"},
+                    "face": {"temple_from_reference": "ignored model explanation"},
+                }
+            }
+        ]
+    }
+
+    assert llm.canonicalize_prompt_structure(prompt, presets) == {
+        "subjects": [
+            {
+                "properties": {
+                    "hair": {"temple": "soft hair at temples"},
+                    "face": {"temple_width": "medium temple width"},
+                }
+            }
+        ]
+    }
+
+
+def test_canonicalizer_accepts_path_scoped_legacy_preset_ids_after_catalog_cleanup():
+    _package, _api, llm = _modules()
+    canonical = llm.canonicalize_prompt_structure(
+        {
+            "subjects": [
+                {
+                    "properties": {
+                        "hair": {"temple_from_reference": "legacy model output"},
+                        "face": {"temple_from_reference": "legacy model output"},
+                    }
+                }
+            ],
+            "interactions": {"type": {"romantic": "legacy model output"}},
+        }
+    )
+
+    assert canonical["subjects"][0]["properties"]["hair"]["temple"] == (
+        "temple hair design from reference image"
+    )
+    assert canonical["subjects"][0]["properties"]["face"]["temple_width"] == (
+        "temple width from reference image"
+    )
+    assert canonical["interactions"]["type"] == "romantic interaction dynamic"
+
+
+def test_canonicalizer_keeps_distinct_catalog_choices_and_no_contact_conflicts_invalid():
+    _package, _api, llm = _modules()
+    presets = {
+        "subject": {
+            "pose": {
+                "contact_points": {
+                    "contact_hand_on_knee": "hand resting on own knee",
+                    "contact_seated_floor": "seated, contact with floor",
+                    "contact_none": "no contact with environment",
+                }
+            }
+        }
+    }
+    conflicting_ids = {
+        "subjects": [
+            {
+                "pose": {
+                    "contact_hand_on_knee": "ignored",
+                    "contact_seated_floor": "ignored",
+                }
+            }
+        ]
+    }
+    conflicting_no_contact = {
+        "subjects": [
+            {
+                "pose": {
+                    "contact_points": "no contact with environment",
+                    "contact_hand_on_knee": "ignored",
+                }
+            }
+        ]
+    }
+
+    for prompt in (conflicting_ids, conflicting_no_contact):
+        try:
+            llm.canonicalize_prompt_structure(prompt, presets)
+        except ValueError as error:
+            assert "subjects.0.pose.contact_points" in str(error)
+        else:
+            raise AssertionError("Expected a true contact-point conflict to remain invalid")
 
 
 def test_prompt_parser_enforces_prompt_only_json_contract():
@@ -421,6 +801,185 @@ def test_prompt_parser_enforces_prompt_only_json_contract():
     assert normalized["scene"]["environment"] == "interior of a modern home, natural lived-in environment"
 
 
+def test_natural_word_matching_unrelated_preset_id_is_allowed():
+    _package, _api, llm = _modules()
+    leaves = {
+        "scene.weather.wind": {"wind_still": "still air"},
+        "interaction_suggestions.energy": {"calm": "calm interaction"},
+    }
+    prompt = {"scene": {"weather": {"wind": "calm"}}}
+    assert llm.validate_canonical_prompt(prompt, leaves) == prompt
+
+    try:
+        llm.validate_canonical_prompt(
+            {"interactions": {"energy": "calm"}},
+            leaves,
+        )
+    except ValueError as error:
+        assert "interaction_suggestions.energy" in str(error)
+    else:
+        raise AssertionError("Expected a same-path preset ID to remain invalid")
+
+
+def test_framing_map_gate_requires_exactly_nine_non_empty_scalar_regions():
+    _package, _api, llm = _modules()
+    framing = {
+        key: f"specific visible content in the {key.replace('_', ' ')} region"
+        for key in llm.FRAMING_AND_PLACEMENT_KEYS
+    }
+    prompt = {"scene": {"environment": "beach"}, "framing_and_placement": framing}
+    enabled = llm.enforce_framing_and_placement(prompt, True)
+    assert list(enabled["framing_and_placement"]) == list(llm.FRAMING_AND_PLACEMENT_KEYS)
+    assert "framing_and_placement" not in llm.enforce_framing_and_placement(prompt, False)
+
+    invalid_maps = [
+        None,
+        {key: value for key, value in framing.items() if key != "bottom_right"},
+        {**framing, "outside_grid": "invalid extra region"},
+        {**framing, "center": ""},
+        {**framing, "center": {"subject": "nested value"}},
+    ]
+    for invalid in invalid_maps:
+        try:
+            llm.enforce_framing_and_placement(
+                {"framing_and_placement": invalid},
+                True,
+            )
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"Expected invalid framing map to fail: {invalid!r}")
+
+
+def test_framing_map_generation_gate_and_same_provider_repair(monkeypatch):
+    _package, _api, llm = _modules()
+    framing = {
+        key: f"coherent visible image content in the {key.replace('_', ' ')} region"
+        for key in llm.FRAMING_AND_PLACEMENT_KEYS
+    }
+    valid_response = json.dumps(
+        {
+            "scene": {"environment": "quiet beach"},
+            "framing_and_placement": framing,
+        }
+    )
+    calls = []
+    responses = iter([valid_response])
+
+    def fake_call(data, system, user, image):
+        calls.append((system, user))
+        return next(responses)
+
+    monkeypatch.setattr(llm, "_call_provider", fake_call)
+    enabled = llm.generate_jsonx(
+        {
+            "user_instructions": "compose a quiet beach portrait",
+            "enable_framing_and_placement": True,
+        }
+    )
+    assert json.loads(enabled["prompt_json"])["framing_and_placement"] == framing
+    assert enabled["enable_framing_and_placement"] is True
+    assert "Framing and placement map is enabled and mandatory" in calls[0][0]
+
+    calls.clear()
+    responses = iter([valid_response])
+    disabled = llm.generate_jsonx(
+        {
+            "user_instructions": "compose a quiet beach portrait",
+            "enable_framing_and_placement": False,
+        }
+    )
+    assert "framing_and_placement" not in json.loads(disabled["prompt_json"])
+    assert disabled["enable_framing_and_placement"] is False
+    assert "Framing and placement map is disabled" in calls[0][0]
+
+    calls.clear()
+    responses = iter([
+        '{"scene":{"environment":"quiet beach"}}',
+        valid_response,
+    ])
+    repaired = llm.generate_jsonx(
+        {
+            "user_instructions": "compose a quiet beach portrait",
+            "enable_framing_and_placement": True,
+        }
+    )
+    assert len(calls) == 2
+    assert "smallest possible edits" in calls[1][0]
+    assert "exactly these nine scalar string leaves" in calls[1][0]
+    assert len(json.loads(repaired["prompt_json"])["framing_and_placement"]) == 9
+
+    calls.clear()
+    refined_framing = dict(framing)
+    refined_framing["center"] = "the primary subject forms the coherent central focal region"
+    responses = iter([
+        valid_response,
+        json.dumps(
+            {
+                "scene": {"environment": "quiet beach"},
+                "framing_and_placement": refined_framing,
+            }
+        ),
+    ])
+    refined = llm.generate_jsonx(
+        {
+            "user_instructions": "compose a quiet beach portrait",
+            "generation_mode": "refined",
+            "enable_framing_and_placement": True,
+        }
+    )
+    assert len(calls) == 2
+    assert json.loads(refined["prompt_json"])["framing_and_placement"]["center"] == (
+        refined_framing["center"]
+    )
+    assert "Framing and placement map is enabled and mandatory" in calls[1][0]
+
+
+def test_template_fill_generation_includes_enabled_framing_map(monkeypatch):
+    _package, _api, llm = _modules()
+    framing = {
+        key: f"complete final-image description for {key.replace('_', ' ')}"
+        for key in llm.FRAMING_AND_PLACEMENT_KEYS
+    }
+    calls = []
+
+    def fake_call(data, system, user, image):
+        calls.append(system)
+        return json.dumps(
+            {
+                "scene": {"environment": "studio portrait"},
+                "framing_and_placement": framing,
+            }
+        )
+
+    monkeypatch.setattr(llm, "_call_provider", fake_call)
+    result = llm.generate_jsonx(
+        {
+            "user_instructions": "studio portrait",
+            "generation_profile": "template_fill",
+            "template_use_presets": False,
+            "enable_framing_and_placement": True,
+        }
+    )
+    assert json.loads(result["prompt_json"])["framing_and_placement"] == framing
+    assert '"framing_and_placement"' in calls[0]
+    assert "Complete JsonX presets.json (verbatim):" not in calls[0]
+
+    calls.clear()
+    refined = llm.generate_jsonx(
+        {
+            "user_instructions": "studio portrait",
+            "generation_mode": "refined",
+            "generation_profile": "template_fill",
+            "template_use_presets": False,
+            "enable_framing_and_placement": True,
+        }
+    )
+    assert len(calls) == 2
+    assert json.loads(refined["prompt_json"])["framing_and_placement"] == framing
+    assert "Template Fill refinement constraint" in calls[1]
+
+
 def test_fast_and_refined_generation_call_counts_and_repair(monkeypatch):
     _package, _api, llm = _modules()
     monkeypatch.setattr(llm, "build_preset_context", lambda mode, text: ("context", 42))
@@ -449,6 +1008,184 @@ def test_fast_and_refined_generation_call_counts_and_repair(monkeypatch):
     result = llm.generate_jsonx({"user_instructions": "clear scene", "generation_mode": "fast"})
     assert json.loads(result["prompt_json"])["scene"]["weather"] == "repaired"
     assert len(calls) == 2
+
+
+def test_natural_output_uses_validated_json_then_refined_prose(monkeypatch):
+    _package, _api, llm = _modules()
+    framing = {
+        key: f"visible composition detail in the {key.replace('_', ' ')} region"
+        for key in llm.FRAMING_AND_PLACEMENT_KEYS
+    }
+    monkeypatch.setattr(
+        llm,
+        "build_preset_context",
+        lambda mode, text: ("STAGE_ONE_PRESET_SENTINEL", 42),
+    )
+    calls = []
+    responses = iter(
+        [
+            json.dumps(
+                {
+                    "scene": {"environment": "quiet beach", "weather": "soft overcast"},
+                    "subjects": [{"identity": {"description": "one seated woman"}}],
+                    "negative": {"artifacts": "avoid distorted hands"},
+                    "framing_and_placement": framing,
+                }
+            ),
+            "## Scene\nA quiet beach under soft overcast light.\n\n"
+            "## Subjects\nOne woman sits calmly in the scene.\n\n"
+            "## Avoid\nAvoid distorted hands.",
+        ]
+    )
+
+    def fake_call(data, system, user, image):
+        calls.append((system, user, image))
+        return next(responses)
+
+    monkeypatch.setattr(llm, "_call_provider", fake_call)
+    result = llm.generate_jsonx(
+        {
+            "user_instructions": "a seated woman on a quiet beach",
+            "generation_mode": "fast",
+            "output_format": "natural",
+            "enable_framing_and_placement": True,
+        }
+    )
+
+    assert len(calls) == 2
+    assert result["generation_mode"] == "refined"
+    assert result["output_format"] == "natural"
+    assert result["prompt"].startswith("## Scene")
+    assert "prompt_json" not in result
+    assert "STAGE_ONE_PRESET_SENTINEL" in calls[0][0]
+    assert "STAGE_ONE_PRESET_SENTINEL" not in calls[1][0]
+    assert "STAGE_ONE_PRESET_SENTINEL" not in calls[1][1]
+    assert "Validated JsonX draft to convert" in calls[1][1]
+    assert '"quiet beach"' in calls[1][1]
+    assert '"bottom_right"' in calls[1][1]
+    assert "Return only the final prompt text" in calls[1][0]
+    assert "all nine named regions" in calls[1][0]
+
+
+def test_template_fill_natural_output_is_two_pass_and_preset_agnostic_in_stage_two(monkeypatch):
+    _package, _api, llm = _modules()
+    calls = []
+    responses = iter(
+        [
+            json.dumps(
+                {
+                    "scene": {"environment": "studio", "weather": None},
+                    "subjects": [{"identity": {"gender": "woman", "age": None}}],
+                }
+            ),
+            "## Scene\nA controlled studio setting.\n\n## Subjects\nA woman is the sole subject.",
+        ]
+    )
+
+    def fake_call(data, system, user, image):
+        calls.append((system, user))
+        return next(responses)
+
+    monkeypatch.setattr(llm, "_call_provider", fake_call)
+    result = llm.generate_jsonx(
+        {
+            "user_instructions": "studio portrait of one woman",
+            "generation_profile": "template_fill",
+            "template_use_presets": True,
+            "output_format": "natural",
+        }
+    )
+
+    assert len(calls) == 2
+    assert result["generation_profile"] == "template_fill"
+    assert result["preset_context_mode"] == "full"
+    assert result["output_format"] == "natural"
+    assert "Complete JsonX presets.json (verbatim):" in calls[0][0]
+    assert "Complete JsonX presets.json (verbatim):" not in calls[1][0]
+    assert "Template Fill refinement constraint" not in calls[1][0]
+    assert '"weather"' not in calls[1][1]
+    assert '"age"' not in calls[1][1]
+
+
+def test_natural_output_validation_and_single_repair(monkeypatch):
+    _package, _api, llm = _modules()
+    assert llm.validate_natural_prompt("```text\n## Scene\nA quiet beach.\n```") == (
+        "## Scene\nA quiet beach."
+    )
+    assert llm.validate_natural_prompt("<think>hidden</think>\n## Scene\nA quiet beach.").startswith(
+        "## Scene"
+    )
+    for invalid in (
+        "",
+        '{"scene":"beach"}',
+        "Here is the prompt response: a beach",
+        "## Scene\n- A quiet beach",
+    ):
+        try:
+            llm.validate_natural_prompt(invalid)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"Expected invalid natural output: {invalid!r}")
+
+    calls = []
+    responses = iter(
+        [
+            '{"scene":{"environment":"quiet beach"}}',
+            '{"scene":"still json"}',
+            "## Scene\nA quiet beach rendered as coherent prose.",
+        ]
+    )
+
+    def fake_call(data, system, user, image):
+        calls.append((data, system, user))
+        return next(responses)
+
+    monkeypatch.setattr(llm, "_call_provider", fake_call)
+    repaired = llm.generate_jsonx(
+        {
+            "backend": "local",
+            "user_instructions": "quiet beach",
+            "output_format": "natural",
+            "local_options": {"reasoning": "auto", "temperature": 0.8, "max_tokens": 512},
+        }
+    )
+    assert repaired["prompt"].startswith("## Scene")
+    assert len(calls) == 3
+    assert "Repair rule" in calls[2][1]
+    assert "_gemini_response_mime_type" not in calls[0][0]
+    assert calls[1][0]["_gemini_response_mime_type"] == "text/plain"
+    assert calls[2][0]["_gemini_response_mime_type"] == "text/plain"
+    assert calls[2][0]["local_options"]["reasoning"] == "off"
+    assert calls[2][0]["local_options"]["temperature"] == 0.2
+    assert calls[2][0]["local_options"]["max_tokens"] == 4096
+
+
+def test_natural_output_failed_repair_reports_stage_two_diagnostics(monkeypatch):
+    _package, _api, llm = _modules()
+    responses = iter(
+        [
+            '{"scene":{"environment":"quiet beach"}}',
+            '{"scene":"still json"}',
+            '["also", "json"]',
+        ]
+    )
+    monkeypatch.setattr(llm, "_call_provider", lambda *args, **kwargs: next(responses))
+
+    try:
+        llm.generate_jsonx(
+            {
+                "user_instructions": "quiet beach",
+                "output_format": "natural",
+            }
+        )
+    except llm.JsonXGenerationError as error:
+        assert error.diagnostics["stage"] == "Natural Language Stage 2"
+        assert "must be prose, not JSON" in error.diagnostics["initial_error"]
+        assert "must be prose, not JSON" in error.diagnostics["repair_error"]
+        assert error.diagnostics["repair_response"] == '["also", "json"]'
+    else:
+        raise AssertionError("Expected failed natural-language repair diagnostics")
 
 
 def test_template_fill_generation_prunes_nulls_and_uses_its_own_preset_toggle(monkeypatch):
@@ -682,6 +1419,50 @@ def test_all_provider_paths_receive_text_and_optional_image(monkeypatch):
         assert calls[-1][1]["pil_images"] == [image]
 
 
+def test_all_isolated_providers_support_two_pass_natural_image_generation(monkeypatch):
+    _package, _api, llm = _modules()
+    image = Image.new("RGB", (2, 2), "blue")
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    image_b64 = "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
+    provider_modules = {
+        "gemini": llm.gemini_backend,
+        "openai": llm.openai_backend,
+        "ollama": llm.ollama_backend,
+        "local": llm.local_llama_backend,
+    }
+
+    for backend, provider_module in provider_modules.items():
+        calls = []
+        responses = iter(
+            [
+                '{"scene":{"environment":"blue-lit studio"}}',
+                "## Scene\nA blue-lit studio rendered as detailed natural-language prompt prose.",
+            ]
+        )
+
+        def fake_generate(*args, **kwargs):
+            calls.append((args, kwargs))
+            return next(responses)
+
+        monkeypatch.setattr(provider_module, "generate", fake_generate)
+        result = llm.generate_jsonx(
+            {
+                "backend": backend,
+                "model": "test-model",
+                "api_key": "test-key",
+                "base_url": "http://localhost:1234/v1",
+                "host": "http://localhost:11434",
+                "user_instructions": "describe the image",
+                "image_b64": image_b64,
+                "output_format": "natural",
+            }
+        )
+        assert result["output_format"] == "natural"
+        assert len(calls) == 2
+        assert all(call[1]["pil_images"] for call in calls)
+
+
 def test_refined_image_generation_passes_image_to_both_stages(monkeypatch):
     _package, _api, llm = _modules()
     image = Image.new("RGB", (2, 2), "blue")
@@ -759,7 +1540,77 @@ def test_llm_node_defaults_and_output_contract():
     assert inputs["required"]["generation_mode"][1]["default"] == "fast"
     assert inputs["required"]["preset_context_mode"][1]["default"] == "optimized"
     assert inputs["optional"]["image"] == ("IMAGE",)
+    assert list(inputs["optional"])[-6:] == [
+        "ui_state",
+        "enable_framing_and_placement",
+        "output_format",
+        "generation_profile",
+        "template_use_presets",
+        "detail_level",
+    ]
+    assert inputs["optional"]["enable_framing_and_placement"][0] == "BOOLEAN"
+    assert inputs["optional"]["enable_framing_and_placement"][1]["default"] is False
+    assert inputs["optional"]["output_format"][0] == ["json", "natural"]
+    assert inputs["optional"]["output_format"][1]["default"] == "json"
+    assert inputs["optional"]["generation_profile"][0] == ["adaptive", "template_fill"]
+    assert inputs["optional"]["generation_profile"][1]["default"] == "adaptive"
+    assert inputs["optional"]["template_use_presets"][0] == "BOOLEAN"
+    assert inputs["optional"]["template_use_presets"][1]["default"] is False
+    assert inputs["optional"]["detail_level"][0] == ["deep", "exhaustive"]
+    assert inputs["optional"]["detail_level"][1]["default"] == "deep"
+    assert klass.RETURN_NAMES == ("prompt",)
     assert klass().build(generated_prompt_json='{"scene":{"weather":"clear"}}')[0].startswith("{")
+    assert klass().build(
+        generated_prompt_json="## Scene\nA detailed natural-language prompt.",
+        output_format="natural",
+    ) == ("## Scene\nA detailed natural-language prompt.",)
+    framing = {
+        key: f"visible content in {key.replace('_', ' ')}"
+        for key in _llm.FRAMING_AND_PLACEMENT_KEYS
+    }
+    framed_json = json.dumps({"framing_and_placement": framing})
+    framed_output = json.loads(
+        klass().build(
+            generated_prompt_json=framed_json,
+            enable_framing_and_placement=True,
+        )[0]
+    )
+    assert framed_output["framing_and_placement"] == framing
+    assert "framing_and_placement" not in json.loads(
+        klass().build(
+            generated_prompt_json=framed_json,
+            enable_framing_and_placement=False,
+        )[0]
+    )
+    try:
+        klass().build(
+            generated_prompt_json='{"scene":{"weather":"clear"}}',
+            enable_framing_and_placement=True,
+        )
+    except ValueError as error:
+        assert "requires a 'framing_and_placement' object" in str(error)
+    else:
+        raise AssertionError("Expected enabled runtime output without the framing map to fail")
+
+
+def test_jsonx_instruction_overrides_persist_in_the_comfyui_user_profile(tmp_path):
+    _package, api, _llm = _modules()
+    original_path = api._jsonx_user_settings_path
+    api._jsonx_user_settings_path = lambda: tmp_path / "workflowx" / "jsonx_settings.json"
+    try:
+        overrides = {
+            "stage_one_instructions": "Custom stage one.",
+            "template_fill_instructions": "Custom template fill.",
+            "refinement_instructions": "Custom refinement.",
+            "natural_language_instructions": "Custom natural language.",
+        }
+        assert api.save_jsonx_user_instruction_overrides(overrides) == overrides
+        assert api.load_jsonx_user_instruction_overrides() == overrides
+        saved = json.loads(api._jsonx_user_settings_path().read_text(encoding="utf-8"))
+        assert saved == {"version": 1, "instruction_overrides": overrides}
+        assert "api_key" not in json.dumps(saved)
+    finally:
+        api._jsonx_user_settings_path = original_path
 
 
 def test_jsonx_provider_package_has_no_unified_autoprompter_dependency():
@@ -873,6 +1724,61 @@ def test_jsonx_gemini_empty_candidates_is_diagnosed_without_retry(monkeypatch):
     else:
         raise AssertionError("Expected an empty-candidate JsonX provider error")
     assert len(calls) == 1
+
+
+def test_jsonx_gemini_uses_json_for_stage_one_and_plain_text_for_natural_stage_two(monkeypatch):
+    _package, _api, llm = _modules()
+    mime_types = []
+
+    def fake_generate(*args, **kwargs):
+        mime_type = kwargs.get("response_mime_type")
+        mime_types.append(mime_type)
+        if mime_type == "text/plain":
+            return "## Scene\nA quiet beach under soft daylight."
+        return '{"scene":{"environment":"quiet beach"}}'
+
+    monkeypatch.setattr(llm.gemini_backend, "generate", fake_generate)
+    result = llm.generate_jsonx(
+        {
+            "backend": "gemini",
+            "api_key": "test-key",
+            "model": "gemini-test",
+            "user_instructions": "quiet beach",
+            "output_format": "natural",
+        }
+    )
+
+    assert mime_types == ["application/json", "text/plain"]
+    assert result["prompt"].startswith("## Scene")
+
+
+def test_jsonx_gemini_backend_writes_requested_plain_text_mime(monkeypatch):
+    _package, _api, llm = _modules()
+    bodies = []
+
+    class Response:
+        status_code = 200
+        text = ""
+
+        @staticmethod
+        def json():
+            return {"candidates": [{"content": {"parts": [{"text": "plain prompt"}]}}]}
+
+    def fake_post(*args, **kwargs):
+        bodies.append(kwargs["json"])
+        return Response()
+
+    monkeypatch.setattr(llm.gemini_backend.requests, "post", fake_post)
+    raw = llm.gemini_backend.generate(
+        "test-key",
+        "gemini-test",
+        "system",
+        "user",
+        response_mime_type="text/plain",
+    )
+
+    assert raw == "plain prompt"
+    assert bodies[0]["generationConfig"]["responseMimeType"] == "text/plain"
 
 
 def test_isolated_remote_provider_model_lists(monkeypatch):

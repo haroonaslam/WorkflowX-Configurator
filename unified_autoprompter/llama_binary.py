@@ -11,7 +11,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 
-LLAMA_CPP_RELEASE_TAG = "b8840"
+# b10252 is the first pinned Unified runtime with the current Qwen3.6 embedded
+# MTP/NVFP4 loader used by LM Studio's 2.28.2 llama.cpp family.
+LLAMA_CPP_RELEASE_TAG = "b10252"
 RELEASE_API_URL = f"https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/{LLAMA_CPP_RELEASE_TAG}"
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 VENDOR_ROOT = PACKAGE_ROOT / "vendor" / "llama.cpp"
@@ -153,15 +155,6 @@ def _is_complete_install(install_dir: Path, spec: PlatformSpec) -> bool:
     return _find_cli_paths(install_dir, spec) is not None and _has_required_files(install_dir, spec)
 
 
-def _existing_install(spec: PlatformSpec) -> LlamaCliPaths | None:
-    if not VENDOR_ROOT.exists():
-        return None
-    for install_dir in VENDOR_ROOT.glob(f"*/{spec.key}"):
-        if _is_complete_install(install_dir, spec):
-            return _find_cli_paths(install_dir, spec)
-    return None
-
-
 def _extract_assets(assets: list[dict], install_dir: Path) -> None:
     with TemporaryDirectory(prefix="workflowx-llama-download-") as temp:
         temp_dir = Path(temp)
@@ -175,9 +168,13 @@ def _extract_assets(assets: list[dict], install_dir: Path) -> None:
 
 def ensure_llama_cli_paths() -> LlamaCliPaths:
     spec = _platform_spec()
-    existing = _existing_install(spec)
-    if existing is not None:
-        return existing
+    # Do not reuse an arbitrary older cache. A completed b8840 install remains
+    # recoverable on disk but cannot be selected for MTP/NVFP4 models.
+    pinned_install = VENDOR_ROOT / LLAMA_CPP_RELEASE_TAG / spec.key
+    if _is_complete_install(pinned_install, spec):
+        paths = _find_cli_paths(pinned_install, spec)
+        if paths is not None:
+            return paths
 
     release = _json_get(RELEASE_API_URL)
     tag = release.get("tag_name") or LLAMA_CPP_RELEASE_TAG

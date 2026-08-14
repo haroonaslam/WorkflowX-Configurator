@@ -23,6 +23,7 @@ It supports:
 - local GGUF generation
 - editable model/profile instructions
 - BBox Layout editing helpers for bbox-capable targets
+- an isolated JsonX profile with Adaptive / Template Fill two-stage generation
 
 ## Node Inputs And Outputs
 
@@ -79,6 +80,7 @@ Current built-in targets:
 | LTX 2.3 | `ltx_2_3` | video | `natural` |
 | MiniMax H3 Official | `minimax_h3_official` | video | `natural` |
 | MiniMax H3 Alternate | `minimax_h3_alternate` | video | `natural` |
+| JsonX | `jsonx` | image | `json` |
 
 Profiles define:
 
@@ -99,6 +101,18 @@ Profiles define:
 | `json` | Structured prompt JSON for models or workflows that benefit from schema-like control. |
 
 The selected profile decides which formats are available. If a workflow stores an invalid format for the current target, the node normalizes to that profile's default enabled format.
+
+## JsonX Profile
+
+Select **JsonX** to generate a structured JsonX prompt from the same Unified node. The normal prompt fields and connected images become JsonX instructions; the `prompt` and `positive` outputs contain the completed JSON or natural-language prompt, while `negative` is collected from the validated Stage 1 `negative` branch.
+
+Use the node's expandable **Model settings** section for Gemini, OpenAI-compatible, Ollama, and Local GGUF controls. The same controls are shown for every target; when JsonX is active they use JsonX-specific provider choices and browser-local credentials. Switching away and back restores each pathway's prior selection.
+
+Unified saves the active JsonX backend, selected provider models, portable runtime choices, and each used JsonX profile's generation configuration in that node's workflow state. This makes the workflow reproduce its JsonX setup after refresh and when it is reopened. API keys, provider URLs or hosts, and absolute additional-model-folder paths remain browser- or machine-local and are never embedded in workflow JSON. When an older workflow has no JsonX snapshot, Unified initializes it from the current browser/provider and profile settings, then saves the resulting per-node snapshot.
+
+Click **Profile settings**, select a JsonX profile in the left panel, and use the JsonX, Instructions, Image Mode, and Preview pages to configure Adaptive or Template Fill, Fast or Refined, Optimized or Full presets, Template Fill `Use Presets`, depth, the optional 3×3 framing map, editable Stage 1/Stage 2 instructions, and with/without-image additions. These settings participate in the normal Save, Duplicate, Import, Export, and Reset actions. Closing the editor without saving discards its draft. Natural language automatically uses the two-pass path. Use **Cancel JsonX** during an active generation to retain the prior output.
+
+Saving **Profile settings** still updates the shared profile definition for newly created nodes. The Unified node also records its own JsonX profile snapshot, so later shared-profile changes do not silently alter an existing workflow's generation contract.
 
 ## Generation Backends
 
@@ -179,6 +193,8 @@ Use `Additional model folders` to reuse GGUF files already managed by LM Studio 
 The additional-folder list is browser-local Unified state. It is not written into workflow JSON and is sent to the backend only while refreshing the list or running the selected local model. External selections use opaque identifiers and can resolve only inside the currently configured folders. Missing paths are skipped and reported in the node status.
 
 UI fields include model selection, mmproj selection, system prompt preset, and local generation options.
+
+The standard Unified Local GGUF runtime is pinned to llama.cpp `b10252` and no longer reuses older runtime folders automatically. Its local options include speculative decoding: `Auto` detects embedded MTP metadata, `Off` disables it, and `Force embedded MTP` sends `draft-mtp`; the draft-token value defaults to `2`. Long system instructions are placed in a temporary UTF-8 system file rather than the Windows command line and are cleaned after the request ends.
 
 ## Connected Image Inputs
 

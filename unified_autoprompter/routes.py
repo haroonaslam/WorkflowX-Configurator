@@ -259,6 +259,7 @@ def register_routes(app=None) -> None:
                         pil_images=pil_images,
                         think=bool(data.get("think", False)),
                         unload_after=bool(data.get("unload_after", True)),
+                        timeout=timeout,
                     ),
                 )
             elif backend == "local":
@@ -297,3 +298,10 @@ def register_routes(app=None) -> None:
             return _json_error(str(exc))
 
     prompt_server._workflowx_unified_autoprompter_routes = True
+
+    # JsonX routes are registered independently from the standard profile
+    # pipeline. Importing this private package here keeps normal Unified
+    # profiles free from its providers, catalog and runtime state.
+    from .jsonx_profile.routes import register_routes as register_jsonx_routes
+
+    register_jsonx_routes(prompt_server)

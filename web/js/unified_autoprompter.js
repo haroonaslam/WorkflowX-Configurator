@@ -32,6 +32,59 @@ const GEMINI_SAFETY_FIELDS = [
   ["safety_sexual", "Sexual"],
   ["safety_dangerous", "Dangerous"],
 ];
+const JSONX_ROUTE = `${ROUTE}/jsonx`;
+const JSONX_SETTINGS_KEY = "workflowx_unified_jsonx_provider_settings";
+const JSONX_GEMINI_KEY = "workflowx_unified_jsonx_gemini_api_key";
+const JSONX_OPENAI_KEY = "workflowx_unified_jsonx_openai_api_key";
+
+function defaultJsonXConfig() {
+  return {
+    generation_profile: "adaptive",
+    generation_mode: "fast",
+    preset_context_mode: "optimized",
+    template_use_presets: false,
+    enable_framing_and_placement: false,
+    detail_level: "deep",
+    stage_one_instructions: "",
+    template_fill_instructions: "",
+    refinement_instructions: "",
+    natural_language_instructions: "",
+    with_image_instructions: "",
+    without_image_instructions: "",
+  };
+}
+
+function workflowJsonXProviderSettings(settings = {}) {
+  const source = settings && typeof settings === "object" ? settings : {};
+  if (!Object.keys(source).length) return {};
+  const backend = ["gemini", "openai", "ollama", "local"].includes(source.backend)
+    ? source.backend
+    : "gemini";
+  return {
+    backend,
+    gemini_model: String(source.gemini_model || ""),
+    gemini_timeout: Number(source.gemini_timeout || 180),
+    gemini_safety: { ...(source.gemini_safety && typeof source.gemini_safety === "object" ? source.gemini_safety : {}) },
+    openai_model: String(source.openai_model || ""),
+    openai_timeout: Number(source.openai_timeout || 180),
+    ollama_model: String(source.ollama_model || ""),
+    ollama_timeout: Number(source.ollama_timeout || 180),
+    ollama_think: Boolean(source.ollama_think),
+    unload_after: source.unload_after !== false,
+    local_model: String(source.local_model || ""),
+    local_timeout: Number(source.local_timeout || 180),
+    local_mmproj: String(source.local_mmproj || "none"),
+    local_system_prompt_preset: String(source.local_system_prompt_preset || "none"),
+    local_options: { ...(source.local_options && typeof source.local_options === "object" ? source.local_options : {}) },
+  };
+}
+
+function normalizeUnifiedReasoning(value) {
+  const mode = String(value || "auto").toLowerCase();
+  if (mode === "none") return "off";
+  if (["deepseek", "qwen3"].includes(mode)) return "auto";
+  return ["auto", "on", "off"].includes(mode) ? mode : "auto";
+}
 const BBOX_LAYOUT_TARGETS = {
   ideogram4: { label: "Ideogram 4", order: "yx", orderLabel: "ymin, xmin, ymax, xmax" },
   krea2: { label: "Krea2", order: "xy", orderLabel: "xmin, ymin, xmax, ymax" },
@@ -61,6 +114,7 @@ const FALLBACK_PROFILES = [
   { key: "ltx_2_3", label: "LTX 2.3", formats: { natural: fallbackRule(true, "Write an LTX 2.3 chronological video prompt."), tags: fallbackRule(false), json: fallbackRule(false) }, default_format: "natural", negative_supported: true, json_supported: false, media_type: "video", notes: "" },
   { key: "minimax_h3_official", label: "MiniMax H3 Official", formats: { natural: fallbackRule(true, "Write a MiniMax H3 prompt using the official video guide structure."), tags: fallbackRule(false), json: fallbackRule(false) }, default_format: "natural", negative_supported: false, json_supported: false, media_type: "video", notes: "" },
   { key: "minimax_h3_alternate", label: "MiniMax H3 Alternate", formats: { natural: fallbackRule(true, "Write a MiniMax H3 prompt using the alternate cinematic reference-control structure."), tags: fallbackRule(false), json: fallbackRule(false) }, default_format: "natural", negative_supported: false, json_supported: false, media_type: "video", notes: "" },
+  { key: "jsonx", label: "JsonX", engine: "jsonx", jsonx_config: defaultJsonXConfig(), formats: { natural: fallbackRule(true, "Convert validated JsonX into natural language."), tags: fallbackRule(false), json: fallbackRule(true, "Generate validated JsonX JSON.") }, default_format: "json", negative_supported: true, json_supported: true, media_type: "image", notes: "JsonX structured prompt profile." },
 ];
 const NODE_MIN_WIDGET_HEIGHT = 420;
 const DOCK_Z_BASE = 9000;
@@ -676,6 +730,26 @@ function injectStyle() {
   gap: 6px;
   padding: 7px;
 }
+.workflowx-uap-model-settings {
+  border: 1px solid #303842;
+  border-radius: 6px;
+  min-width: 0;
+}
+.workflowx-uap-model-settings > summary {
+  color: #cbd7e1;
+  cursor: pointer;
+  font-weight: 600;
+  padding: 7px 9px;
+  user-select: none;
+}
+.workflowx-uap-model-settings > summary::marker {
+  color: #8fc7ed;
+}
+.workflowx-uap-model-settings-body {
+  display: grid;
+  gap: 6px;
+  padding: 0 7px 7px;
+}
 .workflowx-uap-status {
   color: #aeb8c1;
   flex: 1;
@@ -1204,6 +1278,10 @@ function ensureRule(rule = {}, enabled = false) {
 
 function ensureProfileShape(profile) {
   const next = { ...profile };
+  next.engine = String(next.engine || (next.key === "jsonx" ? "jsonx" : "standard")).toLowerCase();
+  next.jsonx_config = next.engine === "jsonx"
+    ? { ...defaultJsonXConfig(), ...(next.jsonx_config && typeof next.jsonx_config === "object" ? next.jsonx_config : {}) }
+    : {};
   const rawFormats = next.formats;
   if (Array.isArray(rawFormats)) {
     next.formats = Object.fromEntries(ALL_PROMPT_FORMATS.map((format) => [format, fallbackRule(rawFormats.includes(format))]));
@@ -1302,6 +1380,7 @@ function defaultState(node) {
 
   return {
     backend: saved.backend || storedModels.backend || "gemini",
+    model_settings_open: Boolean(saved.model_settings_open),
     target_model: saved.target_model || widgetValue(node, "target_model", "ideogram4"),
     prompt_format: saved.prompt_format || widgetValue(node, "prompt_format", "json"),
     negative_enabled: saved.negative_enabled == null
@@ -1340,6 +1419,11 @@ function defaultState(node) {
     audio_dialogue: saved.audio_dialogue || "",
     reference_or_control_notes: saved.reference_or_control_notes || "",
     extra_instructions: saved.extra_instructions || "",
+    jsonx: saved.jsonx && typeof saved.jsonx === "object" ? saved.jsonx : { diagnostics: null },
+    jsonx_provider: workflowJsonXProviderSettings(saved.jsonx_provider),
+    jsonx_profile_configs: saved.jsonx_profile_configs && typeof saved.jsonx_profile_configs === "object"
+      ? saved.jsonx_profile_configs
+      : {},
     gemini_model: saved.gemini_model || storedModels.gemini_model || "",
     gemini_timeout: saved.gemini_timeout || 120,
     safety_harassment: saved.safety_harassment || "BLOCK_NONE",
@@ -1349,6 +1433,8 @@ function defaultState(node) {
     openai_base_url: saved.openai_base_url || storedOpenAIBaseUrl || DEFAULT_OPENAI_BASE_URL,
     openai_model: saved.openai_model || storedModels.openai_model || "",
     openai_timeout: saved.openai_timeout || 120,
+    ollama_timeout: saved.ollama_timeout || 120,
+    local_timeout: saved.local_timeout || 180,
     ollama_host: saved.ollama_host || DEFAULT_OLLAMA_HOST,
     ollama_model: saved.ollama_model || storedModels.ollama_model || "",
     ollama_think: Boolean(saved.ollama_think || false),
@@ -1366,11 +1452,14 @@ function defaultState(node) {
     temperature: saved.temperature || 0.7,
     top_p: saved.top_p || 0.9,
     top_k: saved.top_k || 40,
+    repeat_penalty: saved.repeat_penalty || 1.05,
     ctx_size: saved.ctx_size || 8192,
     memory_mode: saved.memory_mode || "auto",
     n_gpu_layers: saved.n_gpu_layers || 99,
     n_cpu_moe_layers: saved.n_cpu_moe_layers || 0,
-    reasoning: saved.reasoning || "auto",
+    reasoning: normalizeUnifiedReasoning(saved.reasoning),
+    speculative_mode: saved.speculative_mode || "auto",
+    mtp_draft_tokens: saved.mtp_draft_tokens || 2,
     seed: saved.seed ?? -1,
     generated_positive: generatedPositive,
     generated_negative: generatedNegative,
@@ -1406,7 +1495,10 @@ function serializableState(state) {
     openai_key,
     ...rest
   } = state;
-  return rest;
+  return {
+    ...rest,
+    jsonx_provider: workflowJsonXProviderSettings(rest.jsonx_provider),
+  };
 }
 
 function positiveAndNegativePrompt(positive, negative, negativeEnabled, promptFormat) {
@@ -1912,6 +2004,10 @@ function createDockWindow(node, key, title, options = {}) {
   const pinBtn = buildDom("button", `workflowx-uap-btn${locked ? " active" : ""}`, "pin");
   const closeBtn = buildDom("button", "workflowx-uap-btn", "x");
   for (const button of [minBtn, fullBtn, pinBtn, closeBtn]) button.type = "button";
+  minBtn.title = "Minimize or restore this dock";
+  fullBtn.title = "Toggle fullscreen";
+  pinBtn.title = locked ? "Unlock moving and resizing" : "Lock moving and resizing";
+  closeBtn.title = "Close this dock";
   head.appendChild(titleEl);
   head.appendChild(minBtn);
   head.appendChild(fullBtn);
@@ -2125,11 +2221,26 @@ function setupUnifiedAutoprompter(node) {
   const openaiBtn = buildDom("button", "workflowx-uap-btn", "OpenAI Compatible");
   const ollamaBtn = buildDom("button", "workflowx-uap-btn", "Ollama");
   const localBtn = buildDom("button", "workflowx-uap-btn", "Local GGUF");
+  geminiBtn.title = "Use Gemini for this profile";
+  openaiBtn.title = "Use an OpenAI-compatible server for this profile";
+  ollamaBtn.title = "Use the configured Ollama server for this profile";
+  localBtn.title = "Run a local GGUF model through WorkflowX";
   for (const button of [geminiBtn, openaiBtn, ollamaBtn, localBtn]) {
     button.type = "button";
     backendRow.appendChild(button);
   }
   wrap.appendChild(backendRow);
+
+  // Provider credentials and tuning are useful, but should not dominate the
+  // node surface.  Keep the active provider's panel in one collapsible group.
+  const modelSettingsDetails = buildDom("details", "workflowx-uap-model-settings");
+  modelSettingsDetails.open = Boolean(state.model_settings_open);
+  const modelSettingsSummary = buildDom("summary", "", "Model settings");
+  modelSettingsSummary.title = "Show or hide provider credentials, model selection, and runtime options";
+  const modelSettingsBody = buildDom("div", "workflowx-uap-model-settings-body");
+  modelSettingsDetails.appendChild(modelSettingsSummary);
+  modelSettingsDetails.appendChild(modelSettingsBody);
+  wrap.appendChild(modelSettingsDetails);
 
   const geminiPanel = buildDom("div", "workflowx-uap-panel");
   const geminiGrid = buildDom("div", "workflowx-uap-grid");
@@ -2154,13 +2265,14 @@ function setupUnifiedAutoprompter(node) {
   const geminiModelsRow = buildDom("div", "workflowx-uap-row");
   const fetchGeminiBtn = buildDom("button", "workflowx-uap-btn", "Fetch models");
   fetchGeminiBtn.type = "button";
+  fetchGeminiBtn.title = "Fetch the Gemini models available to this API key";
   const geminiModelSelect = createSelect();
   geminiModelSelect.style.flex = "1";
   option(geminiModelSelect, state.gemini_model || "", state.gemini_model || "No model selected");
   geminiModelsRow.appendChild(fetchGeminiBtn);
   geminiModelsRow.appendChild(geminiModelSelect);
   geminiPanel.appendChild(geminiModelsRow);
-  wrap.appendChild(geminiPanel);
+  modelSettingsBody.appendChild(geminiPanel);
 
   const openaiPanel = buildDom("div", "workflowx-uap-panel");
   const openaiGrid = buildDom("div", "workflowx-uap-grid");
@@ -2186,6 +2298,7 @@ function setupUnifiedAutoprompter(node) {
   const openaiModelsRow = buildDom("div", "workflowx-uap-row");
   const fetchOpenaiBtn = buildDom("button", "workflowx-uap-btn", "Fetch models");
   fetchOpenaiBtn.type = "button";
+  fetchOpenaiBtn.title = "Fetch models from the configured OpenAI-compatible server";
   const openaiUnloadToggle = buildDom("label", "workflowx-uap-toggle");
   const openaiUnloadInput = document.createElement("input");
   openaiUnloadInput.type = "checkbox";
@@ -2199,20 +2312,26 @@ function setupUnifiedAutoprompter(node) {
   openaiModelsRow.appendChild(openaiUnloadToggle);
   openaiModelsRow.appendChild(openaiModelSelect);
   openaiPanel.appendChild(openaiModelsRow);
-  wrap.appendChild(openaiPanel);
+  modelSettingsBody.appendChild(openaiPanel);
 
   const ollamaPanel = buildDom("div", "workflowx-uap-panel");
   const ollamaGrid = buildDom("div", "workflowx-uap-grid");
   const hostInput = createInput("text");
   hostInput.value = state.ollama_host || DEFAULT_OLLAMA_HOST;
   const ollamaModelSelect = createSelect();
+  const ollamaTimeoutInput = createInput("number");
+  ollamaTimeoutInput.min = "5";
+  ollamaTimeoutInput.max = "3600";
+  ollamaTimeoutInput.value = String(state.ollama_timeout || 120);
   option(ollamaModelSelect, state.ollama_model || "", state.ollama_model || "No model selected");
   field(ollamaGrid, "Ollama host", hostInput);
   field(ollamaGrid, "Ollama model", ollamaModelSelect);
+  field(ollamaGrid, "Timeout seconds", ollamaTimeoutInput);
   ollamaPanel.appendChild(ollamaGrid);
   const ollamaRow = buildDom("div", "workflowx-uap-row");
   const fetchOllamaBtn = buildDom("button", "workflowx-uap-btn", "Fetch models");
   fetchOllamaBtn.type = "button";
+  fetchOllamaBtn.title = "Fetch models from the configured Ollama server";
   const thinkToggle = buildDom("label", "workflowx-uap-toggle");
   const thinkInput = document.createElement("input");
   thinkInput.type = "checkbox";
@@ -2229,7 +2348,7 @@ function setupUnifiedAutoprompter(node) {
   ollamaRow.appendChild(thinkToggle);
   ollamaRow.appendChild(unloadToggle);
   ollamaPanel.appendChild(ollamaRow);
-  wrap.appendChild(ollamaPanel);
+  modelSettingsBody.appendChild(ollamaPanel);
 
   const localPanel = buildDom("div", "workflowx-uap-panel");
   const localGrid = buildDom("div", "workflowx-uap-grid");
@@ -2249,6 +2368,24 @@ function setupUnifiedAutoprompter(node) {
   const ctxInput = createInput("number");
   ctxInput.min = "512";
   ctxInput.value = String(state.ctx_size);
+  const localTimeoutInput = createInput("number");
+  localTimeoutInput.min = "5";
+  localTimeoutInput.max = "3600";
+  localTimeoutInput.value = String(state.local_timeout || 180);
+  const topPInput = createInput("number");
+  topPInput.min = "0";
+  topPInput.max = "1";
+  topPInput.step = "0.05";
+  topPInput.value = String(state.top_p);
+  const topKInput = createInput("number");
+  topKInput.min = "0";
+  topKInput.max = "10000";
+  topKInput.value = String(state.top_k);
+  const repeatPenaltyInput = createInput("number");
+  repeatPenaltyInput.min = "0";
+  repeatPenaltyInput.max = "5";
+  repeatPenaltyInput.step = "0.05";
+  repeatPenaltyInput.value = String(state.repeat_penalty);
   const memorySelect = createSelect();
   setSelectOptions(memorySelect, [
     { value: "auto", label: "Auto memory" },
@@ -2266,15 +2403,51 @@ function setupUnifiedAutoprompter(node) {
   field(localGrid, "Max tokens", maxTokensInput);
   field(localGrid, "Temperature", tempInput);
   field(localGrid, "Context", ctxInput);
+  field(localGrid, "Timeout seconds", localTimeoutInput);
+  field(localGrid, "Top P", topPInput);
+  field(localGrid, "Top K", topKInput);
+  field(localGrid, "Repeat penalty", repeatPenaltyInput);
   field(localGrid, "Memory mode", memorySelect);
   const reasoningSelect = createSelect();
-  setSelectOptions(reasoningSelect, ["auto", "none", "deepseek", "qwen3"], state.reasoning);
+  setSelectOptions(reasoningSelect, [
+    { value: "auto", label: "Auto (model template)" },
+    { value: "on", label: "On" },
+    { value: "off", label: "Off" },
+  ], normalizeUnifiedReasoning(state.reasoning));
   field(localGrid, "Reasoning", reasoningSelect);
+  const speculativeSelect = createSelect();
+  setSelectOptions(speculativeSelect, [
+    { value: "auto", label: "Speculative: Auto (detect embedded MTP)" },
+    { value: "off", label: "Speculative: Off" },
+    { value: "mtp", label: "Speculative: Force embedded MTP" },
+  ], state.speculative_mode || "auto");
+  const mtpDraftTokensInput = createInput("number");
+  mtpDraftTokensInput.min = "1";
+  mtpDraftTokensInput.max = "8";
+  mtpDraftTokensInput.value = String(state.mtp_draft_tokens || 2);
+  field(localGrid, "Speculative decoding", speculativeSelect);
+  field(localGrid, "MTP draft tokens", mtpDraftTokensInput);
+  const gpuLayersInput = createInput("number");
+  gpuLayersInput.min = "0";
+  gpuLayersInput.max = "999";
+  gpuLayersInput.value = String(state.n_gpu_layers);
+  const cpuMoeLayersInput = createInput("number");
+  cpuMoeLayersInput.min = "0";
+  cpuMoeLayersInput.max = "999";
+  cpuMoeLayersInput.value = String(state.n_cpu_moe_layers);
+  const seedInput = createInput("number");
+  seedInput.min = "-1";
+  seedInput.max = "4294967295";
+  seedInput.value = String(state.seed);
+  field(localGrid, "GPU layers", gpuLayersInput);
+  field(localGrid, "CPU MoE layers", cpuMoeLayersInput);
+  field(localGrid, "Seed (-1 random)", seedInput);
   localPanel.appendChild(localGrid);
   const fetchLocalBtn = buildDom("button", "workflowx-uap-btn", "Refresh local GGUF list");
   fetchLocalBtn.type = "button";
+  fetchLocalBtn.title = "Rescan ComfyUI/models/LLM and any additional model folders";
   localPanel.appendChild(fetchLocalBtn);
-  wrap.appendChild(localPanel);
+  modelSettingsBody.appendChild(localPanel);
 
   const inputGrid = buildDom("div", "workflowx-uap-grid");
   const ideaArea = createTextarea(2);
@@ -2356,18 +2529,21 @@ function setupUnifiedAutoprompter(node) {
   negativeInput.checked = Boolean(state.negative_enabled);
   negativeToggle.appendChild(negativeInput);
   negativeToggle.appendChild(document.createTextNode("generate negative"));
+  negativeToggle.title = "Ask supported profiles to generate a separate negative prompt";
   const refreshVramToggle = buildDom("label", "workflowx-uap-toggle");
   const refreshVramInput = document.createElement("input");
   refreshVramInput.type = "checkbox";
   refreshVramInput.checked = Boolean(state.refresh_vram);
   refreshVramToggle.appendChild(refreshVramInput);
   refreshVramToggle.appendChild(document.createTextNode("refresh VRAM"));
+  refreshVramToggle.title = "Unload ComfyUI models and clear cache before prompt generation";
   const disablePaletteToggle = buildDom("label", "workflowx-uap-toggle");
   const disablePaletteInput = document.createElement("input");
   disablePaletteInput.type = "checkbox";
   disablePaletteInput.checked = Boolean(state.disable_color_palette);
   disablePaletteToggle.appendChild(disablePaletteInput);
   disablePaletteToggle.appendChild(document.createTextNode("disable color pallet"));
+  disablePaletteToggle.title = "Remove color_palette blocks from generated JSON output";
   imageRow.appendChild(negativeToggle);
   imageRow.appendChild(refreshVramToggle);
   imageRow.appendChild(disablePaletteToggle);
@@ -2376,12 +2552,16 @@ function setupUnifiedAutoprompter(node) {
   const toolsRow = buildDom("div", "workflowx-uap-row");
   const positivePreviewBtn = buildDom("button", "workflowx-uap-btn", "Show positive");
   positivePreviewBtn.type = "button";
+  positivePreviewBtn.title = "Open the saved positive prompt preview";
   const negativePreviewBtn = buildDom("button", "workflowx-uap-btn", "Show negative");
   negativePreviewBtn.type = "button";
+  negativePreviewBtn.title = "Open the saved negative prompt preview";
   const ideogramBtn = buildDom("button", "workflowx-uap-btn", "BBox layout");
   ideogramBtn.type = "button";
-  const modelSettingsBtn = buildDom("button", "workflowx-uap-btn", "Model settings");
+  ideogramBtn.title = "Open the bounding-box layout editor for supported targets";
+  const modelSettingsBtn = buildDom("button", "workflowx-uap-btn", "Profile settings");
   modelSettingsBtn.type = "button";
+  modelSettingsBtn.title = "Edit prompt profiles and JsonX generation settings";
   toolsRow.appendChild(positivePreviewBtn);
   toolsRow.appendChild(negativePreviewBtn);
   toolsRow.appendChild(ideogramBtn);
@@ -2391,8 +2571,14 @@ function setupUnifiedAutoprompter(node) {
   const generateRow = buildDom("div", "workflowx-uap-row");
   const generateBtn = buildDom("button", "workflowx-uap-btn primary", "Generate");
   generateBtn.type = "button";
+  generateBtn.title = "Generate and save the prompt using the active profile and provider";
+  const cancelJsonXBtn = buildDom("button", "workflowx-uap-btn", "Cancel JsonX");
+  cancelJsonXBtn.type = "button";
+  cancelJsonXBtn.title = "Stop the active JsonX generation and keep the previous output";
+  cancelJsonXBtn.classList.add("workflowx-uap-hidden");
   const status = buildDom("div", "workflowx-uap-status", "Ready.");
   generateRow.appendChild(generateBtn);
+  generateRow.appendChild(cancelJsonXBtn);
   generateRow.appendChild(status);
   wrap.appendChild(generateRow);
 
@@ -2424,21 +2610,46 @@ function setupUnifiedAutoprompter(node) {
     return profilesByKey.get(state.target_model) || profiles[0];
   }
 
+  function ensureJsonXConfigSnapshot(profile = activeProfile()) {
+    if (profile?.engine !== "jsonx") return null;
+    state.jsonx_profile_configs ||= {};
+    const saved = state.jsonx_profile_configs[profile.key];
+    if (!saved || typeof saved !== "object") {
+      state.jsonx_profile_configs[profile.key] = {
+        ...defaultJsonXConfig(),
+        ...(profile.jsonx_config || {}),
+      };
+    }
+    return state.jsonx_profile_configs[profile.key];
+  }
+
+  function effectiveJsonXConfig(profile = activeProfile()) {
+    return {
+      ...defaultJsonXConfig(),
+      ...(profile?.jsonx_config || {}),
+      ...(ensureJsonXConfigSnapshot(profile) || {}),
+    };
+  }
+
   function setStatus(message, isError = false) {
     status.textContent = message || "";
     status.classList.toggle("error", Boolean(isError));
   }
 
   function refreshBackends() {
-    geminiBtn.classList.toggle("active", state.backend === "gemini");
-    openaiBtn.classList.toggle("active", state.backend === "openai");
-    ollamaBtn.classList.toggle("active", state.backend === "ollama");
-    localBtn.classList.toggle("active", state.backend === "local");
-    geminiPanel.classList.toggle("workflowx-uap-hidden", state.backend !== "gemini");
-    openaiPanel.classList.toggle("workflowx-uap-hidden", state.backend !== "openai");
-    ollamaPanel.classList.toggle("workflowx-uap-hidden", state.backend !== "ollama");
-    localPanel.classList.toggle("workflowx-uap-hidden", state.backend !== "local");
-    requestAnimationFrame(resizeNodeToVisibleContent);
+    applyActiveProviderSettingsToControls();
+    const backend = providerBackend();
+    backendRow.classList.remove("workflowx-uap-hidden");
+    modelSettingsDetails.classList.remove("workflowx-uap-hidden");
+    geminiBtn.classList.toggle("active", backend === "gemini");
+    openaiBtn.classList.toggle("active", backend === "openai");
+    ollamaBtn.classList.toggle("active", backend === "ollama");
+    localBtn.classList.toggle("active", backend === "local");
+    geminiPanel.classList.toggle("workflowx-uap-hidden", backend !== "gemini");
+    openaiPanel.classList.toggle("workflowx-uap-hidden", backend !== "openai");
+    ollamaPanel.classList.toggle("workflowx-uap-hidden", backend !== "ollama");
+    localPanel.classList.toggle("workflowx-uap-hidden", backend !== "local");
+    scheduleVisibleContentResize();
   }
 
   function refreshProfiles() {
@@ -2452,21 +2663,28 @@ function setupUnifiedAutoprompter(node) {
 
   function refreshFormats() {
     const profile = activeProfile();
+    const jsonx = isJsonXProfile();
+    if (jsonx) ensureJsonXConfigSnapshot(profile);
     const formats = enabledProfileFormats(profile);
     if (!formats.includes(state.prompt_format)) state.prompt_format = profile.default_format || formats[0];
-    setSelectOptions(formatSelect, formats, state.prompt_format, (value) => value);
+    setSelectOptions(formatSelect, formats, state.prompt_format, (value) => jsonx ? (value === "json" ? "JsonX JSON" : "Natural language") : value);
     state.prompt_format = formatSelect.value;
     ideogramPanel.classList.add("workflowx-uap-hidden");
     ideogramBtn.classList.toggle("workflowx-uap-hidden", !isBboxLayoutTarget(state.target_model));
     if (!isBboxLayoutTarget(state.target_model)) closeDock(node, "ideogram");
-    videoPanel.classList.toggle("workflowx-uap-hidden", !profileIsVideo(profile));
+    videoPanel.classList.toggle("workflowx-uap-hidden", jsonx || !profileIsVideo(profile));
     const negativeSupported = Boolean(profile.negative_supported);
     state.negative_enabled = negativeSupported && Boolean(state.negative_enabled);
     negativeInput.checked = state.negative_enabled;
     negativeInput.disabled = !negativeSupported;
-    negativeToggle.classList.toggle("workflowx-uap-hidden", !negativeSupported);
+    negativeToggle.classList.toggle("workflowx-uap-hidden", jsonx || !negativeSupported);
+    bboxJsonToggle.classList.toggle("workflowx-uap-hidden", jsonx);
+    ideogramBtn.classList.toggle("workflowx-uap-hidden", jsonx || !isBboxLayoutTarget(state.target_model));
+    disablePaletteToggle.classList.toggle("workflowx-uap-hidden", jsonx);
+    modelSettingsBtn.textContent = "Profile settings";
+    refreshBackends();
     syncPreview();
-    requestAnimationFrame(resizeNodeToVisibleContent);
+    scheduleVisibleContentResize();
   }
 
   function readFieldsIntoState() {
@@ -2489,21 +2707,35 @@ function setupUnifiedAutoprompter(node) {
     state.audio_dialogue = audioDialogueArea.value;
     state.reference_or_control_notes = controlNotesArea.value;
     state.extra_instructions = extraArea.value;
+    state.refresh_vram = refreshVramInput.checked;
+    state.disable_color_palette = disablePaletteInput.checked;
+    if (isJsonXProfile()) {
+      persistJsonXProviderFromControls();
+      return;
+    }
     state.gemini_timeout = Number(timeoutInput.value || 120);
     for (const [key] of GEMINI_SAFETY_FIELDS) state[key] = geminiSafetySelects[key]?.value || "BLOCK_NONE";
     state.openai_base_url = openaiBaseUrlInput.value.trim() || DEFAULT_OPENAI_BASE_URL;
     state.openai_model = (openaiModelInput.value || openaiModelSelect.value || "").trim();
     state.openai_timeout = Number(openaiTimeoutInput.value || 120);
     state.ollama_host = hostInput.value || DEFAULT_OLLAMA_HOST;
+    state.ollama_timeout = Number(ollamaTimeoutInput.value || 120);
     state.ollama_think = thinkInput.checked;
     state.unload_after = state.backend === "openai" ? openaiUnloadInput.checked : unloadInput.checked;
-    state.refresh_vram = refreshVramInput.checked;
-    state.disable_color_palette = disablePaletteInput.checked;
     state.max_tokens = Number(maxTokensInput.value || 768);
     state.temperature = Number(tempInput.value || 0.7);
+    state.top_p = Number(topPInput.value || 0.9);
+    state.top_k = Number(topKInput.value || 40);
+    state.repeat_penalty = Number(repeatPenaltyInput.value || 1.05);
     state.ctx_size = Number(ctxInput.value || 8192);
+    state.local_timeout = Number(localTimeoutInput.value || 180);
     state.memory_mode = memorySelect.value;
     state.reasoning = reasoningSelect.value;
+    state.speculative_mode = speculativeSelect.value;
+    state.mtp_draft_tokens = Number(mtpDraftTokensInput.value || 2);
+    state.n_gpu_layers = Number(gpuLayersInput.value || 99);
+    state.n_cpu_moe_layers = Number(cpuMoeLayersInput.value || 0);
+    state.seed = Number(seedInput.value ?? -1);
     state.local_model = localModelSelect.value || "";
     state.local_mmproj = mmprojSelect.value || "none";
     state.local_system_prompt_preset = systemPresetSelect.value || "none";
@@ -2517,6 +2749,10 @@ function setupUnifiedAutoprompter(node) {
   }
 
   function persistModelSelection() {
+    if (isJsonXProfile()) {
+      persistJsonXProviderFromControls();
+      return;
+    }
     storeModelSelection({
       backend: state.backend,
       gemini_model: state.gemini_model,
@@ -2568,12 +2804,41 @@ function setupUnifiedAutoprompter(node) {
   function setBusy(isBusy) {
     generateBtn.disabled = isBusy;
     generateBtn.textContent = isBusy ? "Generating..." : "Generate";
+    cancelJsonXBtn.classList.toggle("workflowx-uap-hidden", !isBusy || !isJsonXProfile());
+    cancelJsonXBtn.disabled = !isBusy;
+  }
+
+  function syncMemoryControls() {
+    const memoryMode = memorySelect.value || "auto";
+    gpuLayersInput.disabled = !["gpu_layers", "gpu_and_cpu_moe_layers"].includes(memoryMode);
+    cpuMoeLayersInput.disabled = !["cpu_moe_layers", "gpu_and_cpu_moe_layers"].includes(memoryMode);
+  }
+
+  function measureVisibleContentHeight() {
+    const liveWidth = Math.ceil(wrap.getBoundingClientRect().width || Math.max(320, (node.size?.[0] || 440) - 24));
+    const clone = wrap.cloneNode(true);
+    clone.style.cssText += [
+      "position:fixed",
+      "left:-100000px",
+      "top:0",
+      `width:${liveWidth}px`,
+      "height:auto",
+      "min-height:0",
+      "max-height:none",
+      "overflow:visible",
+      "visibility:hidden",
+      "pointer-events:none",
+      "contain:none",
+    ].join(";");
+    document.body.appendChild(clone);
+    const height = Math.ceil(Math.max(clone.scrollHeight, clone.getBoundingClientRect().height));
+    clone.remove();
+    return Math.max(160, height + 12);
   }
 
   function fitNode() {
     if (!node.__workflowXUapWidget) return;
-    const rectHeight = Math.ceil(wrap.scrollHeight || wrap.getBoundingClientRect().height || NODE_MIN_WIDGET_HEIGHT);
-    node.__workflowXUapWidgetHeight = Math.max(NODE_MIN_WIDGET_HEIGHT, rectHeight + 12);
+    node.__workflowXUapWidgetHeight = measureVisibleContentHeight();
     markDirty();
   }
 
@@ -2582,15 +2847,24 @@ function setupUnifiedAutoprompter(node) {
     node.__workflowXUapFitting = true;
     try {
       fitNode();
-      const width = Math.max(node.size?.[0] || 0, 440);
+      const width = node.size?.[0] || 440;
       const computed = node.computeSize?.();
-      const targetHeight = Math.max(NODE_MIN_WIDGET_HEIGHT + 80, Math.ceil(computed?.[1] || node.__workflowXUapWidgetHeight + 80));
-      if (Math.abs((node.size?.[1] || 0) - targetHeight) > 8 || (node.size?.[0] || 0) < width) {
+      const targetHeight = Math.max(260, Math.ceil(computed?.[1] || node.__workflowXUapWidgetHeight + 80));
+      if (Math.abs((node.size?.[1] || 0) - targetHeight) > 4) {
         node.setSize?.([width, targetHeight]);
       }
     } finally {
       node.__workflowXUapFitting = false;
     }
+  }
+
+  function scheduleVisibleContentResize() {
+    // The browser applies a <details> open/close layout after its toggle event.
+    // A second frame captures the compact height as well as the expanded one.
+    requestAnimationFrame(() => {
+      resizeNodeToVisibleContent();
+      requestAnimationFrame(resizeNodeToVisibleContent);
+    });
   }
 
   function toggleOutputPreview(kind) {
@@ -2653,13 +2927,13 @@ function setupUnifiedAutoprompter(node) {
     const formats = config.formats || ["natural", "tags", "json"];
     const mediaTypes = config.media_types || ["image", "video"];
     let selectedKey = draft.some((profile) => profile.key === state.target_model) ? state.target_model : draft[0]?.key || "";
-
     const backdrop = buildDom("div", "workflowx-uap-modal-backdrop");
     const modal = buildDom("div", "workflowx-uap-modal");
     const head = buildDom("div", "workflowx-uap-modal-head");
     const title = buildDom("div", "workflowx-uap-modal-title", "Unified Autoprompter Model Settings");
     const closeBtn = buildDom("button", "workflowx-uap-btn", "x");
     closeBtn.type = "button";
+    closeBtn.title = "Close without saving editor changes";
     head.appendChild(title);
     head.appendChild(closeBtn);
     modal.appendChild(head);
@@ -2674,6 +2948,10 @@ function setupUnifiedAutoprompter(node) {
     const deleteBtn = buildDom("button", "workflowx-uap-btn", "Delete");
     const resetOneBtn = buildDom("button", "workflowx-uap-btn", "Reset profile");
     for (const button of [addBtn, duplicateBtn, deleteBtn, resetOneBtn]) button.type = "button";
+    addBtn.title = "Add a new custom profile";
+    duplicateBtn.title = "Duplicate the selected profile as a custom profile";
+    deleteBtn.title = "Delete the selected custom profile after Save";
+    resetOneBtn.title = "Restore the selected built-in profile defaults in this draft; click Save to apply";
     listActions.appendChild(addBtn);
     listActions.appendChild(duplicateBtn);
     listActions.appendChild(deleteBtn);
@@ -2747,12 +3025,12 @@ function setupUnifiedAutoprompter(node) {
 
     const foot = buildDom("div", "workflowx-uap-modal-foot");
     const message = buildDom("div", "workflowx-uap-modal-message", `Config file: ${config.path || ""}`);
-    const revertBtn = buildDom("button", "workflowx-uap-btn", "Revert");
     const resetAllBtn = buildDom("button", "workflowx-uap-btn", "Reset all defaults");
     const saveBtn = buildDom("button", "workflowx-uap-btn primary", "Save");
-    for (const button of [revertBtn, resetAllBtn, saveBtn, closeBtn]) button.type = "button";
+    for (const button of [resetAllBtn, saveBtn, closeBtn]) button.type = "button";
+    resetAllBtn.title = "Immediately replace every saved profile with the packaged WorkflowX defaults";
+    saveBtn.title = "Validate and save all profile changes";
     foot.appendChild(message);
-    foot.appendChild(revertBtn);
     foot.appendChild(resetAllBtn);
     foot.appendChild(saveBtn);
     modal.appendChild(foot);
@@ -2925,10 +3203,6 @@ function setupUnifiedAutoprompter(node) {
     backdrop.addEventListener("mousedown", (event) => {
       if (event.target === backdrop) backdrop.remove();
     });
-    revertBtn.addEventListener("click", () => {
-      backdrop.remove();
-      openModelSettingsModal();
-    });
     resetAllBtn.addEventListener("click", async () => {
       if (!window.confirm("Reset all model profiles to WorkflowX defaults?")) return;
       try {
@@ -2972,14 +3246,28 @@ function setupUnifiedAutoprompter(node) {
 
   async function openModelSettingsModalV3() {
     let config;
+    let jsonxInstructionTemplates = null;
     try {
       config = await fetchJsonChecked(`${ROUTE}/profile_config`, {}, "Model settings");
     } catch (error) {
       setStatus(`Model settings error: ${error.message}`, true);
       return;
     }
+    try {
+      jsonxInstructionTemplates = await fetchJsonChecked(`${JSONX_ROUTE}/instructions`, {}, "JsonX instruction defaults");
+    } catch (error) {
+      // Standard profile editing remains available if the private JsonX route is
+      // temporarily unavailable. JsonX fields will retain their saved overrides.
+      console.warn(`[WorkflowX] Could not load Unified JsonX instruction defaults: ${error.message}`);
+    }
 
     let draft = JSON.parse(JSON.stringify(config.profiles || [])).map(ensureProfileShape);
+    for (const profile of draft) {
+      const snapshot = state.jsonx_profile_configs?.[profile.key];
+      if (profile.engine === "jsonx" && snapshot && typeof snapshot === "object") {
+        profile.jsonx_config = { ...defaultJsonXConfig(), ...snapshot };
+      }
+    }
     const defaultsByKey = new Map((config.default_profiles || []).map((profile) => {
       const shaped = ensureProfileShape(profile);
       return [shaped.key, shaped];
@@ -2988,6 +3276,17 @@ function setupUnifiedAutoprompter(node) {
     const formats = config.formats || ALL_PROMPT_FORMATS;
     const mediaTypes = config.media_types || ["image", "video"];
     let selectedKey = draft.some((profile) => profile.key === state.target_model) ? state.target_model : draft[0]?.key || "";
+    const legacyJsonXKeys = Object.keys(defaultJsonXConfig());
+    const legacyJsonXSource = state.jsonx && typeof state.jsonx === "object" ? state.jsonx : {};
+    const legacyJsonXValues = Object.fromEntries(
+      legacyJsonXKeys.filter((key) => Object.prototype.hasOwnProperty.call(legacyJsonXSource, key)).map((key) => [key, legacyJsonXSource[key]]),
+    );
+    let migratedLegacyJsonX = false;
+    const legacyTarget = draft.find((profile) => profile.key === selectedKey && profile.engine === "jsonx");
+    if (legacyTarget && Object.keys(legacyJsonXValues).length) {
+      legacyTarget.jsonx_config = { ...defaultJsonXConfig(), ...(legacyTarget.jsonx_config || {}), ...legacyJsonXValues };
+      migratedLegacyJsonX = true;
+    }
     let activeTab = "model";
     let activeFormat = state.prompt_format || "natural";
     let activeImageMode = state.connected_image_available ? "with_image" : "without_image";
@@ -2998,6 +3297,7 @@ function setupUnifiedAutoprompter(node) {
     const title = buildDom("div", "workflowx-uap-modal-title", "Unified Autoprompter Model Settings");
     const closeBtn = buildDom("button", "workflowx-uap-btn", "x");
     closeBtn.type = "button";
+    closeBtn.title = "Close without saving editor changes";
     head.appendChild(title);
     head.appendChild(closeBtn);
     modal.appendChild(head);
@@ -3012,6 +3312,10 @@ function setupUnifiedAutoprompter(node) {
     const deleteBtn = buildDom("button", "workflowx-uap-btn", "Delete");
     const resetOneBtn = buildDom("button", "workflowx-uap-btn", "Reset profile");
     for (const button of [addBtn, duplicateBtn, deleteBtn, resetOneBtn]) button.type = "button";
+    addBtn.title = "Add a new custom profile";
+    duplicateBtn.title = "Duplicate the selected profile as a custom profile";
+    deleteBtn.title = "Delete the selected custom profile after Save";
+    resetOneBtn.title = "Restore the selected built-in profile defaults in this draft; click Save to apply";
     listActions.appendChild(addBtn);
     listActions.appendChild(duplicateBtn);
     listActions.appendChild(deleteBtn);
@@ -3027,6 +3331,7 @@ function setupUnifiedAutoprompter(node) {
     for (const [key, label] of [["model", "Model"], ["formats", "Formats"], ["prompt", "Prompt"], ["contract", "Output Contract"], ["preview", "Preview"]]) {
       const button = buildDom("button", "workflowx-uap-settings-tab", label);
       button.type = "button";
+      button.title = `Edit the selected profile's ${label.toLowerCase()} settings`;
       button.addEventListener("click", () => {
         readCurrentView();
         activeTab = key;
@@ -3046,18 +3351,20 @@ function setupUnifiedAutoprompter(node) {
     const message = buildDom("div", "workflowx-uap-modal-message", `Config file: ${config.path || ""}`);
     const exportBtn = buildDom("button", "workflowx-uap-btn", "Export JSON");
     const importBtn = buildDom("button", "workflowx-uap-btn", "Import JSON");
-    const revertBtn = buildDom("button", "workflowx-uap-btn", "Revert");
     const resetAllBtn = buildDom("button", "workflowx-uap-btn", "Reset all defaults");
     const saveBtn = buildDom("button", "workflowx-uap-btn primary", "Save");
     const importInput = document.createElement("input");
     importInput.type = "file";
     importInput.accept = "application/json,.json";
     importInput.className = "workflowx-uap-hidden";
-    for (const button of [exportBtn, importBtn, revertBtn, resetAllBtn, saveBtn]) button.type = "button";
+    for (const button of [exportBtn, importBtn, resetAllBtn, saveBtn]) button.type = "button";
+    exportBtn.title = "Export the current editor draft without saving it";
+    importBtn.title = "Load profiles from JSON into the editor; review and Save to apply";
+    resetAllBtn.title = "Immediately replace every saved profile with the packaged WorkflowX defaults";
+    saveBtn.title = "Validate and save all profile changes";
     foot.appendChild(message);
     foot.appendChild(exportBtn);
     foot.appendChild(importBtn);
-    foot.appendChild(revertBtn);
     foot.appendChild(resetAllBtn);
     foot.appendChild(saveBtn);
     foot.appendChild(importInput);
@@ -3085,11 +3392,35 @@ function setupUnifiedAutoprompter(node) {
       return profile.formats[format];
     };
     const enabledFormatsFor = (profile) => enabledProfileFormats(profile);
+    const jsonxInstructionDefault = (key) => {
+      const templateKey = {
+        stage_one_instructions: "stage_one",
+        template_fill_instructions: "template_fill",
+        refinement_instructions: "refinement",
+        natural_language_instructions: "natural_language",
+      }[key];
+      return templateKey ? String(jsonxInstructionTemplates?.[templateKey] || "") : "";
+    };
+    const normalizedJsonXConfig = (value) => {
+      const normalized = { ...defaultJsonXConfig(), ...(value || {}) };
+      for (const key of [
+        "stage_one_instructions",
+        "template_fill_instructions",
+        "refinement_instructions",
+        "natural_language_instructions",
+      ]) {
+        const packaged = jsonxInstructionDefault(key).trim();
+        if (packaged && String(normalized[key] || "").trim() === packaged) normalized[key] = "";
+      }
+      return normalized;
+    };
     const cleanProfile = (profile) => {
       const shaped = ensureProfileShape(profile);
       return {
         key: shaped.key || "",
         label: shaped.label || shaped.key || "",
+        engine: shaped.engine || "standard",
+        jsonx_config: shaped.engine === "jsonx" ? normalizedJsonXConfig(shaped.jsonx_config) : {},
         media_type: shaped.media_type || "image",
         default_format: shaped.default_format || "natural",
         negative_supported: Boolean(shaped.negative_supported),
@@ -3107,7 +3438,7 @@ function setupUnifiedAutoprompter(node) {
       export_format: "workflowx_unified_autoprompter_model_settings",
       export_version: 1,
       exported_at: new Date().toISOString(),
-      version: config.version || 3,
+      version: config.version || 4,
       source: {
         config_path: config.path || "",
         default_path: config.default_path || "",
@@ -3181,6 +3512,13 @@ function setupUnifiedAutoprompter(node) {
         else if (bind === "negative_supported") profile.negative_supported = input.checked;
         else if (bind === "json_supported") profile.json_supported = input.checked;
         else if (bind === "notes") profile.notes = input.value;
+        else if (bind.startsWith("jsonx_bool:")) {
+          profile.jsonx_config ||= defaultJsonXConfig();
+          profile.jsonx_config[bind.split(":")[1]] = input.checked;
+        } else if (bind.startsWith("jsonx:")) {
+          profile.jsonx_config ||= defaultJsonXConfig();
+          profile.jsonx_config[bind.split(":")[1]] = input.value;
+        }
         else if (bind.startsWith("format_enabled:")) profileRule(profile, bind.split(":")[1]).enabled = input.checked;
         else if (bind === "common_instructions") profileRule(profile).common_instructions = input.value;
         else if (bind === "with_image_reference_instructions") profileRule(profile).with_image_reference_instructions = input.value;
@@ -3199,6 +3537,14 @@ function setupUnifiedAutoprompter(node) {
         if (seen.has(profile.key)) throw new Error(`Duplicate model key: ${profile.key}`);
         seen.add(profile.key);
         if (!profile.label?.trim()) throw new Error(`Profile ${profile.key} needs a display label.`);
+        if (!["standard", "jsonx"].includes(profile.engine || "standard")) throw new Error(`Profile ${profile.key} has an invalid engine identifier.`);
+        if (profile.engine === "jsonx") {
+          const jsonx = { ...defaultJsonXConfig(), ...(profile.jsonx_config || {}) };
+          if (!["adaptive", "template_fill"].includes(jsonx.generation_profile)) throw new Error(`${profile.key} has an invalid JsonX generation profile.`);
+          if (!["fast", "refined"].includes(jsonx.generation_mode)) throw new Error(`${profile.key} has an invalid JsonX generation mode.`);
+          if (!["optimized", "full"].includes(jsonx.preset_context_mode)) throw new Error(`${profile.key} has an invalid JsonX preset mode.`);
+          if (!["deep", "exhaustive"].includes(jsonx.detail_level)) throw new Error(`${profile.key} has an invalid JsonX hierarchy depth.`);
+        }
         const enabled = enabledFormatsFor(profile);
         if (!enabled.length) throw new Error(`Profile ${profile.key} needs at least one enabled format.`);
         if (!enabled.includes(profile.default_format)) throw new Error(`Profile ${profile.key} default format must be enabled.`);
@@ -3246,6 +3592,48 @@ function setupUnifiedAutoprompter(node) {
     }
 
     function renderModelTab(profile) {
+      if (profile.engine === "jsonx") {
+        const config = profile.jsonx_config ||= defaultJsonXConfig();
+        const identity = buildDom("div", "workflowx-uap-grid");
+        const keyInput = bindInput(createInput("text"), "key");
+        keyInput.value = profile.key || "";
+        keyInput.disabled = builtinKeys.has(profile.key);
+        const labelInput = bindInput(createInput("text"), "label");
+        labelInput.value = profile.label || "";
+        const defaultFormat = bindInput(createSelect(), "default_format");
+        setSelectOptions(defaultFormat, [{ value: "json", label: "JsonX JSON" }, { value: "natural", label: "Natural language" }], profile.default_format || "json");
+        field(identity, "Profile key", keyInput);
+        field(identity, "Display label", labelInput);
+        field(identity, "Default output format", defaultFormat);
+        editor.appendChild(identity);
+
+        const settings = buildDom("div", "workflowx-uap-grid");
+        const generationProfile = bindInput(createSelect(), "jsonx:generation_profile");
+        setSelectOptions(generationProfile, [{ value: "adaptive", label: "Adaptive" }, { value: "template_fill", label: "Template Fill" }], config.generation_profile);
+        const generationMode = bindInput(createSelect(), "jsonx:generation_mode");
+        setSelectOptions(generationMode, [{ value: "fast", label: "Fast" }, { value: "refined", label: "Refined" }], config.generation_mode);
+        const presetMode = bindInput(createSelect(), "jsonx:preset_context_mode");
+        setSelectOptions(presetMode, [{ value: "optimized", label: "Optimized Presets" }, { value: "full", label: "Full Presets" }], config.preset_context_mode);
+        const detailLevel = bindInput(createSelect(), "jsonx:detail_level");
+        setSelectOptions(detailLevel, [{ value: "deep", label: "Deep" }, { value: "exhaustive", label: "Exhaustive" }], config.detail_level);
+        field(settings, "Generation profile", generationProfile);
+        field(settings, "Generation mode", generationMode);
+        field(settings, "Adaptive preset context", presetMode);
+        field(settings, "Hierarchy depth", detailLevel);
+        editor.appendChild(settings);
+
+        const options = buildDom("div", "workflowx-uap-row");
+        for (const [key, labelText] of [["template_use_presets", "Template Fill: Use Presets"], ["enable_framing_and_placement", "Framing & placement (3x3)"]]) {
+          const label = buildDom("label", "workflowx-uap-toggle");
+          const input = bindInput(document.createElement("input"), `jsonx_bool:${key}`);
+          input.type = "checkbox";
+          input.checked = Boolean(config[key]);
+          label.append(input, document.createTextNode(labelText));
+          options.appendChild(label);
+        }
+        editor.appendChild(options);
+        return;
+      }
       const grid = buildDom("div", "workflowx-uap-grid");
       const keyInput = bindInput(createInput("text"), "key");
       keyInput.value = profile.key || "";
@@ -3294,6 +3682,30 @@ function setupUnifiedAutoprompter(node) {
     }
 
     function renderPromptTab(profile) {
+      if (profile.engine === "jsonx") {
+        const config = profile.jsonx_config ||= defaultJsonXConfig();
+        const help = buildDom(
+          "div",
+          "workflowx-uap-modal-message",
+          "Showing the effective packaged JsonX instructions. Edit any field to create a profile override; unchanged defaults remain linked to the packaged engine instructions.",
+        );
+        editor.appendChild(help);
+        for (const [label, key] of [
+          ["Adaptive Stage 1 instructions", "stage_one_instructions"],
+          ["Template Fill instructions", "template_fill_instructions"],
+          ["JSON refinement instructions", "refinement_instructions"],
+          ["Natural Language Stage 2 instructions", "natural_language_instructions"],
+        ]) {
+          const area = bindInput(createTextarea(8), `jsonx:${key}`);
+          area.classList.add("workflowx-uap-settings-large");
+          area.value = config[key] || jsonxInstructionDefault(key);
+          area.placeholder = jsonxInstructionTemplates
+            ? "Packaged JsonX default instruction."
+            : "Packaged defaults could not be loaded; a blank value still uses the backend default.";
+          field(editor, label, area);
+        }
+        return;
+      }
       editor.appendChild(formatSegment(profile));
       editor.appendChild(imageModeSegment());
       const rule = profileRule(profile);
@@ -3309,6 +3721,19 @@ function setupUnifiedAutoprompter(node) {
     }
 
     function renderContractTab(profile) {
+      if (profile.engine === "jsonx") {
+        const config = profile.jsonx_config ||= defaultJsonXConfig();
+        editor.appendChild(imageModeSegment());
+        const key = activeImageMode === "with_image" ? "with_image_instructions" : "without_image_instructions";
+        const area = bindInput(createTextarea(12), `jsonx:${key}`);
+        area.classList.add("workflowx-uap-settings-large");
+        area.value = config[key] || "";
+        area.placeholder = activeImageMode === "with_image"
+          ? "Additional instructions applied when one or more images are connected."
+          : "Additional instructions applied when generation is text-only.";
+        field(editor, activeImageMode === "with_image" ? "With image instructions" : "Without image instructions", area);
+        return;
+      }
       editor.appendChild(formatSegment(profile));
       const rule = profileRule(profile);
       const off = bindInput(createTextarea(6), "output_contract_negative_off");
@@ -3322,6 +3747,47 @@ function setupUnifiedAutoprompter(node) {
     }
 
     function renderPreviewTab(profile) {
+      if (profile.engine === "jsonx") {
+        const controls = buildDom("div", "workflowx-uap-row");
+        const format = createSelect();
+        setSelectOptions(format, [{ value: "json", label: "JsonX JSON" }, { value: "natural", label: "Natural language" }], activeFormat === "natural" ? "natural" : "json");
+        format.addEventListener("change", () => { activeFormat = format.value; renderAll(); });
+        controls.append(format, imageModeSegment());
+        const refresh = buildDom("button", "workflowx-uap-btn", "Refresh effective instructions");
+        refresh.type = "button";
+        controls.appendChild(refresh);
+        editor.appendChild(controls);
+        const preview = buildDom("pre", "workflowx-uap-settings-preview", "Select Refresh effective instructions to render the exact JsonX prompts.");
+        editor.appendChild(preview);
+        const diagnostics = buildDom("pre", "workflowx-uap-settings-preview");
+        diagnostics.textContent = state.jsonx?.diagnostics ? JSON.stringify(state.jsonx.diagnostics, null, 2) : "No diagnostics for this node.";
+        field(editor, "Latest sanitized diagnostics for this node", diagnostics);
+        refresh.addEventListener("click", async () => {
+          try {
+            readCurrentView();
+            const jsonx = { ...defaultJsonXConfig(), ...(profile.jsonx_config || {}) };
+            const data = await fetchJsonChecked(`${JSONX_ROUTE}/instructions/preview`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                ...jsonx,
+                fields: {
+                  idea: state.idea, subject: state.subject, style: state.style, lighting: state.lighting,
+                  composition: state.composition, text: state.text, detail: state.detail,
+                  image_note: state.image_note, raw_prompt_text: state.enable_text_input ? state.connected_raw_prompt_text : "",
+                  extra_instructions: state.extra_instructions,
+                },
+                has_image: activeImageMode === "with_image",
+                output_format: activeFormat === "natural" ? "natural" : "json",
+              }),
+            }, "JsonX instruction preview");
+            preview.textContent = `Stage 1\n${data.stage_one}\n\nStage 2\n${data.refinement}`;
+          } catch (error) {
+            preview.textContent = `Preview error: ${error.message}`;
+          }
+        });
+        return;
+      }
       const controls = buildDom("div", "workflowx-uap-row");
       controls.appendChild(formatSegment(profile));
       controls.appendChild(imageModeSegment());
@@ -3367,6 +3833,12 @@ function setupUnifiedAutoprompter(node) {
       if (!profile) return;
       Object.assign(profile, ensureProfileShape(profile));
       normalizeActiveFormat(profile);
+      if (profile.engine === "jsonx" && activeTab === "formats") activeTab = "model";
+      const jsonxLabels = { model: "JsonX", prompt: "Instructions", contract: "Image Mode", preview: "Preview" };
+      for (const [key, button] of tabButtons) {
+        button.classList.toggle("workflowx-uap-hidden", profile.engine === "jsonx" && key === "formats");
+        button.textContent = profile.engine === "jsonx" ? (jsonxLabels[key] || button.textContent) : ({ model: "Model", formats: "Formats", prompt: "Prompt", contract: "Output Contract", preview: "Preview" }[key]);
+      }
       for (const [key, button] of tabButtons) button.classList.toggle("active", key === activeTab);
       editor.replaceChildren();
       deleteBtn.disabled = builtinKeys.has(profile.key);
@@ -3428,10 +3900,6 @@ function setupUnifiedAutoprompter(node) {
     backdrop.addEventListener("mousedown", (event) => {
       if (event.target === backdrop) backdrop.remove();
     });
-    revertBtn.addEventListener("click", () => {
-      backdrop.remove();
-      openModelSettingsModalV3();
-    });
     exportBtn.addEventListener("click", async () => {
       try {
         readCurrentView();
@@ -3477,6 +3945,11 @@ function setupUnifiedAutoprompter(node) {
         config = data;
         draft = JSON.parse(JSON.stringify(data.profiles || [])).map(ensureProfileShape);
         selectedKey = draft.some((profile) => profile.key === state.target_model) ? state.target_model : draft[0]?.key || "";
+        const resetProfile = draft.find((profile) => profile.key === selectedKey);
+        if (resetProfile?.engine === "jsonx") {
+          state.jsonx_profile_configs ||= {};
+          state.jsonx_profile_configs[selectedKey] = { ...defaultJsonXConfig(), ...(resetProfile.jsonx_config || {}) };
+        }
         clearProfileCache();
         profiles = await loadProfiles();
         profilesByKey = profileMap(profiles);
@@ -3495,12 +3968,18 @@ function setupUnifiedAutoprompter(node) {
         const data = await fetchJsonChecked(`${ROUTE}/profile_config`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ version: 3, profiles: draft }),
+          body: JSON.stringify({ version: 4, profiles: draft }),
         }, "Save model settings");
         clearProfileCache();
         profiles = await loadProfiles();
         profilesByKey = profileMap(profiles);
         if (profilesByKey.has(selectedKey)) state.target_model = selectedKey;
+        const savedProfile = draft.find((profile) => profile.key === selectedKey);
+        if (savedProfile?.engine === "jsonx") {
+          state.jsonx_profile_configs ||= {};
+          state.jsonx_profile_configs[selectedKey] = { ...defaultJsonXConfig(), ...(savedProfile.jsonx_config || {}) };
+        }
+        if (migratedLegacyJsonX) state.jsonx = { diagnostics: state.jsonx?.diagnostics || null };
         refreshProfiles();
         showMessage("Profiles saved.");
         setStatus("Model settings saved.");
@@ -4912,25 +5391,34 @@ function setupUnifiedAutoprompter(node) {
   }
 
   async function fetchGeminiModels() {
-    state.gemini_key = keyInput.value.trim();
-    storeGeminiKey(state.gemini_key);
-    if (!state.gemini_key) {
+    const jsonx = isJsonXProfile();
+    const apiKey = keyInput.value.trim();
+    if (jsonx) {
+      if (apiKey) localStorage.setItem(JSONX_GEMINI_KEY, apiKey);
+      else localStorage.removeItem(JSONX_GEMINI_KEY);
+    } else {
+      state.gemini_key = apiKey;
+      storeGeminiKey(apiKey);
+    }
+    if (!apiKey) {
       setStatus("Enter a Gemini API key first.", true);
       return;
     }
     fetchGeminiBtn.disabled = true;
     setStatus("Fetching Gemini models...");
     try {
-      const response = await fetch(`${ROUTE}/gemini/models`, {
+      const response = await fetch(`${jsonx ? JSONX_ROUTE : ROUTE}/gemini/models`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ api_key: state.gemini_key, timeout: Number(timeoutInput.value || 120) }),
+        body: JSON.stringify({ api_key: apiKey, timeout: Number(timeoutInput.value || 120) }),
       });
       const data = await response.json();
       if (!response.ok || data.error) throw new Error(data.error || `HTTP ${response.status}`);
-      fillModelSelect(geminiModelSelect, data.models, state.gemini_model);
+      const selected = jsonx ? jsonxProviderSettings().gemini_model : state.gemini_model;
+      fillModelSelect(geminiModelSelect, data.models, selected);
       if (!geminiModelSelect.value && geminiModelSelect.options.length) geminiModelSelect.selectedIndex = 0;
-      state.gemini_model = geminiModelSelect.value;
+      if (jsonx) persistJsonXProviderFromControls();
+      else state.gemini_model = geminiModelSelect.value;
       persistModelSelection();
       syncPreview();
       setStatus(`${data.models.length} Gemini models loaded.`);
@@ -4938,30 +5426,41 @@ function setupUnifiedAutoprompter(node) {
       setStatus(`Error: ${error.message}`, true);
     } finally {
       fetchGeminiBtn.disabled = false;
+      scheduleVisibleContentResize();
     }
   }
 
   async function fetchOpenaiModels() {
-    state.openai_base_url = openaiBaseUrlInput.value.trim() || DEFAULT_OPENAI_BASE_URL;
-    state.openai_key = openaiKeyInput.value.trim();
-    storeOpenAIBaseUrl(state.openai_base_url);
-    storeOpenAIKey(state.openai_key);
+    const jsonx = isJsonXProfile();
+    const baseUrl = openaiBaseUrlInput.value.trim() || DEFAULT_OPENAI_BASE_URL;
+    const apiKey = openaiKeyInput.value.trim();
+    if (jsonx) {
+      if (apiKey) localStorage.setItem(JSONX_OPENAI_KEY, apiKey);
+      else localStorage.removeItem(JSONX_OPENAI_KEY);
+    } else {
+      state.openai_base_url = baseUrl;
+      state.openai_key = apiKey;
+      storeOpenAIBaseUrl(baseUrl);
+      storeOpenAIKey(apiKey);
+    }
     fetchOpenaiBtn.disabled = true;
     setStatus("Fetching OpenAI-compatible models...");
     try {
-      const data = await fetchJsonChecked(`${ROUTE}/openai/models`, {
+      const data = await fetchJsonChecked(`${jsonx ? JSONX_ROUTE : ROUTE}/openai/models`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          base_url: state.openai_base_url,
-          api_key: state.openai_key,
+          base_url: baseUrl,
+          api_key: apiKey,
           timeout: Number(openaiTimeoutInput.value || 120),
         }),
       }, "Fetch OpenAI-compatible models");
-      fillModelSelect(openaiModelSelect, data.models, state.openai_model);
+      const selected = jsonx ? jsonxProviderSettings().openai_model : state.openai_model;
+      fillModelSelect(openaiModelSelect, data.models, selected);
       if (!openaiModelSelect.value && openaiModelSelect.options.length) openaiModelSelect.selectedIndex = 0;
-      state.openai_model = openaiModelSelect.value;
-      if (state.openai_model) openaiModelInput.value = state.openai_model;
+      openaiModelInput.value = openaiModelSelect.value || openaiModelInput.value;
+      if (jsonx) persistJsonXProviderFromControls();
+      else state.openai_model = openaiModelInput.value;
       persistModelSelection();
       syncPreview();
       setStatus(`${data.models.length} OpenAI-compatible models loaded.`);
@@ -4969,23 +5468,27 @@ function setupUnifiedAutoprompter(node) {
       setStatus(`Error: ${error.message}`, true);
     } finally {
       fetchOpenaiBtn.disabled = false;
+      scheduleVisibleContentResize();
     }
   }
 
   async function fetchOllamaModels() {
+    const jsonx = isJsonXProfile();
     fetchOllamaBtn.disabled = true;
     setStatus("Fetching Ollama models...");
     try {
-      const response = await fetch(`${ROUTE}/ollama/models`, {
+      const response = await fetch(`${jsonx ? JSONX_ROUTE : ROUTE}/ollama/models`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ host: hostInput.value || DEFAULT_OLLAMA_HOST }),
+        body: JSON.stringify({ host: hostInput.value || DEFAULT_OLLAMA_HOST, timeout: Number(ollamaTimeoutInput.value || 120) }),
       });
       const data = await response.json();
       if (!response.ok || data.error) throw new Error(data.error || `HTTP ${response.status}`);
-      fillModelSelect(ollamaModelSelect, data.models, state.ollama_model);
+      const selected = jsonx ? jsonxProviderSettings().ollama_model : state.ollama_model;
+      fillModelSelect(ollamaModelSelect, data.models, selected);
       if (!ollamaModelSelect.value && ollamaModelSelect.options.length) ollamaModelSelect.selectedIndex = 0;
-      state.ollama_model = ollamaModelSelect.value;
+      if (jsonx) persistJsonXProviderFromControls();
+      else state.ollama_model = ollamaModelSelect.value;
       persistModelSelection();
       syncPreview();
       setStatus(`${data.models.length} Ollama models loaded.`);
@@ -4993,15 +5496,18 @@ function setupUnifiedAutoprompter(node) {
       setStatus(`Error: ${error.message}`, true);
     } finally {
       fetchOllamaBtn.disabled = false;
+      scheduleVisibleContentResize();
     }
   }
 
   async function fetchLocalModels() {
+    const jsonx = isJsonXProfile();
     fetchLocalBtn.disabled = true;
     setStatus("Refreshing local GGUF files...");
     try {
-      storeAdditionalLocalModelPaths(localAdditionalPathsInput.value);
-      const response = await fetch(`${ROUTE}/local/models`, {
+      if (jsonx) persistJsonXProviderFromControls();
+      else storeAdditionalLocalModelPaths(localAdditionalPathsInput.value);
+      const response = await fetch(`${jsonx ? JSONX_ROUTE : ROUTE}/local/models`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -5010,12 +5516,16 @@ function setupUnifiedAutoprompter(node) {
       });
       const data = await response.json();
       if (!response.ok || data.error) throw new Error(data.error || `HTTP ${response.status}`);
-      setSelectOptions(localModelSelect, data.models || [], state.local_model);
-      setSelectOptions(mmprojSelect, data.mmproj || ["none"], state.local_mmproj);
-      setSelectOptions(systemPresetSelect, data.system_prompts || ["none"], state.local_system_prompt_preset);
-      state.local_model = localModelSelect.value || "";
-      state.local_mmproj = mmprojSelect.value || "none";
-      state.local_system_prompt_preset = systemPresetSelect.value || "none";
+      const selected = jsonx ? jsonxProviderSettings() : state;
+      setSelectOptions(localModelSelect, data.models || [], selected.local_model);
+      setSelectOptions(mmprojSelect, data.mmproj || ["none"], selected.local_mmproj);
+      setSelectOptions(systemPresetSelect, data.system_prompts || ["none"], selected.local_system_prompt_preset);
+      if (jsonx) persistJsonXProviderFromControls();
+      else {
+        state.local_model = localModelSelect.value || "";
+        state.local_mmproj = mmprojSelect.value || "none";
+        state.local_system_prompt_preset = systemPresetSelect.value || "none";
+      }
       persistModelSelection();
       syncPreview();
       const skipped = Number(data.invalid_paths?.length || 0);
@@ -5024,10 +5534,227 @@ function setupUnifiedAutoprompter(node) {
       setStatus(`Error: ${error.message}`, true);
     } finally {
       fetchLocalBtn.disabled = false;
+      scheduleVisibleContentResize();
     }
   }
 
+  let jsonxGenerationId = "";
+
+  function jsonxProviderSettings() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(JSONX_SETTINGS_KEY) || "{}");
+      const browserSource = saved && typeof saved === "object" ? saved : {};
+      const workflowSource = state.jsonx_provider && typeof state.jsonx_provider === "object"
+        ? state.jsonx_provider
+        : {};
+      const source = {
+        ...browserSource,
+        ...workflowSource,
+        local_options: {
+          ...(browserSource.local_options && typeof browserSource.local_options === "object" ? browserSource.local_options : {}),
+          ...(workflowSource.local_options && typeof workflowSource.local_options === "object" ? workflowSource.local_options : {}),
+        },
+        gemini_safety: {
+          ...(browserSource.gemini_safety && typeof browserSource.gemini_safety === "object" ? browserSource.gemini_safety : {}),
+          ...(workflowSource.gemini_safety && typeof workflowSource.gemini_safety === "object" ? workflowSource.gemini_safety : {}),
+        },
+      };
+      const backend = ["gemini", "openai", "ollama", "local"].includes(source.backend) ? source.backend : "gemini";
+      const legacyModel = String(source.model || "");
+      return {
+        backend,
+        gemini_model: source.gemini_model || (backend === "gemini" ? legacyModel : ""),
+        gemini_timeout: Number(source.gemini_timeout || source.timeout || 180),
+        openai_base_url: source.openai_base_url || DEFAULT_OPENAI_BASE_URL,
+        openai_model: source.openai_model || (backend === "openai" ? legacyModel : ""),
+        openai_timeout: Number(source.openai_timeout || source.timeout || 180),
+        ollama_host: source.ollama_host || DEFAULT_OLLAMA_HOST,
+        ollama_model: source.ollama_model || (backend === "ollama" ? legacyModel : ""),
+        ollama_timeout: Number(source.ollama_timeout || source.timeout || 180),
+        ollama_think: Boolean(source.ollama_think ?? source.think ?? false),
+        unload_after: source.unload_after !== false,
+        local_model: source.local_model || (backend === "local" ? legacyModel : ""),
+        local_timeout: Number(source.local_timeout || source.timeout || 180),
+        additional_model_paths: String(source.additional_model_paths || ""),
+        local_mmproj: source.local_mmproj || source.mmproj || "none",
+        local_system_prompt_preset: source.local_system_prompt_preset || source.system_prompt_preset || "none",
+        local_options: {
+          max_tokens: 8192, temperature: 0.7, top_p: 0.9, top_k: 40, repeat_penalty: 1.05,
+          ctx_size: 32768, memory_mode: "auto", n_gpu_layers: 99, n_cpu_moe_layers: 0,
+          reasoning: "off", speculative_mode: "auto", mtp_draft_tokens: 2, seed: -1,
+          ...(source.local_options && typeof source.local_options === "object" ? source.local_options : {}),
+        },
+        gemini_safety: {
+          safety_harassment: "BLOCK_NONE", safety_hate_speech: "BLOCK_NONE",
+          safety_sexual: "BLOCK_NONE", safety_dangerous: "BLOCK_NONE",
+          ...(source.gemini_safety && typeof source.gemini_safety === "object" ? source.gemini_safety : {}),
+        },
+      };
+    } catch { return { backend: "gemini", local_options: {}, gemini_safety: {} }; }
+  }
+
+  function saveJsonXProviderSettings(settings) {
+    const clean = { ...settings };
+    delete clean.api_key;
+    delete clean.gemini_key;
+    delete clean.openai_key;
+    localStorage.setItem(JSONX_SETTINGS_KEY, JSON.stringify(clean));
+  }
+
+  function isJsonXProfile(profile = activeProfile()) { return profile?.engine === "jsonx"; }
+
+  function ensureSelectValue(select, value, label = value) {
+    const clean = String(value || "");
+    if (clean && !Array.from(select.options).some((item) => item.value === clean)) option(select, clean, label || clean);
+    select.value = clean;
+  }
+
+  function providerBackend() {
+    return isJsonXProfile() ? jsonxProviderSettings().backend : state.backend;
+  }
+
+  function applyActiveProviderSettingsToControls() {
+    if (!isJsonXProfile()) {
+      keyInput.value = state.gemini_key || "";
+      timeoutInput.value = String(state.gemini_timeout || 120);
+      ensureSelectValue(geminiModelSelect, state.gemini_model);
+      for (const [key] of GEMINI_SAFETY_FIELDS) geminiSafetySelects[key].value = state[key] || "BLOCK_NONE";
+      openaiBaseUrlInput.value = state.openai_base_url || DEFAULT_OPENAI_BASE_URL;
+      openaiKeyInput.value = state.openai_key || "";
+      openaiTimeoutInput.value = String(state.openai_timeout || 120);
+      openaiModelInput.value = state.openai_model || "";
+      ensureSelectValue(openaiModelSelect, state.openai_model);
+      openaiUnloadInput.checked = state.unload_after !== false;
+      hostInput.value = state.ollama_host || DEFAULT_OLLAMA_HOST;
+      ollamaTimeoutInput.value = String(state.ollama_timeout || 120);
+      ensureSelectValue(ollamaModelSelect, state.ollama_model);
+      thinkInput.checked = Boolean(state.ollama_think);
+      unloadInput.checked = state.unload_after !== false;
+      localAdditionalPathsInput.value = loadStoredAdditionalLocalModelPaths();
+      ensureSelectValue(localModelSelect, state.local_model);
+      ensureSelectValue(mmprojSelect, state.local_mmproj || "none");
+      ensureSelectValue(systemPresetSelect, state.local_system_prompt_preset || "none");
+      localTimeoutInput.value = String(state.local_timeout || 180);
+      maxTokensInput.value = String(state.max_tokens || 768);
+      tempInput.value = String(state.temperature ?? 0.7);
+      topPInput.value = String(state.top_p ?? 0.9);
+      topKInput.value = String(state.top_k ?? 40);
+      repeatPenaltyInput.value = String(state.repeat_penalty ?? 1.05);
+      ctxInput.value = String(state.ctx_size || 8192);
+      memorySelect.value = state.memory_mode || "auto";
+      reasoningSelect.value = normalizeUnifiedReasoning(state.reasoning);
+      speculativeSelect.value = state.speculative_mode || "auto";
+      mtpDraftTokensInput.value = String(state.mtp_draft_tokens || 2);
+      gpuLayersInput.value = String(state.n_gpu_layers ?? 99);
+      cpuMoeLayersInput.value = String(state.n_cpu_moe_layers ?? 0);
+      seedInput.value = String(state.seed ?? -1);
+      syncMemoryControls();
+      return;
+    }
+    const provider = jsonxProviderSettings();
+    keyInput.value = localStorage.getItem(JSONX_GEMINI_KEY) || "";
+    timeoutInput.value = String(provider.gemini_timeout || 180);
+    ensureSelectValue(geminiModelSelect, provider.gemini_model);
+    for (const [key] of GEMINI_SAFETY_FIELDS) geminiSafetySelects[key].value = provider.gemini_safety?.[key] || "BLOCK_NONE";
+    openaiBaseUrlInput.value = provider.openai_base_url || DEFAULT_OPENAI_BASE_URL;
+    openaiKeyInput.value = localStorage.getItem(JSONX_OPENAI_KEY) || "";
+    openaiTimeoutInput.value = String(provider.openai_timeout || 180);
+    openaiModelInput.value = provider.openai_model || "";
+    ensureSelectValue(openaiModelSelect, provider.openai_model);
+    openaiUnloadInput.checked = provider.unload_after !== false;
+    hostInput.value = provider.ollama_host || DEFAULT_OLLAMA_HOST;
+    ollamaTimeoutInput.value = String(provider.ollama_timeout || 180);
+    ensureSelectValue(ollamaModelSelect, provider.ollama_model);
+    thinkInput.checked = Boolean(provider.ollama_think);
+    unloadInput.checked = provider.unload_after !== false;
+    localAdditionalPathsInput.value = provider.additional_model_paths || "";
+    ensureSelectValue(localModelSelect, provider.local_model);
+    ensureSelectValue(mmprojSelect, provider.local_mmproj || "none");
+    ensureSelectValue(systemPresetSelect, provider.local_system_prompt_preset || "none");
+    localTimeoutInput.value = String(provider.local_timeout || 180);
+    const local = provider.local_options || {};
+    maxTokensInput.value = String(local.max_tokens || 8192);
+    tempInput.value = String(local.temperature ?? 0.7);
+    topPInput.value = String(local.top_p ?? 0.9);
+    topKInput.value = String(local.top_k ?? 40);
+    repeatPenaltyInput.value = String(local.repeat_penalty ?? 1.05);
+    ctxInput.value = String(local.ctx_size || 32768);
+    memorySelect.value = local.memory_mode || "auto";
+    reasoningSelect.value = normalizeUnifiedReasoning(local.reasoning || "off");
+    speculativeSelect.value = local.speculative_mode || "auto";
+    mtpDraftTokensInput.value = String(local.mtp_draft_tokens || 2);
+    gpuLayersInput.value = String(local.n_gpu_layers ?? 99);
+    cpuMoeLayersInput.value = String(local.n_cpu_moe_layers ?? 0);
+    seedInput.value = String(local.seed ?? -1);
+    syncMemoryControls();
+  }
+
+  function persistJsonXProviderFromControls(overrides = {}) {
+    const previous = jsonxProviderSettings();
+    const backend = overrides.backend || previous.backend || "gemini";
+    const provider = {
+      ...previous,
+      backend,
+      gemini_model: geminiModelSelect.value || previous.gemini_model || "",
+      gemini_timeout: Number(timeoutInput.value || 180),
+      gemini_safety: Object.fromEntries(GEMINI_SAFETY_FIELDS.map(([key]) => [key, geminiSafetySelects[key].value || "BLOCK_NONE"])),
+      openai_base_url: openaiBaseUrlInput.value.trim() || DEFAULT_OPENAI_BASE_URL,
+      openai_model: (openaiModelInput.value || openaiModelSelect.value || previous.openai_model || "").trim(),
+      openai_timeout: Number(openaiTimeoutInput.value || 180),
+      ollama_host: hostInput.value.trim() || DEFAULT_OLLAMA_HOST,
+      ollama_model: ollamaModelSelect.value || previous.ollama_model || "",
+      ollama_timeout: Number(ollamaTimeoutInput.value || 180),
+      ollama_think: thinkInput.checked,
+      unload_after: backend === "openai" ? openaiUnloadInput.checked : unloadInput.checked,
+      local_model: localModelSelect.value || previous.local_model || "",
+      local_timeout: Number(localTimeoutInput.value || 180),
+      additional_model_paths: localAdditionalPathsInput.value.trim(),
+      local_mmproj: mmprojSelect.value || "none",
+      local_system_prompt_preset: systemPresetSelect.value || "none",
+      local_options: {
+        max_tokens: Number(maxTokensInput.value || 8192), temperature: Number(tempInput.value || 0.7),
+        top_p: Number(topPInput.value || 0.9), top_k: Number(topKInput.value || 40),
+        repeat_penalty: Number(repeatPenaltyInput.value || 1.05), ctx_size: Number(ctxInput.value || 32768),
+        memory_mode: memorySelect.value || "auto", reasoning: reasoningSelect.value || "off",
+        speculative_mode: speculativeSelect.value || "auto", mtp_draft_tokens: Number(mtpDraftTokensInput.value || 2),
+        n_gpu_layers: Number(gpuLayersInput.value || 99), n_cpu_moe_layers: Number(cpuMoeLayersInput.value || 0),
+        seed: Number(seedInput.value ?? -1),
+      },
+    };
+    saveJsonXProviderSettings(provider);
+    state.jsonx_provider = workflowJsonXProviderSettings(provider);
+    const geminiKey = keyInput.value.trim();
+    const openaiKey = openaiKeyInput.value.trim();
+    if (geminiKey) localStorage.setItem(JSONX_GEMINI_KEY, geminiKey); else localStorage.removeItem(JSONX_GEMINI_KEY);
+    if (openaiKey) localStorage.setItem(JSONX_OPENAI_KEY, openaiKey); else localStorage.removeItem(JSONX_OPENAI_KEY);
+    return provider;
+  }
+
+
+  async function generateJsonXPrompt() {
+    const provider = persistJsonXProviderFromControls();
+    const jsonx = effectiveJsonXConfig();
+    const model = provider[`${provider.backend}_model`] || "";
+    if(!model){setStatus("Select a model in Model settings first.",true);return;}
+    const apiKey = provider.backend === "openai"
+      ? (localStorage.getItem(JSONX_OPENAI_KEY) || "")
+      : provider.backend === "gemini"
+        ? (localStorage.getItem(JSONX_GEMINI_KEY) || "")
+        : "";
+    if (provider.backend === "gemini" && !apiKey) {
+      setStatus("Enter a Gemini API key in Model settings first.", true);
+      return;
+    }
+    jsonxGenerationId=`uap-jsonx-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const fields={idea:state.idea,subject:state.subject,style:state.style,lighting:state.lighting,composition:state.composition,text:state.text,detail:state.detail,image_note:state.image_note,raw_prompt_text:state.enable_text_input?state.connected_raw_prompt_text:"",extra_instructions:state.extra_instructions};
+    const generationMode=state.prompt_format==="natural"?"refined":(jsonx.generation_mode||"fast");
+    const payload={...jsonx,...provider,generation_id:jsonxGenerationId,api_key:apiKey,model,timeout:provider[`${provider.backend}_timeout`]||180,base_url:provider.openai_base_url,host:provider.ollama_host,think:provider.ollama_think,mmproj:provider.local_mmproj,system_prompt_preset:provider.local_system_prompt_preset,additional_model_paths:provider.additional_model_paths,fields,image_b64:state.connected_image_b64||"",images_b64:state.connected_images_b64||[],output_format:state.prompt_format,generation_mode:generationMode,refresh_vram:Boolean(state.refresh_vram)};
+    setBusy(true);setStatus("Generating Unified JsonX...");
+    try{const response=await fetch(`${JSONX_ROUTE}/generate`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});const data=await response.json();if(!response.ok||data.error)throw Object.assign(new Error(data.error||`HTTP ${response.status}`),{data});state.generated_positive=data.positive||data.prompt||"";state.generated_negative=data.negative||"";state.final_prompt=data.prompt||"";state.negative_enabled=Boolean(state.generated_negative);state.jsonx={diagnostics:data.diagnostics||null};state.last_generation={prompt:state.final_prompt,positive:state.generated_positive,negative:state.generated_negative,target_model:state.target_model,prompt_format:state.prompt_format,negative_enabled:state.negative_enabled,generated_at:new Date().toISOString()};syncPreview();setStatus(`Unified JsonX generated · ${data.output_format||state.prompt_format} · ${data.generation_profile||"adaptive"}${data.natural_fallback?" · used canonical JsonX prose fallback.":"."}`);}catch(error){const diagnostics=error.data?.diagnostics||{error:error.message};state.jsonx={diagnostics};syncPreview();const reasons=[diagnostics.initial_error&&`Initial: ${diagnostics.initial_error}`,diagnostics.repair_error&&`Repair: ${diagnostics.repair_error}`].filter(Boolean).join(" · ");setStatus(`Error: ${error.message}${reasons?` ${reasons}`:""}. Previous output kept.`,true);}finally{jsonxGenerationId="";setBusy(false);}
+  }
+
   async function generatePrompt() {
+    if (isJsonXProfile()) { readFieldsIntoState(); return generateJsonXPrompt(); }
     readFieldsIntoState();
     const rawPromptText = state.enable_text_input ? String(state.connected_raw_prompt_text || "").trim() : "";
     const textInputLinked = inputIsLinked(node, "raw_prompt_text");
@@ -5084,7 +5811,13 @@ function setupUnifiedAutoprompter(node) {
         reference_or_control_notes: profileIsVideo(activeProfile()) ? state.reference_or_control_notes : "",
         extra_instructions: state.extra_instructions,
       },
-      timeout: state.backend === "openai" ? state.openai_timeout : state.gemini_timeout,
+      timeout: state.backend === "openai"
+        ? state.openai_timeout
+        : state.backend === "ollama"
+          ? state.ollama_timeout
+          : state.backend === "local"
+            ? state.local_timeout
+            : state.gemini_timeout,
     };
 
     if (state.backend === "gemini") {
@@ -5137,13 +5870,16 @@ function setupUnifiedAutoprompter(node) {
         temperature: state.temperature,
         top_p: state.top_p,
         top_k: state.top_k,
+        repeat_penalty: state.repeat_penalty,
         ctx_size: state.ctx_size,
         memory_mode: state.memory_mode,
         n_gpu_layers: state.n_gpu_layers,
         n_cpu_moe_layers: state.n_cpu_moe_layers,
         reasoning: state.reasoning,
+        speculative_mode: state.speculative_mode,
+        mtp_draft_tokens: state.mtp_draft_tokens,
         seed: state.seed,
-        timeout: state.gemini_timeout,
+        timeout: state.local_timeout,
       };
     }
 
@@ -5211,16 +5947,27 @@ function setupUnifiedAutoprompter(node) {
     openaiTimeoutInput,
     openaiUnloadInput,
     hostInput,
+    ollamaTimeoutInput,
     thinkInput,
     unloadInput,
     localModelSelect,
     mmprojSelect,
     systemPresetSelect,
+    localAdditionalPathsInput,
+    localTimeoutInput,
     maxTokensInput,
     tempInput,
+    topPInput,
+    topKInput,
+    repeatPenaltyInput,
     ctxInput,
     memorySelect,
     reasoningSelect,
+    speculativeSelect,
+    mtpDraftTokensInput,
+    gpuLayersInput,
+    cpuMoeLayersInput,
+    seedInput,
     negativeInput,
     refreshVramInput,
     disablePaletteInput,
@@ -5253,80 +6000,92 @@ function setupUnifiedAutoprompter(node) {
     state.disable_color_palette = disablePaletteInput.checked;
     syncPreview();
   });
-  geminiBtn.addEventListener("click", () => {
-    state.backend = "gemini";
-    refreshBackends();
-    persistModelSelection();
+  modelSettingsDetails.addEventListener("toggle", () => {
+    state.model_settings_open = modelSettingsDetails.open;
     syncPreview();
+    scheduleVisibleContentResize();
   });
-  openaiBtn.addEventListener("click", () => {
-    state.backend = "openai";
+  const selectBackend = (backend) => {
+    if (isJsonXProfile()) persistJsonXProviderFromControls({ backend });
+    else {
+      state.backend = backend;
+      persistModelSelection();
+    }
     refreshBackends();
-    persistModelSelection();
     syncPreview();
-  });
-  ollamaBtn.addEventListener("click", () => {
-    state.backend = "ollama";
-    refreshBackends();
-    persistModelSelection();
-    syncPreview();
-  });
-  localBtn.addEventListener("click", () => {
-    state.backend = "local";
-    refreshBackends();
-    persistModelSelection();
-    syncPreview();
-  });
+  };
+  geminiBtn.addEventListener("click", () => selectBackend("gemini"));
+  openaiBtn.addEventListener("click", () => selectBackend("openai"));
+  ollamaBtn.addEventListener("click", () => selectBackend("ollama"));
+  localBtn.addEventListener("click", () => selectBackend("local"));
   keyInput.addEventListener("input", () => {
-    state.gemini_key = keyInput.value;
-    storeGeminiKey(state.gemini_key);
+    if (isJsonXProfile()) persistJsonXProviderFromControls();
+    else {
+      state.gemini_key = keyInput.value;
+      storeGeminiKey(state.gemini_key);
+    }
   });
   openaiKeyInput.addEventListener("input", () => {
-    state.openai_key = openaiKeyInput.value;
-    storeOpenAIKey(state.openai_key);
+    if (isJsonXProfile()) persistJsonXProviderFromControls();
+    else {
+      state.openai_key = openaiKeyInput.value;
+      storeOpenAIKey(state.openai_key);
+    }
   });
   openaiBaseUrlInput.addEventListener("input", () => {
-    state.openai_base_url = openaiBaseUrlInput.value.trim() || DEFAULT_OPENAI_BASE_URL;
-    storeOpenAIBaseUrl(state.openai_base_url);
+    if (isJsonXProfile()) persistJsonXProviderFromControls();
+    else {
+      state.openai_base_url = openaiBaseUrlInput.value.trim() || DEFAULT_OPENAI_BASE_URL;
+      storeOpenAIBaseUrl(state.openai_base_url);
+    }
   });
   geminiModelSelect.addEventListener("change", () => {
-    state.gemini_model = geminiModelSelect.value;
+    if (!isJsonXProfile()) state.gemini_model = geminiModelSelect.value;
     persistModelSelection();
     syncPreview();
   });
   openaiModelSelect.addEventListener("change", () => {
-    state.openai_model = openaiModelSelect.value;
-    openaiModelInput.value = state.openai_model;
+    openaiModelInput.value = openaiModelSelect.value;
+    if (!isJsonXProfile()) state.openai_model = openaiModelInput.value;
     persistModelSelection();
     syncPreview();
   });
   openaiModelInput.addEventListener("input", () => {
-    state.openai_model = openaiModelInput.value.trim();
+    if (!isJsonXProfile()) state.openai_model = openaiModelInput.value.trim();
     persistModelSelection();
     syncPreview();
   });
   openaiUnloadInput.addEventListener("change", () => {
-    state.unload_after = openaiUnloadInput.checked;
-    unloadInput.checked = state.unload_after;
+    if (isJsonXProfile()) persistJsonXProviderFromControls();
+    else {
+      state.unload_after = openaiUnloadInput.checked;
+      unloadInput.checked = state.unload_after;
+    }
     syncPreview();
   });
   ollamaModelSelect.addEventListener("change", () => {
-    state.ollama_model = ollamaModelSelect.value;
+    if (!isJsonXProfile()) state.ollama_model = ollamaModelSelect.value;
     persistModelSelection();
     syncPreview();
   });
   localModelSelect.addEventListener("change", () => {
-    state.local_model = localModelSelect.value || "";
+    if (!isJsonXProfile()) state.local_model = localModelSelect.value || "";
     persistModelSelection();
-  });
-  localAdditionalPathsInput.addEventListener("change", () => {
-    storeAdditionalLocalModelPaths(localAdditionalPathsInput.value);
-  });
-  unloadInput.addEventListener("change", () => {
-    state.unload_after = unloadInput.checked;
-    openaiUnloadInput.checked = state.unload_after;
     syncPreview();
   });
+  localAdditionalPathsInput.addEventListener("change", () => {
+    if (isJsonXProfile()) persistJsonXProviderFromControls();
+    else storeAdditionalLocalModelPaths(localAdditionalPathsInput.value);
+  });
+  unloadInput.addEventListener("change", () => {
+    if (isJsonXProfile()) persistJsonXProviderFromControls();
+    else {
+      state.unload_after = unloadInput.checked;
+      openaiUnloadInput.checked = state.unload_after;
+    }
+    syncPreview();
+  });
+  memorySelect.addEventListener("change", syncMemoryControls);
   fetchGeminiBtn.addEventListener("click", fetchGeminiModels);
   fetchOpenaiBtn.addEventListener("click", fetchOpenaiModels);
   fetchOllamaBtn.addEventListener("click", fetchOllamaModels);
@@ -5335,6 +6094,19 @@ function setupUnifiedAutoprompter(node) {
   negativePreviewBtn.addEventListener("click", () => toggleOutputPreview("negative"));
   ideogramBtn.addEventListener("click", toggleIdeogramLayoutEditor);
   modelSettingsBtn.addEventListener("click", openModelSettingsModalV3);
+  cancelJsonXBtn.addEventListener("click", async () => {
+    if (!jsonxGenerationId) return;
+    cancelJsonXBtn.disabled = true;
+    cancelJsonXBtn.textContent = "Cancelling...";
+    try {
+      await fetch(`${JSONX_ROUTE}/cancel`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ generation_id: jsonxGenerationId }),
+      });
+    } finally {
+      cancelJsonXBtn.textContent = "Cancel JsonX";
+    }
+  });
   generateBtn.addEventListener("click", generatePrompt);
 
   const setConnectedImageDataUrls = (dataUrls, urls = []) => {

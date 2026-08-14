@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "profiles": [
     {
       "key": "ideogram4",
@@ -34,7 +34,9 @@
           "with_image_reference_instructions": "A connected image reference is available. Use the image-replication mode: inspect the image first, infer its closest practical aspect ratio, medium, camera/art viewpoint, crop, framing, margins, edge cuts, pose, action phase, orientation, gaze, contact points, background shell, individual objects, readable text, color palette, and bbox layout. Preserve only visible or clearly occluded facts; do not invent hidden limb positions or off-frame continuation. For cropped subjects, bbox only the visible portion inside the frame and state the crop in desc. Preserve exact visible text and visible typography; if a string is unreadable, do not fabricate it. If the user asks for changes, preserve the reference image identity/layout/style unless the requested change overrides it. If an existing Unified Ideogram editor layout is present, reconcile the visual regions with the image: keep user-drawn bboxes and descriptions unless the user explicitly asks for regeneration or missing elements.",
           "without_image_reference_instructions": "No image reference is available. Use magic-prompt mode: expand the text fields into a complete Ideogram JSON caption from the user idea, subject, style, lighting, camera/composition, typography, detail level, palette, and any layout JSON. Choose concrete viewpoint, pose, action, environment, crop, background, props, text blocks, bboxes, and colors instead of leaving placeholders or alternatives. If the user asks for transparent background, set background exactly to transparent background, include on a transparent background in high_level_description, and keep only visible subject/object/graphic/text elements. Add plausible details only when they support the user's intent; use restraint for clean, isolated, logo-like, sparse, or negative-space requests. Do not use hedges such as maybe, could include, or various; commit to one coherent design."
         }
-      }
+      },
+      "engine": "standard",
+      "jsonx_config": {}
     },
     {
       "key": "sdxl",
@@ -69,7 +71,9 @@
           "with_image_reference_instructions": "",
           "without_image_reference_instructions": ""
         }
-      }
+      },
+      "engine": "standard",
+      "jsonx_config": {}
     },
     {
       "key": "qwen_image",
@@ -104,7 +108,9 @@
           "with_image_reference_instructions": "",
           "without_image_reference_instructions": ""
         }
-      }
+      },
+      "engine": "standard",
+      "jsonx_config": {}
     },
     {
       "key": "flux1_dev",
@@ -139,7 +145,9 @@
           "with_image_reference_instructions": "",
           "without_image_reference_instructions": ""
         }
-      }
+      },
+      "engine": "standard",
+      "jsonx_config": {}
     },
     {
       "key": "flux2_dev",
@@ -174,7 +182,9 @@
           "with_image_reference_instructions": "A connected image reference is available. Use the reference to ground identity, product shape, composition, colors, typography, and style. In the JSON, include reference-sensitive preservation instructions in the relevant subject, background, composition, camera, or text fields. Specify exact changes separately from preserved details so the structure does not blur them together.",
           "without_image_reference_instructions": "No image reference is available. Build a complete structured prompt from the fields. Define the scene, subjects, background, composition, camera, lighting, colors, and text from scratch, using JSON because the request benefits from precise element-level control."
         }
-      }
+      },
+      "engine": "standard",
+      "jsonx_config": {}
     },
     {
       "key": "flux_klein",
@@ -209,7 +219,9 @@
           "with_image_reference_instructions": "A connected image reference is available. Use it as grounding for identity, composition, camera angle, lighting, product shape, colors, and typography. Reflect preservation and edit instructions in the relevant JSON fields, with exact objects and relationships named. Do not replace the reference with a generic version of the scene.",
           "without_image_reference_instructions": "No image reference is available. Create the structured scene from scratch. Use JSON to lock down subject placement, relationships, style, lighting, colors, camera, and text while keeping each field written in fluent visual language."
         }
-      }
+      },
+      "engine": "standard",
+      "jsonx_config": {}
     },
     {
       "key": "z_image",
@@ -244,7 +256,9 @@
           "with_image_reference_instructions": "",
           "without_image_reference_instructions": ""
         }
-      }
+      },
+      "engine": "standard",
+      "jsonx_config": {}
     },
     {
       "key": "wan2_2",
@@ -279,7 +293,9 @@
           "with_image_reference_instructions": "",
           "without_image_reference_instructions": ""
         }
-      }
+      },
+      "engine": "standard",
+      "jsonx_config": {}
     },
     {
       "key": "ltx_2_3",
@@ -314,7 +330,9 @@
           "with_image_reference_instructions": "",
           "without_image_reference_instructions": ""
         }
-      }
+      },
+      "engine": "standard",
+      "jsonx_config": {}
     },
     {
       "key": "krea2",
@@ -349,7 +367,9 @@
           "with_image_reference_instructions": "A connected image reference is available. Use the image-replication mode: inspect the image first, infer its closest practical aspect ratio, medium, camera/art viewpoint, crop, framing, margins, edge cuts, pose, action phase, orientation, gaze, contact points, background shell, individual objects, readable text, color palette, and bbox layout. Preserve only visible or clearly occluded facts; do not invent hidden limb positions or off-frame continuation. For cropped subjects, bbox only the visible portion inside the frame and state the crop in desc. Preserve exact visible text and visible typography; if a string is unreadable, do not fabricate it. If the user asks for changes, preserve the reference image identity/layout/style unless the requested change overrides it. If an existing Unified Ideogram editor layout is present, reconcile the visual regions with the image: keep user-drawn bboxes and descriptions unless the user explicitly asks for regeneration or missing elements.",
           "without_image_reference_instructions": "No image reference is available. Use magic-prompt mode: expand the text fields into a complete Ideogram JSON caption from the user idea, subject, style, lighting, camera/composition, typography, detail level, palette, and any layout JSON. Choose concrete viewpoint, pose, action, environment, crop, background, props, text blocks, bboxes, and colors instead of leaving placeholders or alternatives. If the user asks for transparent background, set background exactly to transparent background, include on a transparent background in high_level_description, and keep only visible subject/object/graphic/text elements. Add plausible details only when they support the user's intent; use restraint for clean, isolated, logo-like, sparse, or negative-space requests. Do not use hedges such as maybe, could include, or various; commit to one coherent design."
         }
-      }
+      },
+      "engine": "standard",
+      "jsonx_config": {}
     },
     {
       "key": "minimax_h3_official",
@@ -384,7 +404,9 @@
           "with_image_reference_instructions": "",
           "without_image_reference_instructions": ""
         }
-      }
+      },
+      "engine": "standard",
+      "jsonx_config": {}
     },
     {
       "key": "minimax_h3_alternate",
@@ -419,6 +441,58 @@
           "with_image_reference_instructions": "",
           "without_image_reference_instructions": ""
         }
+      },
+      "engine": "standard",
+      "jsonx_config": {}
+    },
+    {
+      "key": "jsonx",
+      "label": "JsonX",
+      "media_type": "image",
+      "default_format": "json",
+      "negative_supported": true,
+      "json_supported": true,
+      "notes": "JsonX structured prompt profile.",
+      "formats": {
+        "natural": {
+          "enabled": true,
+          "common_instructions": "Generate a validated JsonX draft and convert it into detailed natural language.",
+          "output_contract_negative_off": "Return the final natural-language prompt.",
+          "output_contract_negative_on": "Return the final natural-language prompt and derive negative output from the JsonX negative branch.",
+          "with_image_reference_instructions": "Use connected images as visual evidence.",
+          "without_image_reference_instructions": "Build from the Unified prompt fields without image evidence."
+        },
+        "tags": {
+          "enabled": false,
+          "common_instructions": "",
+          "output_contract_negative_off": "",
+          "output_contract_negative_on": "",
+          "with_image_reference_instructions": "",
+          "without_image_reference_instructions": ""
+        },
+        "json": {
+          "enabled": true,
+          "common_instructions": "Generate a validated JsonX prompt object.",
+          "output_contract_negative_off": "Return the final JsonX prompt object.",
+          "output_contract_negative_on": "Return the final JsonX prompt object and derive negative output from its negative branch.",
+          "with_image_reference_instructions": "Use connected images as visual evidence.",
+          "without_image_reference_instructions": "Build from the Unified prompt fields without image evidence."
+        }
+      },
+      "engine": "jsonx",
+      "jsonx_config": {
+        "generation_profile": "adaptive",
+        "generation_mode": "fast",
+        "preset_context_mode": "optimized",
+        "template_use_presets": false,
+        "enable_framing_and_placement": false,
+        "detail_level": "deep",
+        "stage_one_instructions": "",
+        "template_fill_instructions": "",
+        "refinement_instructions": "",
+        "natural_language_instructions": "",
+        "with_image_instructions": "",
+        "without_image_instructions": ""
       }
     }
   ]

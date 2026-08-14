@@ -40,6 +40,7 @@ def generate(
     pil_images: list[Image.Image] | None = None,
     think: bool = False,
     unload_after: bool = True,
+    timeout: float = 600,
 ) -> str:
     if not model:
         raise ValueError("No Ollama model selected.")
@@ -61,6 +62,6 @@ def generate(
         images = [pil_image]
     if images:
         body["messages"][-1]["images"] = [_image_b64(image) for image in images]
-    response = requests.post(f"{_host(host)}/api/chat", json=body, timeout=600)
+    response = requests.post(f"{_host(host)}/api/chat", json=body, timeout=timeout)
     response.raise_for_status()
     return response.json().get("message", {}).get("content", "")

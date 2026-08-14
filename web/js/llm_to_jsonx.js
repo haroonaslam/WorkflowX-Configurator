@@ -7,6 +7,12 @@ const GEMINI_KEY = "workflowx_jsonx_gemini_api_key";
 const OPENAI_KEY = "workflowx_jsonx_openai_api_key";
 const DEFAULT_OPENAI_URL = "http://localhost:1234/v1";
 const DEFAULT_OLLAMA_HOST = "http://localhost:11434";
+const INSTRUCTION_OVERRIDE_KEYS = [
+  "stage_one_instructions",
+  "template_fill_instructions",
+  "refinement_instructions",
+  "natural_language_instructions",
+];
 const GEMINI_SAFETY_OPTIONS = [
   "BLOCK_DEFAULT",
   "BLOCK_NONE",
@@ -65,7 +71,14 @@ function loadSettings() {
 }
 
 function saveSettings(settings) {
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  // These settings are serialized in hidden node widgets so copied workflows
+  // retain their JsonX generation behavior. Provider/runtime settings and
+  // instruction overrides remain browser-local.
+  const browserSettings = { ...settings };
+  delete browserSettings.generation_profile;
+  delete browserSettings.template_use_presets;
+  delete browserSettings.detail_level;
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(browserSettings));
 }
 
 function storedSecret(key) {
@@ -177,8 +190,9 @@ function makePicker(panel, labelText, storedValue, placeholder) {
 
   const updateTrigger = () => {
     const selected = options.find((item) => item.value === current);
-    trigger.textContent = selected?.label || current || emptyText;
-    trigger.title = selected?.label || current || emptyText;
+    const display = selected?.label || current || emptyText;
+    trigger.textContent = display;
+    trigger.title = `Choose the ${labelText.toLowerCase()} used for generation${current ? `\nCurrent: ${display}` : ""}`;
     trigger.classList.toggle("placeholder", !current);
   };
   const close = () => {
@@ -291,6 +305,11 @@ function setupLLMToJsonX(node) {
   node.__jsonXLLMReady = true;
   hideWidget(node, "generated_prompt_json");
   hideWidget(node, "ui_state");
+  hideWidget(node, "enable_framing_and_placement");
+  hideWidget(node, "output_format");
+  hideWidget(node, "generation_profile");
+  hideWidget(node, "template_use_presets");
+  hideWidget(node, "detail_level");
   const instructionsWidget = widget(node, "user_instructions");
   if (instructionsWidget) instructionsWidget.computeSize = () => [0, 82];
 
@@ -303,8 +322,8 @@ function setupLLMToJsonX(node) {
     .jsonx-llm label{display:grid;gap:2px;color:#adc0d3;min-width:0}.jsonx-llm input,.jsonx-llm select{width:100%;height:26px;min-height:26px;background:#0b1219;color:#edf4fb;border:1px solid #35516b;border-radius:4px;padding:2px 7px;font:inherit;color-scheme:dark}
     .jsonx-llm select:disabled{opacity:.72}.jsonx-llm button{height:27px;min-height:27px;background:#1b3349;color:#edf6ff;border:1px solid #3b6485;border-radius:4px;padding:2px 9px;font:inherit;cursor:pointer;white-space:nowrap}.jsonx-llm button.primary{background:#176a86;border-color:#35a6c4;font-weight:700}
     .jsonx-llm button:disabled{opacity:.55;cursor:wait}.jsonx-llm-status{min-height:27px;max-height:48px;overflow:auto;padding:5px 7px;border-radius:4px;background:#0c141c;color:#9fc1d8;white-space:pre-wrap;line-height:16px}.jsonx-llm-status.error{color:#ffadad;border:1px solid #713b45}
-    .jsonx-llm-panel{display:none;gap:5px}.jsonx-llm-panel.active{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.jsonx-llm-panel>button{grid-column:1/-1;width:max-content;max-width:100%}
-    .jsonx-llm-actions{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:5px;align-items:center}.jsonx-llm-actions .primary{min-width:88px}
+    .jsonx-llm-panel{display:none;gap:5px}.jsonx-llm-panel.active{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.jsonx-llm-panel>button{grid-column:1/-1;width:max-content;max-width:100%}.jsonx-local-tools{grid-column:1/-1;display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+    .jsonx-llm-actions{display:grid;grid-template-columns:minmax(0,1fr) minmax(132px,auto);grid-template-rows:auto auto;gap:5px;align-items:stretch}.jsonx-llm-actions .jsonx-llm-status{grid-row:1/span 2}.jsonx-llm-actions .primary{min-width:132px;width:100%}.jsonx-llm-secondary{display:grid;grid-template-columns:1fr;gap:5px}.jsonx-llm-secondary.generating{grid-template-columns:1fr 1fr}.jsonx-llm-actions .cancel{display:none;background:#552630;border-color:#9a4b59}.jsonx-llm-actions .cancel.visible{display:block}
     .jsonx-check{display:flex!important;grid-auto-flow:column!important;grid-template-columns:auto 1fr!important;align-items:center;gap:5px!important;white-space:nowrap;color:#adc0d3}.jsonx-check input{width:14px!important;height:14px!important;min-height:14px!important;margin:0}
     .jsonx-output-preview{display:grid;gap:2px;color:#adc0d3}.jsonx-output-preview textarea{width:100%;height:88px;min-height:88px;resize:vertical;background:#091119;color:#d8e9f6;border:1px solid #35516b;border-radius:4px;padding:6px 7px;font:10px/14px Consolas,"Cascadia Mono",monospace;white-space:pre;overflow:auto;color-scheme:dark}.jsonx-output-preview textarea:placeholder-shown{color:#7890a3}
     .jsonx-diagnostics{display:none;border:1px solid #713b45;border-radius:4px;padding:4px 6px;background:#180f14}.jsonx-diagnostics.visible{display:block}.jsonx-diagnostics summary{cursor:pointer;color:#ffb9b9}.jsonx-diagnostics textarea{width:100%;height:120px;margin-top:5px;resize:vertical;background:#090d12;color:#ffd2d2;border:1px solid #713b45;border-radius:4px;padding:6px;font:10px/14px Consolas,"Cascadia Mono",monospace;white-space:pre;overflow:auto}
@@ -358,8 +377,14 @@ function setupLLMToJsonX(node) {
     stage_one_instructions: "",
     template_fill_instructions: "",
     refinement_instructions: "",
+    natural_language_instructions: "",
     ...savedSettings,
   };
+  delete settings["output_format"];
+  delete settings["enable_framing_and_placement"];
+  settings.generation_profile = String(widgetValue(node, "generation_profile", "adaptive")) || "adaptive";
+  settings.template_use_presets = Boolean(widgetValue(node, "template_use_presets", false));
+  settings.detail_level = String(widgetValue(node, "detail_level", "deep")) || "deep";
   settings.local_reasoning = normalizeLocalReasoning(settings.local_reasoning);
 
   const root = document.createElement("div");
@@ -374,6 +399,7 @@ function setupLLMToJsonX(node) {
   const backend = document.createElement("select");
   for (const value of ["gemini", "openai", "ollama", "local"]) option(backend, value, value === "openai" ? "OpenAI compatible" : value === "local" ? "Local GGUF" : value[0].toUpperCase() + value.slice(1));
   backend.value = settings.backend;
+  backend.title = "Choose the provider used for JsonX generation";
   backendLabel.appendChild(backend);
   const timeoutLabel = document.createElement("label");
   timeoutLabel.textContent = "Timeout seconds";
@@ -381,6 +407,7 @@ function setupLLMToJsonX(node) {
   timeout.type = "number";
   timeout.min = "5";
   timeout.max = "3600";
+  timeout.title = "Maximum seconds to wait for the selected provider";
   let activeBackend = settings.backend;
   timeout.value = settings[`${activeBackend}_timeout`] || settings.timeout || 180;
   timeoutLabel.appendChild(timeout);
@@ -406,6 +433,7 @@ function setupLLMToJsonX(node) {
     const button = document.createElement("button");
     button.type = "button";
     button.textContent = text;
+    button.title = `${text} from the configured provider or local model folders`;
     panel.appendChild(button);
     return button;
   };
@@ -448,12 +476,14 @@ function setupLLMToJsonX(node) {
   const geminiPanel = makePanel();
   const geminiKey = makeInput(geminiPanel, "Gemini API key", "password");
   geminiKey.value = storedSecret(GEMINI_KEY);
+  geminiKey.title = "Stored in this browser only; never written into the workflow";
   const geminiModel = makePicker(geminiPanel, "Gemini model", settings.gemini_model, "Fetch Gemini models");
   const geminiRefresh = makeRefresh(geminiPanel, "Fetch Gemini models");
   const geminiSettings = document.createElement("details");
   geminiSettings.className = "jsonx-local-settings";
   const geminiSettingsSummary = document.createElement("summary");
   geminiSettingsSummary.textContent = "Gemini safety settings";
+  geminiSettingsSummary.title = "Show or hide Gemini content-safety thresholds";
   const geminiSettingsGrid = document.createElement("div");
   geminiSettingsGrid.className = "jsonx-local-settings-grid";
   geminiSettings.append(geminiSettingsSummary, geminiSettingsGrid);
@@ -471,20 +501,27 @@ function setupLLMToJsonX(node) {
   const openaiPanel = makePanel();
   const openaiUrl = makeInput(openaiPanel, "OpenAI-compatible base URL");
   openaiUrl.value = settings.openai_base_url;
+  openaiUrl.title = "Server root exposing OpenAI-compatible model and chat-completions endpoints";
   const openaiKey = makeInput(openaiPanel, "API key (optional)", "password");
   openaiKey.value = storedSecret(OPENAI_KEY);
+  openaiKey.title = "Optional for local servers; stored in this browser only";
   const openaiManualModel = makeInput(openaiPanel, "Manual model ID (optional)");
+  openaiManualModel.title = "Overrides the fetched model selection when populated";
   const openaiModel = makePicker(openaiPanel, "Fetched model", settings.openai_model, "Fetch compatible models");
   const openaiRefresh = makeRefresh(openaiPanel, "Fetch compatible models");
   const openaiUnload = makeCheckbox(openaiPanel, "Unload after generation", settings.unload_after);
+  openaiUnload.parentElement.title = "Best-effort unload after a successful OpenAI-compatible generation";
 
   const ollamaPanel = makePanel();
   const ollamaHost = makeInput(ollamaPanel, "Ollama host");
   ollamaHost.value = settings.ollama_host;
+  ollamaHost.title = "Base URL of the Ollama server";
   const ollamaModel = makePicker(ollamaPanel, "Ollama model", settings.ollama_model, "Fetch Ollama models");
   const ollamaRefresh = makeRefresh(ollamaPanel, "Fetch Ollama models");
   const ollamaThink = makeCheckbox(ollamaPanel, "Enable think mode", settings.ollama_think);
   const ollamaUnload = makeCheckbox(ollamaPanel, "Unload after generation", settings.unload_after);
+  ollamaThink.parentElement.title = "Ask compatible Ollama models to use their thinking mode";
+  ollamaUnload.parentElement.title = "Send keep_alive: 0 so Ollama unloads the model after generation";
 
   const localPanel = makePanel();
   const localModel = makePicker(localPanel, "Local GGUF model", settings.local_model, "Refresh to load GGUF models");
@@ -493,6 +530,7 @@ function setupLLMToJsonX(node) {
   localSettings.className = "jsonx-local-settings";
   const localSettingsSummary = document.createElement("summary");
   localSettingsSummary.textContent = "Local generation settings";
+  localSettingsSummary.title = "Show or hide llama.cpp context, sampling, memory, and speculative-decoding options";
   const localSettingsGrid = document.createElement("div");
   localSettingsGrid.className = "jsonx-local-settings-grid";
   localSettings.append(localSettingsSummary, localSettingsGrid);
@@ -527,8 +565,6 @@ function setupLLMToJsonX(node) {
   const localGpuLayers = makeNumberInput(localSettingsGrid, "GPU layers", settings.local_n_gpu_layers, 0, 999);
   const localCpuMoeLayers = makeNumberInput(localSettingsGrid, "CPU MoE layers", settings.local_n_cpu_moe_layers, 0, 999);
   const localSeed = makeNumberInput(localSettingsGrid, "Seed (-1 random)", settings.local_seed, -1, 4294967295);
-  const localRefresh = makeRefresh(localPanel, "Refresh models");
-
   const status = document.createElement("div");
   status.className = "jsonx-llm-status";
   status.textContent = "Ready — Generate saves the validated JSON to prompt_json.";
@@ -536,6 +572,12 @@ function setupLLMToJsonX(node) {
   generate.type = "button";
   generate.className = "primary";
   generate.textContent = "Generate";
+  generate.title = "Generate and save validated JsonX or natural-language output";
+  const cancelGenerate = document.createElement("button");
+  cancelGenerate.type = "button";
+  cancelGenerate.className = "cancel";
+  cancelGenerate.textContent = "Cancel";
+  cancelGenerate.title = "Stop the active JsonX generation and keep the previous output";
   const instructionSettings = document.createElement("button");
   instructionSettings.type = "button";
   instructionSettings.textContent = "Settings";
@@ -546,26 +588,36 @@ function setupLLMToJsonX(node) {
   refreshVram.type = "checkbox";
   refreshVram.checked = Boolean(settings.refresh_vram);
   refreshVramLabel.append(refreshVram, document.createTextNode("Refresh VRAM"));
+  refreshVramLabel.title = "Unload ComfyUI models and clear cache before local JsonX generation";
+  const localTools = document.createElement("div");
+  localTools.className = "jsonx-local-tools";
+  const localRefresh = makeRefresh(localTools, "Refresh models");
+  localTools.appendChild(refreshVramLabel);
+  localPanel.appendChild(localTools);
+  const secondaryActions = document.createElement("div");
+  secondaryActions.className = "jsonx-llm-secondary";
+  secondaryActions.append(instructionSettings, cancelGenerate);
   const actions = document.createElement("div");
   actions.className = "jsonx-llm-actions";
-  actions.append(status, refreshVramLabel, instructionSettings, generate);
+  actions.append(status, generate, secondaryActions);
   root.append(actions);
 
   const outputPreviewLabel = document.createElement("label");
   outputPreviewLabel.className = "jsonx-output-preview";
-  outputPreviewLabel.textContent = "Generated JsonX output";
+  const outputPreviewTitle = document.createElement("span");
   const outputPreview = document.createElement("textarea");
   outputPreview.readOnly = true;
   outputPreview.spellcheck = false;
   outputPreview.placeholder = "Generated JSON will appear here.";
   outputPreview.value = String(widgetValue(node, "generated_prompt_json", "") || "");
-  outputPreviewLabel.appendChild(outputPreview);
+  outputPreviewLabel.append(outputPreviewTitle, outputPreview);
   root.appendChild(outputPreviewLabel);
 
   const diagnostics = document.createElement("details");
   diagnostics.className = "jsonx-diagnostics";
   const diagnosticsSummary = document.createElement("summary");
   diagnosticsSummary.textContent = "Generation diagnostics";
+  diagnosticsSummary.title = "Show provider responses and validation or repair details from the last failure";
   const diagnosticsOutput = document.createElement("textarea");
   diagnosticsOutput.readOnly = true;
   diagnosticsOutput.spellcheck = false;
@@ -584,29 +636,51 @@ function setupLLMToJsonX(node) {
   const instructionClose = document.createElement("button");
   instructionClose.type = "button";
   instructionClose.textContent = "Close";
+  instructionClose.title = "Close without saving settings changes";
   instructionHead.append(instructionTitle, instructionClose);
   const instructionNote = document.createElement("div");
   instructionNote.className = "jsonx-instruction-note";
-  instructionNote.textContent = "Adaptive keeps the current open-world generation behavior. Template Fill supplies the complete blank hierarchy; Use Presets additionally sends the full presets.json verbatim. These browser-local settings are never written into workflow JSON.";
+  instructionNote.textContent = "Adaptive keeps the current open-world generation behavior. Template Fill supplies the complete blank hierarchy; Use Presets additionally sends the full presets.json verbatim. Natural language always runs validated JSON Stage 1 followed by preset-agnostic prose refinement. Provider and instruction settings stay browser-local. Output format and framing & placement are saved on this node and travel with the workflow.";
   const generationProfileLabel = document.createElement("label");
   generationProfileLabel.textContent = "Generation profile";
   const generationProfile = document.createElement("select");
   option(generationProfile, "adaptive", "Adaptive (current behavior)");
   option(generationProfile, "template_fill", "Template Fill (maximum structure compliance)");
   generationProfile.value = settings.generation_profile || "adaptive";
+  generationProfile.title = "Adaptive expands relevant branches; Template Fill starts from the complete blank hierarchy";
   generationProfileLabel.appendChild(generationProfile);
+  const outputFormatLabel = document.createElement("label");
+  outputFormatLabel.textContent = "Output format";
+  const outputFormat = document.createElement("select");
+  option(outputFormat, "json", "JsonX JSON");
+  option(outputFormat, "natural", "Natural language (validated JSON → refined prose)");
+  outputFormat.value = String(widgetValue(node, "output_format", "json"));
+  outputFormat.title = "Choose validated JsonX JSON or the two-pass natural-language result saved by this node";
+  outputFormatLabel.appendChild(outputFormat);
   const templateUsePresetsLabel = document.createElement("label");
   templateUsePresetsLabel.className = "jsonx-check";
   const templateUsePresets = document.createElement("input");
   templateUsePresets.type = "checkbox";
   templateUsePresets.checked = Boolean(settings.template_use_presets);
   templateUsePresetsLabel.append(templateUsePresets, document.createTextNode("Use Presets (send full presets.json in Template Fill)"));
+  templateUsePresetsLabel.title = "Include the full preset catalog during Template Fill; this uses substantially more context";
+  const framingPlacementLabel = document.createElement("label");
+  framingPlacementLabel.className = "jsonx-check";
+  const framingPlacement = document.createElement("input");
+  framingPlacement.type = "checkbox";
+  framingPlacement.checked = Boolean(widgetValue(node, "enable_framing_and_placement", false));
+  framingPlacementLabel.append(
+    framingPlacement,
+    document.createTextNode("Framing & placement (3×3 rule-of-thirds map)"),
+  );
+  framingPlacementLabel.title = "Add named 3×3 framing regions to the generation contract";
   const detailLevelLabel = document.createElement("label");
   detailLevelLabel.textContent = "Hierarchy coverage";
   const detailLevel = document.createElement("select");
   option(detailLevel, "deep", "Deep (maximize relevant hierarchy)");
   option(detailLevel, "exhaustive", "Exhaustive (maximum relevant branch coverage)");
   detailLevel.value = settings.detail_level || "deep";
+  detailLevel.title = "Control how broadly JsonX fills relevant hierarchy branches";
   detailLevelLabel.appendChild(detailLevel);
   const stageOneLabel = document.createElement("label");
   stageOneLabel.textContent = "Adaptive Stage 1 system instructions";
@@ -623,10 +697,16 @@ function setupLLMToJsonX(node) {
   const refinementInstructions = document.createElement("textarea");
   refinementInstructions.spellcheck = false;
   refinementLabel.appendChild(refinementInstructions);
+  const naturalLanguageLabel = document.createElement("label");
+  naturalLanguageLabel.textContent = "Natural Language Stage 2 system instructions";
+  const naturalLanguageInstructions = document.createElement("textarea");
+  naturalLanguageInstructions.spellcheck = false;
+  naturalLanguageLabel.appendChild(naturalLanguageInstructions);
   const effectiveDetails = document.createElement("details");
   effectiveDetails.className = "jsonx-effective";
   const effectiveSummary = document.createElement("summary");
   effectiveSummary.textContent = "Effective instructions preview";
+  effectiveSummary.title = "Inspect the exact Stage 1 and Stage 2 system prompts that will be sent";
   const instructionMeta = document.createElement("div");
   instructionMeta.className = "jsonx-instruction-meta";
   const effectiveStageLabel = document.createElement("label");
@@ -645,29 +725,37 @@ function setupLLMToJsonX(node) {
   const resetInstructions = document.createElement("button");
   resetInstructions.type = "button";
   resetInstructions.textContent = "Reset defaults";
+  resetInstructions.title = "Restore packaged defaults in this editor; click Save settings to persist them";
   const previewInstructions = document.createElement("button");
   previewInstructions.type = "button";
   previewInstructions.textContent = "Refresh effective preview";
+  previewInstructions.title = "Rebuild the exact effective prompts from the current unsaved editor values";
   const saveInstructions = document.createElement("button");
   saveInstructions.type = "button";
   saveInstructions.className = "primary";
   saveInstructions.textContent = "Save settings";
+  saveInstructions.title = "Save custom instructions to the ComfyUI user profile and per-node choices to this workflow";
   instructionButtons.append(resetInstructions, previewInstructions, saveInstructions);
   instructionModal.append(
     instructionHead,
     instructionNote,
     generationProfileLabel,
+    outputFormatLabel,
     templateUsePresetsLabel,
+    framingPlacementLabel,
     detailLevelLabel,
     stageOneLabel,
     templateFillLabel,
     refinementLabel,
+    naturalLanguageLabel,
     effectiveDetails,
     instructionButtons,
   );
   instructionOverlay.appendChild(instructionModal);
   document.body.appendChild(instructionOverlay);
   let defaultInstructionTemplates = null;
+  let userInstructionOverrides = null;
+  let userInstructionOverridesPromise = null;
 
   const clearDiagnostics = () => {
     diagnostics.classList.remove("visible");
@@ -707,12 +795,50 @@ function setupLLMToJsonX(node) {
     status.textContent = text;
     status.classList.toggle("error", error);
   };
+  const updateOutputPreviewPresentation = (format = String(widgetValue(node, "output_format", "json"))) => {
+    const natural = format === "natural";
+    outputPreviewTitle.textContent = natural ? "Generated natural-language prompt" : "Generated JsonX output";
+    outputPreview.placeholder = natural
+      ? "Generated natural-language prompt will appear here."
+      : "Generated JSON will appear here.";
+  };
+  let activeGeneration = null;
+  const generationId = () => globalThis.crypto?.randomUUID?.()
+    || `jsonx-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const setGenerationActive = (active) => {
+    cancelGenerate.classList.toggle("visible", Boolean(active));
+    secondaryActions.classList.toggle("generating", Boolean(active));
+    cancelGenerate.disabled = !active;
+    cancelGenerate.textContent = "Cancel";
+    resizeForSettings();
+  };
+  const cancelActiveGeneration = () => {
+    const active = activeGeneration;
+    if (!active || active.cancelRequested) return;
+    active.cancelRequested = true;
+    cancelGenerate.disabled = true;
+    cancelGenerate.textContent = "Cancelling...";
+    setStatus("Cancelling JsonX generation. Previous output will be kept.");
+    void requestJson(`${ROUTE}/cancel`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({generation_id: active.id}),
+    }).catch(() => {});
+    active.controller.abort();
+  };
+  const syncOutputFormatEditor = () => {
+    const natural = outputFormat.value === "natural";
+    refinementInstructions.disabled = natural;
+    naturalLanguageInstructions.disabled = !natural;
+    if (natural) setWidgetValue(node, "generation_mode", "refined");
+  };
   const syncTemplateProfile = () => {
     const isTemplateFill = generationProfile.value === "template_fill";
     templateUsePresets.disabled = !isTemplateFill;
     templateFillInstructions.disabled = !isTemplateFill;
     stageOneInstructions.disabled = isTemplateFill;
   };
+  updateOutputPreviewPresentation();
   const persist = () => {
     settings.backend = backend.value;
     settings[`${activeBackend}_timeout`] = Number(timeout.value || 180);
@@ -757,6 +883,37 @@ function setupLLMToJsonX(node) {
     }
     return defaultInstructionTemplates;
   };
+  const normalizeInstructionOverrides = (value) => {
+    const source = value && typeof value === "object" ? value : {};
+    return Object.fromEntries(INSTRUCTION_OVERRIDE_KEYS.map((key) => [
+      key,
+      typeof source[key] === "string" ? source[key].trim() : "",
+    ]));
+  };
+  const loadUserInstructionOverrides = async () => {
+    if (!userInstructionOverridesPromise) {
+      userInstructionOverridesPromise = requestJson(`${ROUTE}/user-settings`)
+        .then((data) => {
+          userInstructionOverrides = normalizeInstructionOverrides(data.instruction_overrides);
+          return userInstructionOverrides;
+        })
+        .catch((error) => {
+          userInstructionOverridesPromise = null;
+          throw error;
+        });
+    }
+    try {
+      const saved = await userInstructionOverridesPromise;
+      // Existing browser-local overrides remain a one-time migration source until
+      // the user saves them into the ComfyUI profile.
+      return Object.fromEntries(INSTRUCTION_OVERRIDE_KEYS.map((key) => [
+        key,
+        saved[key] || String(settings[key] || "").trim(),
+      ]));
+    } catch {
+      return normalizeInstructionOverrides(settings);
+    }
+  };
   const refreshInstructionPreview = async () => {
     previewInstructions.disabled = true;
     instructionMeta.textContent = "Building effective prompts...";
@@ -769,16 +926,22 @@ function setupLLMToJsonX(node) {
           preset_context_mode: String(widgetValue(node, "preset_context_mode", "optimized")),
           has_image: Boolean(resolveImageSource(node)),
           generation_profile: generationProfile.value,
+          generation_mode: outputFormat.value === "natural"
+            ? "refined"
+            : String(widgetValue(node, "generation_mode", "fast")),
+          output_format: outputFormat.value,
           template_use_presets: templateUsePresets.checked,
+          enable_framing_and_placement: framingPlacement.checked,
           detail_level: detailLevel.value,
           stage_one_instructions: stageOneInstructions.value,
           template_fill_instructions: templateFillInstructions.value,
           refinement_instructions: refinementInstructions.value,
+          natural_language_instructions: naturalLanguageInstructions.value,
         }),
       });
       effectiveStage.value = data.stage_one || "";
       effectiveRefinement.value = data.refinement || "";
-      instructionMeta.textContent = `Stage 1: ${Number(data.stage_one_characters || 0).toLocaleString()} chars · Stage 2: ${Number(data.refinement_characters || 0).toLocaleString()} chars · ${data.generation_profile} · presets ${data.preset_context_mode} · ${data.detail_level} depth`;
+      instructionMeta.textContent = `Stage 1: ${Number(data.stage_one_characters || 0).toLocaleString()} chars · Stage 2: ${Number(data.refinement_characters || 0).toLocaleString()} chars · ${data.generation_profile} · ${data.output_format === "natural" ? "natural two-pass" : `${data.generation_mode} JSON`} · presets ${data.preset_context_mode} · framing ${data.enable_framing_and_placement ? "on" : "off"} · ${data.detail_level} depth`;
       effectiveDetails.open = true;
     } catch (error) {
       instructionMeta.textContent = error.message;
@@ -791,14 +954,21 @@ function setupLLMToJsonX(node) {
   instructionSettings.onclick = async () => {
     instructionSettings.disabled = true;
     try {
-      const defaults = await loadInstructionTemplates();
-      stageOneInstructions.value = String(settings.stage_one_instructions || defaults.stage_one || "");
-      templateFillInstructions.value = String(settings.template_fill_instructions || defaults.template_fill || "");
-      refinementInstructions.value = String(settings.refinement_instructions || defaults.refinement || "");
+      const [defaults, overrides] = await Promise.all([
+        loadInstructionTemplates(),
+        loadUserInstructionOverrides(),
+      ]);
+      stageOneInstructions.value = String(overrides.stage_one_instructions || defaults.stage_one || "");
+      templateFillInstructions.value = String(overrides.template_fill_instructions || defaults.template_fill || "");
+      refinementInstructions.value = String(overrides.refinement_instructions || defaults.refinement || "");
+      naturalLanguageInstructions.value = String(overrides.natural_language_instructions || defaults.natural_language || "");
       generationProfile.value = settings.generation_profile || defaults.default_generation_profile || "adaptive";
+      outputFormat.value = String(widgetValue(node, "output_format", defaults.default_output_format || "json"));
       templateUsePresets.checked = Boolean(settings.template_use_presets);
+      framingPlacement.checked = Boolean(widgetValue(node, "enable_framing_and_placement", false));
       detailLevel.value = settings.detail_level || defaults.default_detail_level || "deep";
       syncTemplateProfile();
+      syncOutputFormatEditor();
       effectiveStage.value = "";
       effectiveRefinement.value = "";
       instructionMeta.textContent = "Open the preview to inspect the exact prompt including live preset context.";
@@ -819,33 +989,72 @@ function setupLLMToJsonX(node) {
     stageOneInstructions.value = defaults.stage_one || "";
     templateFillInstructions.value = defaults.template_fill || "";
     refinementInstructions.value = defaults.refinement || "";
+    naturalLanguageInstructions.value = defaults.natural_language || "";
     generationProfile.value = defaults.default_generation_profile || "adaptive";
+    outputFormat.value = defaults.default_output_format || "json";
+    setWidgetValue(node, "generation_mode", "fast");
+    setWidgetValue(node, "generation_profile", defaults.default_generation_profile || "adaptive");
+    setWidgetValue(node, "template_use_presets", false);
+    setWidgetValue(node, "detail_level", defaults.default_detail_level || "deep");
     templateUsePresets.checked = false;
+    framingPlacement.checked = Boolean(defaults.default_enable_framing_and_placement);
     detailLevel.value = defaults.default_detail_level || "deep";
     syncTemplateProfile();
+    syncOutputFormatEditor();
     instructionMeta.textContent = "Defaults restored in the editor. Click Save settings to keep them.";
   };
   previewInstructions.onclick = refreshInstructionPreview;
-  saveInstructions.onclick = () => {
+  saveInstructions.onclick = async () => {
     const stageOneValue = stageOneInstructions.value.trim();
     const templateFillValue = templateFillInstructions.value.trim();
     const refinementValue = refinementInstructions.value.trim();
-    settings.stage_one_instructions = stageOneValue === String(defaultInstructionTemplates?.stage_one || "").trim()
-      ? ""
-      : stageOneValue;
-    settings.template_fill_instructions = templateFillValue === String(defaultInstructionTemplates?.template_fill || "").trim()
-      ? ""
-      : templateFillValue;
-    settings.refinement_instructions = refinementValue === String(defaultInstructionTemplates?.refinement || "").trim()
-      ? ""
-      : refinementValue;
+    const naturalLanguageValue = naturalLanguageInstructions.value.trim();
+    const overrides = {
+      stage_one_instructions: stageOneValue === String(defaultInstructionTemplates?.stage_one || "").trim()
+        ? ""
+        : stageOneValue,
+      template_fill_instructions: templateFillValue === String(defaultInstructionTemplates?.template_fill || "").trim()
+        ? ""
+        : templateFillValue,
+      refinement_instructions: refinementValue === String(defaultInstructionTemplates?.refinement || "").trim()
+        ? ""
+        : refinementValue,
+      natural_language_instructions: naturalLanguageValue === String(defaultInstructionTemplates?.natural_language || "").trim()
+        ? ""
+        : naturalLanguageValue,
+    };
+    saveInstructions.disabled = true;
+    try {
+      const saved = await requestJson(`${ROUTE}/user-settings`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({instruction_overrides: overrides}),
+      });
+      userInstructionOverrides = normalizeInstructionOverrides(saved.instruction_overrides);
+      userInstructionOverridesPromise = Promise.resolve(userInstructionOverrides);
+      for (const key of INSTRUCTION_OVERRIDE_KEYS) delete settings[key];
+    } catch (error) {
+      setStatus(`Could not save JsonX user-profile instructions: ${error.message}`, true);
+      return;
+    } finally {
+      saveInstructions.disabled = false;
+    }
     settings.detail_level = detailLevel.value || "deep";
     settings.generation_profile = generationProfile.value || "adaptive";
     settings.template_use_presets = templateUsePresets.checked;
+    setWidgetValue(node, "generation_profile", settings.generation_profile);
+    setWidgetValue(node, "template_use_presets", settings.template_use_presets);
+    setWidgetValue(node, "detail_level", settings.detail_level);
+    setWidgetValue(node, "enable_framing_and_placement", framingPlacement.checked);
+    setWidgetValue(node, "output_format", outputFormat.value || "json");
+    if (outputFormat.value === "natural") setWidgetValue(node, "generation_mode", "refined");
+    updateOutputPreviewPresentation(outputFormat.value);
     saveSettings(settings);
     closeInstructionModal();
-    setStatus(`JsonX settings saved · ${settings.generation_profile} · ${settings.detail_level} hierarchy depth.`);
+    setStatus(`JsonX settings saved to the ComfyUI user profile · ${settings.generation_profile} · ${outputFormat.value === "natural" ? "natural two-pass" : "JSON output"} · framing ${framingPlacement.checked ? "on" : "off"} · ${settings.detail_level} hierarchy depth.`);
   };
+  outputFormat.onchange = syncOutputFormatEditor;
+  cancelGenerate.onclick = cancelActiveGeneration;
   const instructionEscapeHandler = (event) => {
     if (event.key === "Escape" && instructionOverlay.classList.contains("visible")) {
       closeInstructionModal();
@@ -907,10 +1116,15 @@ function setupLLMToJsonX(node) {
     persist();
     clearDiagnostics();
     const instructions = String(widgetValue(node, "user_instructions", "")).trim();
-    const generationMode = String(widgetValue(node, "generation_mode", "fast"));
+    const outputFormatValue = String(widgetValue(node, "output_format", "json"));
+    const generationMode = outputFormatValue === "natural"
+      ? "refined"
+      : String(widgetValue(node, "generation_mode", "fast"));
+    if (outputFormatValue === "natural") setWidgetValue(node, "generation_mode", "refined");
     const presetMode = String(widgetValue(node, "preset_context_mode", "optimized"));
-    const generationProfileValue = settings.generation_profile || "adaptive";
-    const templateUsePresetsValue = Boolean(settings.template_use_presets);
+    const generationProfileValue = String(widgetValue(node, "generation_profile", "adaptive")) || "adaptive";
+    const templateUsePresetsValue = Boolean(widgetValue(node, "template_use_presets", false));
+    const framingPlacementValue = Boolean(widgetValue(node, "enable_framing_and_placement", false));
     const imageSource = resolveImageSource(node);
     const imageB64 = await imageSourceToDataUrl(imageSource);
     if (!instructions && !imageB64) {
@@ -933,17 +1147,24 @@ function setupLLMToJsonX(node) {
     } else {
       setStatus(`Generating ${generationMode} JsonX with optimized presets...`);
     }
+    if (outputFormatValue === "natural") {
+      setStatus("Generating validated JsonX, then refining it into natural language...");
+    }
 
+    const userInstructionOverrides = await loadUserInstructionOverrides();
     const payload = {
       backend: backend.value,
       generation_mode: generationMode,
+      output_format: outputFormatValue,
       preset_context_mode: presetMode,
       generation_profile: generationProfileValue,
       template_use_presets: templateUsePresetsValue,
-      detail_level: settings.detail_level || "deep",
-      stage_one_instructions: settings.stage_one_instructions || "",
-      template_fill_instructions: settings.template_fill_instructions || "",
-      refinement_instructions: settings.refinement_instructions || "",
+      enable_framing_and_placement: framingPlacementValue,
+      detail_level: String(widgetValue(node, "detail_level", "deep")) || "deep",
+      stage_one_instructions: userInstructionOverrides.stage_one_instructions,
+      template_fill_instructions: userInstructionOverrides.template_fill_instructions,
+      refinement_instructions: userInstructionOverrides.refinement_instructions,
+      natural_language_instructions: userInstructionOverrides.natural_language_instructions,
       user_instructions: instructions,
       image_b64: imageB64,
       timeout: Number(timeout.value || 180),
@@ -991,24 +1212,53 @@ function setupLLMToJsonX(node) {
       };
     }
 
+    const active = {
+      id: generationId(),
+      controller: new AbortController(),
+      cancelRequested: false,
+    };
+    activeGeneration = active;
+    setGenerationActive(true);
     generate.disabled = true;
-    generate.textContent = generationMode === "refined" ? "Generating + refining..." : "Generating...";
+    generate.textContent = outputFormatValue === "natural"
+      ? "Generating JSON + prose..."
+      : generationMode === "refined" ? "Generating + refining..." : "Generating...";
     try {
-      const data = await requestJson(`${ROUTE}/generate`, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload)});
-      const promptJson = data.prompt_json || "{}";
-      setWidgetValue(node, "generated_prompt_json", promptJson);
-      outputPreview.value = promptJson;
+      payload.generation_id = active.id;
+      const data = await requestJson(`${ROUTE}/generate`, {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify(payload),
+        signal: active.controller.signal,
+      });
+      if (active.cancelRequested) {
+        setStatus("JsonX generation cancelled. Previous output kept.");
+        return;
+      }
+      const finalPrompt = data.prompt || data.prompt_json || "";
+      setWidgetValue(node, "generated_prompt_json", finalPrompt);
+      outputPreview.value = finalPrompt;
       outputPreview.scrollTop = 0;
+      updateOutputPreviewPresentation(data.output_format || outputFormatValue);
       clearDiagnostics();
       const metrics = data.hierarchy_metrics || {};
       const metricText = metrics.leaf_count != null
         ? ` · ${metrics.leaf_count} leaves · depth ${metrics.max_depth} · ${metrics.root_groups} roots`
         : "";
-      setStatus(`Saved to prompt_json · ${data.generation_mode} · ${data.generation_profile || "adaptive"} · presets ${data.preset_context_mode} · ${data.detail_level || "deep"}${metricText}`);
+      setStatus(`Saved to prompt · ${data.output_format === "natural" ? "natural language" : `${data.generation_mode} JSON`} · ${data.generation_profile || "adaptive"} · presets ${data.preset_context_mode} · framing ${data.enable_framing_and_placement ? "on" : "off"} · ${data.detail_level || "deep"}${metricText}`);
     } catch (error) {
-      showDiagnostics(error.data?.diagnostics);
-      setStatus(`${error.message}. Previous output kept.`, true);
+      if (active.cancelRequested || error?.name === "AbortError" || error?.data?.cancelled) {
+        clearDiagnostics();
+        setStatus("JsonX generation cancelled. Previous output kept.");
+      } else {
+        showDiagnostics(error.data?.diagnostics);
+        setStatus(`${error.message}. Previous output kept.`, true);
+      }
     } finally {
+      if (activeGeneration === active) {
+        activeGeneration = null;
+        setGenerationActive(false);
+      }
       generate.disabled = false;
       generate.textContent = "Generate";
     }
@@ -1037,25 +1287,43 @@ function setupLLMToJsonX(node) {
   refreshPanels();
   if (backend.value === "local") setTimeout(() => localRefresh.click(), 0);
 
+  // DOM widgets are laid out at the node's current height. Measuring root.scrollHeight
+  // after opening a details element therefore captures that old allocation and prevents
+  // the node from shrinking when the element closes. Measure a width-matched clone with
+  // auto height instead, then let LiteGraph calculate the complete node height from it.
+  let domMinHeight = 118;
+  const measureDomContentHeight = (nodeWidth) => {
+    const clone = root.cloneNode(true);
+    clone.classList.add("jsonx-llm-measure");
+    clone.style.position = "fixed";
+    clone.style.left = "-100000px";
+    clone.style.top = "0";
+    clone.style.visibility = "hidden";
+    clone.style.pointerEvents = "none";
+    clone.style.width = `${Math.max(300, nodeWidth - 18)}px`;
+    clone.style.height = "auto";
+    clone.style.minHeight = "0";
+    clone.style.maxHeight = "none";
+    document.body.appendChild(clone);
+    const height = Math.ceil(clone.getBoundingClientRect().height) + 2;
+    clone.remove();
+    return Math.max(118, height);
+  };
   const resizeForSettings = () => {
     requestAnimationFrame(() => {
       const width = Math.max(380, Number(node.size?.[0]) || 380);
-      const computedHeight = Number(node.computeSize?.()?.[1]) || 370;
-      const settingsHeight = backend.value === "local" && localSettings.open
-        ? 660
-        : backend.value === "gemini" && geminiSettings.open
-          ? 590
-          : 475;
-      const expandedHeight = diagnostics.classList.contains("visible")
-        ? Math.max(650, settingsHeight + 150)
-        : settingsHeight;
-      node.setSize?.([width, Math.max(expandedHeight, expandedHeight > 475 ? computedHeight : 0)]);
+      domMinHeight = measureDomContentHeight(width);
+      requestAnimationFrame(() => {
+        const computedHeight = Number(node.computeSize?.()?.[1]) || (domMinHeight + 210);
+        node.setSize?.([width, Math.max(260, Math.ceil(computedHeight))]);
+      });
     });
   };
   localSettings.addEventListener("toggle", resizeForSettings);
   geminiSettings.addEventListener("toggle", resizeForSettings);
 
   chainCallback(node, "onRemoved", function jsonXPickerCleanup() {
+    cancelActiveGeneration();
     geminiModel.destroy();
     openaiModel.destroy();
     ollamaModel.destroy();
@@ -1065,10 +1333,11 @@ function setupLLMToJsonX(node) {
     instructionOverlay.remove();
   });
 
-  node.addDOMWidget("llm_to_jsonx", "LLM to JsonX", root, {serialize:false, hideOnZoom:false, getMinHeight:() => Math.max(118, root.scrollHeight + 2)});
+  node.addDOMWidget("llm_to_jsonx", "LLM to JsonX", root, {serialize:false, hideOnZoom:false, getMinHeight:() => domMinHeight});
   node.resizable = true;
   const size = node.size || [420, 600];
-  node.setSize?.([Math.max(380, size[0]), 475]);
+  node.setSize?.([Math.max(380, size[0]), 260]);
+  resizeForSettings();
 }
 
 app.registerExtension({

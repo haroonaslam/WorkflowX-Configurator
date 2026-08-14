@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 
 
 FORMAT_NATURAL = "natural"
@@ -32,6 +32,8 @@ class PromptProfile:
     json_supported: bool
     notes: str
     formats: dict[str, PromptFormatRule]
+    engine: str = "standard"
+    jsonx_config: dict = field(default_factory=dict)
 
     def enabled_formats(self) -> tuple[str, ...]:
         return tuple(format_key for format_key in ALL_FORMATS if self.formats.get(format_key) and self.formats[format_key].enabled)
