@@ -1,6 +1,12 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 import { $el } from "../../scripts/ui.js";
+import {
+  addSerializedGroupsToGraph,
+  selectedXNodeItems,
+  serializedGroupsForSelection,
+  snipOrigin,
+} from "./xnodes_snip_helpers.mjs";
 
 const ROUTE = "/xflows/library";
 const TRANSFER_ROUTE = "/xflows/export-import";
@@ -1153,18 +1159,8 @@ async function deleteSnippet(category, snippet) {
   renderActivePanel();
 }
 
-function selectedNodes() {
-  const nodes = [];
-  const selected = app.canvas?.selected_nodes;
-  if (selected && typeof selected === "object") {
-    for (const node of Object.values(selected)) if (node && !nodes.includes(node)) nodes.push(node);
-  }
-  if (app.canvas?.selected_node && !nodes.includes(app.canvas.selected_node)) nodes.push(app.canvas.selected_node);
-  return nodes;
-}
-
 function serializedSelection() {
-  const nodes = selectedNodes();
+  const { nodes, groups } = selectedXNodeItems(app.canvas);
   if (!nodes.length) return null;
   const selectedIds = new Set(nodes.map((node) => Number(node.id)));
   const graphData = app.graph.serialize();
@@ -1177,7 +1173,13 @@ function serializedSelection() {
     const target = Array.isArray(link) ? link[3] : link.target_id;
     return selectedIds.has(Number(origin)) && selectedIds.has(Number(target));
   }).map((link) => JSON.parse(JSON.stringify(link)));
-  return { type: serializedNodes.length > 1 ? "group" : "node", nodes: serializedNodes, links };
+  const serializedGroups = serializedGroupsForSelection(graphData, groups);
+  return {
+    type: serializedNodes.length > 1 || serializedGroups.length ? "group" : "node",
+    nodes: serializedNodes,
+    links,
+    groups: serializedGroups,
+  };
 }
 
 function scrubNodeLinks(node) {
@@ -1203,8 +1205,9 @@ function insertNodeSnip(snip) {
     return;
   }
   const center = viewportCenter();
-  const minX = Math.min(...savedNodes.map((node) => Number(node.pos?.[0] || 0)));
-  const minY = Math.min(...savedNodes.map((node) => Number(node.pos?.[1] || 0)));
+  const [minX, minY] = snipOrigin(payload);
+  const dx = center[0] - minX;
+  const dy = center[1] - minY;
   const oldToNode = new Map();
   for (const saved of savedNodes) {
     const node = LiteGraph.createNode(saved.type);
@@ -1212,7 +1215,7 @@ function insertNodeSnip(snip) {
     const data = JSON.parse(JSON.stringify(saved));
     const oldId = Number(data.id);
     delete data.id;
-    data.pos = [center[0] + Number(saved.pos?.[0] || 0) - minX, center[1] + Number(saved.pos?.[1] || 0) - minY];
+    data.pos = [Number(saved.pos?.[0] || 0) + dx, Number(saved.pos?.[1] || 0) + dy];
     node.configure(data);
     app.graph.add(node);
     oldToNode.set(oldId, node);
@@ -1225,6 +1228,14 @@ function insertNodeSnip(snip) {
     const origin = oldToNode.get(originId);
     const target = oldToNode.get(targetId);
     if (origin && target && typeof origin.connect === "function") origin.connect(originSlot, target, targetSlot);
+  }
+  try {
+    addSerializedGroupsToGraph({ graph: app.graph, LiteGraph, groups: payload.groups || [], dx, dy });
+  } catch (error) {
+    console.error("[WorkflowX] Could not recreate XNodes groups", error);
+    setMessage("Inserted nodes, but could not recreate their groups.");
+    app.graph.setDirtyCanvas(true, true);
+    return;
   }
   app.graph.setDirtyCanvas(true, true);
   setMessage(`Inserted ${snip.type === "group" ? "node group" : "node"}.`);
@@ -1638,7 +1649,7 @@ function renderDialog(panel) {
     title.append(iconButton("pi-times", "Close", close));
     modal.append(inputField({ value: dialog.title, placeholder: "Title", oninput: (event) => { dialog.title = event.target.value; } }, "dialog-snip-title"));
     modal.append(inputField({ value: dialog.tags, placeholder: "Tags, comma separated", oninput: (event) => { dialog.tags = event.target.value; } }, "dialog-snip-tags"));
-    $el("div.xlib-subtle", { textContent: `${dialog.snipType} | ${(dialog.payload.nodes || []).length} node(s)`, parent: modal });
+    $el("div.xlib-subtle", { textContent: `${dialog.snipType} | ${(dialog.payload.nodes || []).length} node(s) | ${(dialog.payload.groups || []).length} group(s)`, parent: modal });
     const actions = $el("div.xlib-dialog-actions", { parent: modal });
     actions.append(button({ label: "Cancel", onClick: close }), button({ label: "Save", iconName: "pi-save", className: "active", onClick: () => saveSnip({ id: dialog.item?.id, title: dialog.title, type: dialog.snipType, tags: parseTags(dialog.tags), payload: dialog.payload, favorite: Boolean(dialog.item?.favorite) }) }));
     return;
