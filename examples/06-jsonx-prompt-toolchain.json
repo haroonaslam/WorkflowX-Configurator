@@ -1,0 +1,392 @@
+{
+  "id": "workflowx-jsonx-prompt-toolchain",
+  "revision": 0,
+  "last_node_id": 5,
+  "last_link_id": 3,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "LLMToJsonX",
+      "pos": [
+        40,
+        120
+      ],
+      "size": [
+        380,
+        320
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "user_instructions",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "user_instructions"
+          }
+        },
+        {
+          "name": "generation_mode",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "generation_mode"
+          }
+        },
+        {
+          "name": "preset_context_mode",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "preset_context_mode"
+          }
+        },
+        {
+          "name": "generated_prompt_json",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "generated_prompt_json"
+          }
+        },
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "name": "ui_state",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "ui_state"
+          }
+        },
+        {
+          "name": "enable_framing_and_placement",
+          "type": "BOOLEAN",
+          "link": null,
+          "widget": {
+            "name": "enable_framing_and_placement"
+          }
+        },
+        {
+          "name": "output_format",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "output_format"
+          }
+        },
+        {
+          "name": "generation_profile",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "generation_profile"
+          }
+        },
+        {
+          "name": "template_use_presets",
+          "type": "BOOLEAN",
+          "link": null,
+          "widget": {
+            "name": "template_use_presets"
+          }
+        },
+        {
+          "name": "detail_level",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "detail_level"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "prompt",
+          "type": "STRING",
+          "links": [
+            1
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LLMToJsonX"
+      },
+      "widgets_values": [
+        "Create a neutral structured scene.",
+        "fast",
+        "optimized",
+        "{\"scene\":\"neutral documentation example\"}",
+        "{}",
+        true,
+        "json",
+        "adaptive",
+        true,
+        "deep"
+      ]
+    },
+    {
+      "id": 2,
+      "type": "FluxVisualJsonBuilder",
+      "pos": [
+        500,
+        150
+      ],
+      "size": [
+        330,
+        180
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "prompt_json",
+          "type": "STRING",
+          "link": 1
+        }
+      ],
+      "outputs": [
+        {
+          "name": "prompt_json",
+          "type": "STRING",
+          "links": [
+            2
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "FluxVisualJsonBuilder"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 3,
+      "type": "AFJPromptTemplateImporter",
+      "pos": [
+        920,
+        120
+      ],
+      "size": [
+        360,
+        260
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "template_name",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "template_name"
+          }
+        },
+        {
+          "name": "source_prompt_json",
+          "type": "STRING",
+          "link": 2
+        },
+        {
+          "name": "import_report",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "import_report"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "template_payload_json",
+          "type": "STRING",
+          "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "AFJPromptTemplateImporter"
+      },
+      "widgets_values": [
+        "documentation-template",
+        ""
+      ]
+    },
+    {
+      "id": 4,
+      "type": "FluxTemplateRandomizer",
+      "pos": [
+        40,
+        650
+      ],
+      "size": [
+        380,
+        260
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "template_name",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "template_name"
+          }
+        },
+        {
+          "name": "randomize_rules",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "randomize_rules"
+          }
+        },
+        {
+          "name": "randomize_rules_help",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "randomize_rules_help"
+          }
+        },
+        {
+          "name": "seed",
+          "type": "INT",
+          "link": null,
+          "widget": {
+            "name": "seed"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "prompt_json",
+          "type": "STRING",
+          "links": [
+            3
+          ]
+        },
+        {
+          "name": "run_log",
+          "type": "STRING",
+          "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "FluxTemplateRandomizer"
+      },
+      "widgets_values": [
+        "documentation-template",
+        "style: choose",
+        "Select fields reproducibly with the seed.",
+        42
+      ]
+    },
+    {
+      "id": 5,
+      "type": "FluxVisualJsonBuilder",
+      "pos": [
+        520,
+        690
+      ],
+      "size": [
+        330,
+        180
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "prompt_json",
+          "type": "STRING",
+          "link": 3
+        }
+      ],
+      "outputs": [
+        {
+          "name": "prompt_json",
+          "type": "STRING",
+          "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "FluxVisualJsonBuilder"
+      },
+      "widgets_values": [],
+      "title": "Inspect randomized JsonX"
+    }
+  ],
+  "links": [
+    [
+      1,
+      1,
+      0,
+      2,
+      0,
+      "STRING"
+    ],
+    [
+      2,
+      2,
+      0,
+      3,
+      1,
+      "STRING"
+    ],
+    [
+      3,
+      4,
+      0,
+      5,
+      0,
+      "STRING"
+    ]
+  ],
+  "groups": [
+    {
+      "id": 1,
+      "title": "Generate, inspect, and import",
+      "bounding": [
+        10,
+        60,
+        1320,
+        440
+      ],
+      "color": "#355c7d",
+      "font_size": 24,
+      "flags": {}
+    },
+    {
+      "id": 2,
+      "title": "Seeded template randomization",
+      "bounding": [
+        10,
+        590,
+        900,
+        400
+      ],
+      "color": "#2f6f62",
+      "font_size": 24,
+      "flags": {}
+    }
+  ],
+  "config": {},
+  "extra": {
+    "frontendVersion": "1.43.17",
+    "workflowx_example": {
+      "title": "JsonX prompt toolchain",
+      "requirements": "Configure an LLM profile only if you want to regenerate the first lane.",
+      "status": "Builder/importer/randomizer are local; LLM generation is profile-dependent.",
+      "privacy": "No media, credentials, personal paths, model-library names, or prompts are bundled."
+    }
+  },
+  "version": 0.4
+}

@@ -1,0 +1,1892 @@
+{
+  "id": "workflowx-configuration-and-routing",
+  "revision": 0,
+  "last_node_id": 34,
+  "last_link_id": 17,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "KVGC_ConfigSelectorX",
+      "pos": [
+        40,
+        40
+      ],
+      "size": [
+        330,
+        150
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "selected_config",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "selected_config"
+          }
+        },
+        {
+          "name": "console_output",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "console_output"
+          }
+        },
+        {
+          "name": "selectorx_state",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "selectorx_state"
+          }
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "KVGC_ConfigSelectorX"
+      },
+      "widgets_values": [
+        "Draft",
+        "no",
+        "{\"version\":1,\"initialized\":true,\"configs\":[{\"name\":\"Draft\",\"modes\":{\"Draft settings\":\"Active\",\"Final settings\":\"Mute\"}},{\"name\":\"Final\",\"modes\":{\"Draft settings\":\"Mute\",\"Final settings\":\"Active\"}}],\"scopes\":{\"Draft settings\":\"Group Configurator\",\"Final settings\":\"Group Configurator\"},\"advanced\":{\"mute\":{},\"bypass\":{}}}"
+      ]
+    },
+    {
+      "id": 2,
+      "type": "Note",
+      "pos": [
+        400,
+        40
+      ],
+      "size": [
+        620,
+        100
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "Note"
+      },
+      "widgets_values": [
+        "Set nodes publish values inside scoped groups. Get nodes resolve the active group's value; no Set-to-Get wire is expected."
+      ]
+    },
+    {
+      "id": 3,
+      "type": "KVGC_SetInt",
+      "pos": [
+        60,
+        250
+      ],
+      "size": [
+        230,
+        82
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "key",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "key"
+          }
+        },
+        {
+          "name": "value",
+          "type": "INT",
+          "link": null,
+          "widget": {
+            "name": "value"
+          }
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "KVGC_SetInt"
+      },
+      "widgets_values": [
+        "int",
+        20
+      ]
+    },
+    {
+      "id": 4,
+      "type": "KVGC_SetInt",
+      "pos": [
+        370,
+        250
+      ],
+      "size": [
+        230,
+        82
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "key",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "key"
+          }
+        },
+        {
+          "name": "value",
+          "type": "INT",
+          "link": null,
+          "widget": {
+            "name": "value"
+          }
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "KVGC_SetInt"
+      },
+      "widgets_values": [
+        "int",
+        32
+      ]
+    },
+    {
+      "id": 5,
+      "type": "KVGC_SetFloat",
+      "pos": [
+        60,
+        365
+      ],
+      "size": [
+        230,
+        82
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "key",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "key"
+          }
+        },
+        {
+          "name": "value",
+          "type": "FLOAT",
+          "link": null,
+          "widget": {
+            "name": "value"
+          }
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "KVGC_SetFloat"
+      },
+      "widgets_values": [
+        "float",
+        3.0
+      ]
+    },
+    {
+      "id": 6,
+      "type": "KVGC_SetFloat",
+      "pos": [
+        370,
+        365
+      ],
+      "size": [
+        230,
+        82
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "key",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "key"
+          }
+        },
+        {
+          "name": "value",
+          "type": "FLOAT",
+          "link": null,
+          "widget": {
+            "name": "value"
+          }
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "KVGC_SetFloat"
+      },
+      "widgets_values": [
+        "float",
+        4.0
+      ]
+    },
+    {
+      "id": 7,
+      "type": "KVGC_SetString",
+      "pos": [
+        60,
+        480
+      ],
+      "size": [
+        230,
+        82
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "key",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "key"
+          }
+        },
+        {
+          "name": "value",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "value"
+          }
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "KVGC_SetString"
+      },
+      "widgets_values": [
+        "string",
+        "draft"
+      ]
+    },
+    {
+      "id": 8,
+      "type": "KVGC_SetString",
+      "pos": [
+        370,
+        480
+      ],
+      "size": [
+        230,
+        82
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "key",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "key"
+          }
+        },
+        {
+          "name": "value",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "value"
+          }
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "KVGC_SetString"
+      },
+      "widgets_values": [
+        "string",
+        "final"
+      ]
+    },
+    {
+      "id": 9,
+      "type": "KVGC_SetText",
+      "pos": [
+        60,
+        595
+      ],
+      "size": [
+        230,
+        82
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "key",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "key"
+          }
+        },
+        {
+          "name": "value",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "value"
+          }
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "KVGC_SetText"
+      },
+      "widgets_values": [
+        "text",
+        "A concise neutral scene description."
+      ]
+    },
+    {
+      "id": 10,
+      "type": "KVGC_SetText",
+      "pos": [
+        370,
+        595
+      ],
+      "size": [
+        230,
+        82
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "key",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "key"
+          }
+        },
+        {
+          "name": "value",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "value"
+          }
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "KVGC_SetText"
+      },
+      "widgets_values": [
+        "text",
+        "A detailed neutral scene description."
+      ]
+    },
+    {
+      "id": 11,
+      "type": "KVGC_SetBoolean",
+      "pos": [
+        60,
+        710
+      ],
+      "size": [
+        230,
+        82
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "key",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "key"
+          }
+        },
+        {
+          "name": "value",
+          "type": "BOOLEAN",
+          "link": null,
+          "widget": {
+            "name": "value"
+          }
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "KVGC_SetBoolean"
+      },
+      "widgets_values": [
+        "boolean",
+        false
+      ]
+    },
+    {
+      "id": 12,
+      "type": "KVGC_SetBoolean",
+      "pos": [
+        370,
+        710
+      ],
+      "size": [
+        230,
+        82
+      ],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "key",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "key"
+          }
+        },
+        {
+          "name": "value",
+          "type": "BOOLEAN",
+          "link": null,
+          "widget": {
+            "name": "value"
+          }
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "KVGC_SetBoolean"
+      },
+      "widgets_values": [
+        "boolean",
+        true
+      ]
+    },
+    {
+      "id": 13,
+      "type": "KVGC_SetSampler",
+      "pos": [
+        60,
+        825
+      ],
+      "size": [
+        230,
+        82
+      ],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "key",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "key"
+          }
+        },
+        {
+          "name": "value",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "value"
+          }
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "KVGC_SetSampler"
+      },
+      "widgets_values": [
+        "sampler",
+        "euler"
+      ]
+    },
+    {
+      "id": 14,
+      "type": "KVGC_SetSampler",
+      "pos": [
+        370,
+        825
+      ],
+      "size": [
+        230,
+        82
+      ],
+      "flags": {},
+      "order": 13,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "key",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "key"
+          }
+        },
+        {
+          "name": "value",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "value"
+          }
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "KVGC_SetSampler"
+      },
+      "widgets_values": [
+        "sampler",
+        "dpmpp_2m"
+      ]
+    },
+    {
+      "id": 15,
+      "type": "KVGC_SetScheduler",
+      "pos": [
+        60,
+        940
+      ],
+      "size": [
+        230,
+        82
+      ],
+      "flags": {},
+      "order": 14,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "key",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "key"
+          }
+        },
+        {
+          "name": "value",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "value"
+          }
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "KVGC_SetScheduler"
+      },
+      "widgets_values": [
+        "scheduler",
+        "normal"
+      ]
+    },
+    {
+      "id": 16,
+      "type": "KVGC_SetScheduler",
+      "pos": [
+        370,
+        940
+      ],
+      "size": [
+        230,
+        82
+      ],
+      "flags": {},
+      "order": 15,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "key",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "key"
+          }
+        },
+        {
+          "name": "value",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "value"
+          }
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "KVGC_SetScheduler"
+      },
+      "widgets_values": [
+        "scheduler",
+        "karras"
+      ]
+    },
+    {
+      "id": 17,
+      "type": "CheckpointLoaderSimple",
+      "pos": [
+        60,
+        1080
+      ],
+      "size": [
+        300,
+        100
+      ],
+      "flags": {},
+      "order": 16,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "ckpt_name",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "ckpt_name"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            1
+          ]
+        },
+        {
+          "name": "CLIP",
+          "type": "CLIP",
+          "links": [
+            3,
+            4
+          ]
+        },
+        {
+          "name": "VAE",
+          "type": "VAE",
+          "links": [
+            16
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "CheckpointLoaderSimple"
+      },
+      "widgets_values": [
+        "select-draft-checkpoint.safetensors"
+      ]
+    },
+    {
+      "id": 18,
+      "type": "CheckpointLoaderSimple",
+      "pos": [
+        370,
+        1080
+      ],
+      "size": [
+        300,
+        100
+      ],
+      "flags": {},
+      "order": 17,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "ckpt_name",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "ckpt_name"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            2
+          ]
+        },
+        {
+          "name": "CLIP",
+          "type": "CLIP",
+          "links": []
+        },
+        {
+          "name": "VAE",
+          "type": "VAE",
+          "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "CheckpointLoaderSimple"
+      },
+      "widgets_values": [
+        "select-final-checkpoint.safetensors"
+      ]
+    },
+    {
+      "id": 19,
+      "type": "KVGC_SetRelay",
+      "pos": [
+        60,
+        1210
+      ],
+      "size": [
+        230,
+        72
+      ],
+      "flags": {},
+      "order": 18,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "value",
+          "type": "*",
+          "link": 1
+        },
+        {
+          "name": "key",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "key"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "value",
+          "type": "*",
+          "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "KVGC_SetRelay"
+      },
+      "widgets_values": [
+        "model"
+      ]
+    },
+    {
+      "id": 20,
+      "type": "KVGC_SetRelay",
+      "pos": [
+        370,
+        1210
+      ],
+      "size": [
+        230,
+        72
+      ],
+      "flags": {},
+      "order": 19,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "value",
+          "type": "*",
+          "link": 2
+        },
+        {
+          "name": "key",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "key"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "value",
+          "type": "*",
+          "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "KVGC_SetRelay"
+      },
+      "widgets_values": [
+        "model"
+      ]
+    },
+    {
+      "id": 21,
+      "type": "KVGC_GetInt",
+      "pos": [
+        840,
+        250
+      ],
+      "size": [
+        230,
+        92
+      ],
+      "flags": {},
+      "order": 20,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "key",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "key"
+          }
+        },
+        {
+          "name": "resolved_value",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "resolved_value"
+          }
+        },
+        {
+          "name": "resolved_config",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "resolved_config"
+          }
+        },
+        {
+          "name": "resolved_digest",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "resolved_digest"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "int",
+          "type": "INT",
+          "links": [
+            8
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "KVGC_GetInt"
+      },
+      "widgets_values": [
+        "int",
+        "",
+        "",
+        ""
+      ]
+    },
+    {
+      "id": 22,
+      "type": "KVGC_GetFloat",
+      "pos": [
+        840,
+        365
+      ],
+      "size": [
+        230,
+        92
+      ],
+      "flags": {},
+      "order": 21,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "key",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "key"
+          }
+        },
+        {
+          "name": "resolved_value",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "resolved_value"
+          }
+        },
+        {
+          "name": "resolved_config",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "resolved_config"
+          }
+        },
+        {
+          "name": "resolved_digest",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "resolved_digest"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "float",
+          "type": "FLOAT",
+          "links": [
+            9
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "KVGC_GetFloat"
+      },
+      "widgets_values": [
+        "float",
+        "",
+        "",
+        ""
+      ]
+    },
+    {
+      "id": 23,
+      "type": "KVGC_GetString",
+      "pos": [
+        840,
+        480
+      ],
+      "size": [
+        230,
+        92
+      ],
+      "flags": {},
+      "order": 22,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "key",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "key"
+          }
+        },
+        {
+          "name": "resolved_value",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "resolved_value"
+          }
+        },
+        {
+          "name": "resolved_config",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "resolved_config"
+          }
+        },
+        {
+          "name": "resolved_digest",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "resolved_digest"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "string",
+          "type": "STRING",
+          "links": [
+            6
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "KVGC_GetString"
+      },
+      "widgets_values": [
+        "string",
+        "",
+        "",
+        ""
+      ]
+    },
+    {
+      "id": 24,
+      "type": "KVGC_GetText",
+      "pos": [
+        840,
+        595
+      ],
+      "size": [
+        230,
+        92
+      ],
+      "flags": {},
+      "order": 23,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "key",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "key"
+          }
+        },
+        {
+          "name": "resolved_value",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "resolved_value"
+          }
+        },
+        {
+          "name": "resolved_config",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "resolved_config"
+          }
+        },
+        {
+          "name": "resolved_digest",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "resolved_digest"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "text",
+          "type": "STRING",
+          "links": [
+            5
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "KVGC_GetText"
+      },
+      "widgets_values": [
+        "text",
+        "",
+        "",
+        ""
+      ]
+    },
+    {
+      "id": 25,
+      "type": "KVGC_GetBoolean",
+      "pos": [
+        840,
+        710
+      ],
+      "size": [
+        230,
+        92
+      ],
+      "flags": {},
+      "order": 24,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "key",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "key"
+          }
+        },
+        {
+          "name": "resolved_value",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "resolved_value"
+          }
+        },
+        {
+          "name": "resolved_config",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "resolved_config"
+          }
+        },
+        {
+          "name": "resolved_digest",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "resolved_digest"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "boolean",
+          "type": "BOOLEAN",
+          "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "KVGC_GetBoolean"
+      },
+      "widgets_values": [
+        "boolean",
+        "",
+        "",
+        ""
+      ]
+    },
+    {
+      "id": 26,
+      "type": "KVGC_GetSampler",
+      "pos": [
+        840,
+        825
+      ],
+      "size": [
+        230,
+        92
+      ],
+      "flags": {},
+      "order": 25,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "key",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "key"
+          }
+        },
+        {
+          "name": "resolved_value",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "resolved_value"
+          }
+        },
+        {
+          "name": "resolved_config",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "resolved_config"
+          }
+        },
+        {
+          "name": "resolved_digest",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "resolved_digest"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "sampler_name",
+          "type": "COMBO",
+          "links": [
+            10
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "KVGC_GetSampler"
+      },
+      "widgets_values": [
+        "sampler",
+        "",
+        "",
+        ""
+      ]
+    },
+    {
+      "id": 27,
+      "type": "KVGC_GetScheduler",
+      "pos": [
+        840,
+        940
+      ],
+      "size": [
+        230,
+        92
+      ],
+      "flags": {},
+      "order": 26,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "key",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "key"
+          }
+        },
+        {
+          "name": "resolved_value",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "resolved_value"
+          }
+        },
+        {
+          "name": "resolved_config",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "resolved_config"
+          }
+        },
+        {
+          "name": "resolved_digest",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "resolved_digest"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "scheduler",
+          "type": "COMBO",
+          "links": [
+            11
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "KVGC_GetScheduler"
+      },
+      "widgets_values": [
+        "scheduler",
+        "",
+        "",
+        ""
+      ]
+    },
+    {
+      "id": 28,
+      "type": "KVGC_GetRelay",
+      "pos": [
+        840,
+        1080
+      ],
+      "size": [
+        230,
+        72
+      ],
+      "flags": {},
+      "order": 27,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "value",
+          "type": "*",
+          "link": null
+        },
+        {
+          "name": "key",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "key"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "value",
+          "type": "*",
+          "links": [
+            7
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "KVGC_GetRelay"
+      },
+      "widgets_values": [
+        "model"
+      ]
+    },
+    {
+      "id": 29,
+      "type": "CLIPTextEncode",
+      "pos": [
+        1180,
+        250
+      ],
+      "size": [
+        310,
+        130
+      ],
+      "flags": {},
+      "order": 28,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 3
+        },
+        {
+          "name": "text",
+          "type": "STRING",
+          "link": 5,
+          "widget": {
+            "name": "text"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "links": [
+            12
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "CLIPTextEncode"
+      },
+      "widgets_values": [
+        "Resolved multiline prompt"
+      ]
+    },
+    {
+      "id": 30,
+      "type": "CLIPTextEncode",
+      "pos": [
+        1180,
+        430
+      ],
+      "size": [
+        310,
+        130
+      ],
+      "flags": {},
+      "order": 29,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 4
+        },
+        {
+          "name": "text",
+          "type": "STRING",
+          "link": 6,
+          "widget": {
+            "name": "text"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "links": [
+            13
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "CLIPTextEncode"
+      },
+      "widgets_values": [
+        "Resolved short text"
+      ]
+    },
+    {
+      "id": 31,
+      "type": "KSampler",
+      "pos": [
+        1550,
+        360
+      ],
+      "size": [
+        290,
+        300
+      ],
+      "flags": {},
+      "order": 30,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 7
+        },
+        {
+          "name": "seed",
+          "type": "INT",
+          "link": null,
+          "widget": {
+            "name": "seed"
+          }
+        },
+        {
+          "name": "steps",
+          "type": "INT",
+          "link": 8,
+          "widget": {
+            "name": "steps"
+          }
+        },
+        {
+          "name": "cfg",
+          "type": "FLOAT",
+          "link": 9,
+          "widget": {
+            "name": "cfg"
+          }
+        },
+        {
+          "name": "sampler_name",
+          "type": "COMBO",
+          "link": 10,
+          "widget": {
+            "name": "sampler_name"
+          }
+        },
+        {
+          "name": "scheduler",
+          "type": "COMBO",
+          "link": 11,
+          "widget": {
+            "name": "scheduler"
+          }
+        },
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 12
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "link": 13
+        },
+        {
+          "name": "latent_image",
+          "type": "LATENT",
+          "link": 14
+        },
+        {
+          "name": "denoise",
+          "type": "FLOAT",
+          "link": null,
+          "widget": {
+            "name": "denoise"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            15
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "KSampler"
+      },
+      "widgets_values": [
+        0,
+        "randomize",
+        20,
+        3.0,
+        "euler",
+        "normal",
+        1.0
+      ]
+    },
+    {
+      "id": 32,
+      "type": "EmptyLatentImage",
+      "pos": [
+        1210,
+        650
+      ],
+      "size": [
+        240,
+        110
+      ],
+      "flags": {},
+      "order": 31,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "width",
+          "type": "INT",
+          "link": null,
+          "widget": {
+            "name": "width"
+          }
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "link": null,
+          "widget": {
+            "name": "height"
+          }
+        },
+        {
+          "name": "batch_size",
+          "type": "INT",
+          "link": null,
+          "widget": {
+            "name": "batch_size"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            14
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "EmptyLatentImage"
+      },
+      "widgets_values": [
+        1024,
+        1024,
+        8
+      ]
+    },
+    {
+      "id": 33,
+      "type": "VAEDecode",
+      "pos": [
+        1900,
+        360
+      ],
+      "size": [
+        220,
+        90
+      ],
+      "flags": {},
+      "order": 32,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "samples",
+          "type": "LATENT",
+          "link": 15
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 16
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            17
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "VAEDecode"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 34,
+      "type": "SaveImage",
+      "pos": [
+        2220,
+        360
+      ],
+      "size": [
+        300,
+        260
+      ],
+      "flags": {},
+      "order": 33,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 17
+        },
+        {
+          "name": "filename_prefix",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "filename_prefix"
+          }
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "SaveImage"
+      },
+      "widgets_values": [
+        "WorkflowX/example"
+      ]
+    }
+  ],
+  "links": [
+    [
+      1,
+      17,
+      0,
+      19,
+      0,
+      "MODEL"
+    ],
+    [
+      2,
+      18,
+      0,
+      20,
+      0,
+      "MODEL"
+    ],
+    [
+      3,
+      17,
+      1,
+      29,
+      0,
+      "CLIP"
+    ],
+    [
+      4,
+      17,
+      1,
+      30,
+      0,
+      "CLIP"
+    ],
+    [
+      5,
+      24,
+      0,
+      29,
+      1,
+      "STRING"
+    ],
+    [
+      6,
+      23,
+      0,
+      30,
+      1,
+      "STRING"
+    ],
+    [
+      7,
+      28,
+      0,
+      31,
+      0,
+      "*"
+    ],
+    [
+      8,
+      21,
+      0,
+      31,
+      2,
+      "INT"
+    ],
+    [
+      9,
+      22,
+      0,
+      31,
+      3,
+      "FLOAT"
+    ],
+    [
+      10,
+      26,
+      0,
+      31,
+      4,
+      "COMBO"
+    ],
+    [
+      11,
+      27,
+      0,
+      31,
+      5,
+      "COMBO"
+    ],
+    [
+      12,
+      29,
+      0,
+      31,
+      6,
+      "CONDITIONING"
+    ],
+    [
+      13,
+      30,
+      0,
+      31,
+      7,
+      "CONDITIONING"
+    ],
+    [
+      14,
+      32,
+      0,
+      31,
+      8,
+      "LATENT"
+    ],
+    [
+      15,
+      31,
+      0,
+      33,
+      0,
+      "LATENT"
+    ],
+    [
+      16,
+      17,
+      2,
+      33,
+      1,
+      "VAE"
+    ],
+    [
+      17,
+      33,
+      0,
+      34,
+      0,
+      "IMAGE"
+    ]
+  ],
+  "groups": [
+    {
+      "id": 1,
+      "title": "Draft settings",
+      "bounding": [
+        20,
+        200,
+        300,
+        1100
+      ],
+      "color": "#355c7d",
+      "font_size": 24,
+      "flags": {}
+    },
+    {
+      "id": 2,
+      "title": "Final settings",
+      "bounding": [
+        330,
+        200,
+        300,
+        1100
+      ],
+      "color": "#6c5b7b",
+      "font_size": 24,
+      "flags": {}
+    },
+    {
+      "id": 3,
+      "title": "Resolved values",
+      "bounding": [
+        790,
+        200,
+        310,
+        1020
+      ],
+      "color": "#2f6f62",
+      "font_size": 24,
+      "flags": {}
+    },
+    {
+      "id": 4,
+      "title": "Consumer pipeline",
+      "bounding": [
+        1140,
+        200,
+        1420,
+        700
+      ],
+      "color": "#8a6d3b",
+      "font_size": 24,
+      "flags": {}
+    }
+  ],
+  "config": {},
+  "extra": {
+    "frontendVersion": "1.43.17",
+    "workflowx_example": {
+      "title": "Configuration and routing",
+      "requirements": "Choose local checkpoints before execution.",
+      "status": "Model-dependent; configuration state is complete and serialized.",
+      "privacy": "No media, credentials, personal paths, model-library names, or prompts are bundled."
+    }
+  },
+  "version": 0.4
+}

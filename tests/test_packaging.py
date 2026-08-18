@@ -5,6 +5,7 @@ import json
 import pathlib
 import shutil
 import sys
+import tempfile
 import types
 import zipfile
 import io
@@ -87,13 +88,15 @@ def _load_package():
 
 def test_combined_package_exports_workflowx_and_afj_nodes():
     module = _load_package()
-    assert len(module.NODE_CLASS_MAPPINGS) == 38
+    assert len(module.NODE_CLASS_MAPPINGS) == 39
     assert "KVGC_GroupConfigurator" in module.NODE_CLASS_MAPPINGS
     assert "KVGC_ConfigSelectorAdvanced" in module.NODE_CLASS_MAPPINGS
     assert "KVGC_ConfigSelectorX" in module.NODE_CLASS_MAPPINGS
     assert module.NODE_DISPLAY_NAME_MAPPINGS["KVGC_ConfigSelectorX"] == "Config SelectorX"
     assert "KVGC_UnloadModelsByType" in module.NODE_CLASS_MAPPINGS
     assert "KVGC_LoraX" in module.NODE_CLASS_MAPPINGS
+    assert "KVGC_LoadDiffusionModelX" in module.NODE_CLASS_MAPPINGS
+    assert module.NODE_DISPLAY_NAME_MAPPINGS["KVGC_LoadDiffusionModelX"] == "Load Diffusion Model X"
     assert "FluxVisualJsonBuilder" in module.NODE_CLASS_MAPPINGS
     assert "FluxTemplateRandomizer" in module.NODE_CLASS_MAPPINGS
     assert "AFJPromptTemplateImporter" in module.NODE_CLASS_MAPPINGS
@@ -206,6 +209,39 @@ def test_lorax_route_helpers_build_canonical_entries_and_token_search():
     assert first_query == second_query
     assert module._build_lorax_lora_entries(FolderPaths, "pussy flux") == []
     assert module._build_lorax_lora_entries(FolderPaths, "pussy sdxl zimage") == []
+
+
+def test_load_diffusion_model_x_route_helpers_build_catalog_and_search():
+    module = _load_package()
+    with tempfile.TemporaryDirectory() as directory:
+        model_path = pathlib.Path(directory) / "Flux" / "Example Model.safetensors"
+        model_path.parent.mkdir()
+        model_path.write_bytes(b"model-bytes")
+
+        class FolderPaths:
+            @staticmethod
+            def get_filename_list(folder_name):
+                assert folder_name == "diffusion_models"
+                return ["ZImage/Other.gguf", "Flux/Example Model.safetensors"]
+
+            @staticmethod
+            def get_full_path(folder_name, filename):
+                assert folder_name == "diffusion_models"
+                return str(model_path) if filename == "Flux/Example Model.safetensors" else None
+
+        entries = module._build_diffusion_model_entries(FolderPaths)
+        assert [entry["load_name"] for entry in entries] == [
+            "Flux/Example Model.safetensors",
+            "ZImage/Other.gguf",
+        ]
+        assert entries[0]["folder"] == "Flux"
+        assert entries[0]["display_name"] == "Example Model"
+        assert entries[0]["file_size"] == len(b"model-bytes")
+        assert entries[0]["sub_type"] == "diffusion_model"
+        assert [entry["load_name"] for entry in module._build_diffusion_model_entries(FolderPaths, "flux example")] == [
+            "Flux/Example Model.safetensors"
+        ]
+        assert module._build_diffusion_model_entries(FolderPaths, "missing") == []
 
 
 def test_xflows_hidden_auto_tags_survive_metadata_merge():

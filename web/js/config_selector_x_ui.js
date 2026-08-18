@@ -62,6 +62,7 @@ export function createSelectorXController(adapter) {
   let draft = null;
   let draftSelected = "";
   let configIndex = 0;
+  let configListScrollTop = 0;
 
   function readState(node) {
     return parseSelectorXState(String(adapter.getWidgetValue(node, "selectorx_state", "{}") || "{}"));
@@ -232,7 +233,9 @@ export function createSelectorXController(adapter) {
     renderConfigs();
   }
 
-  function renderConfigs() {
+  function renderConfigs(preserveScroll = true) {
+    const currentList = preserveScroll ? modal?.querySelector(".workflowx-csx-config-list") : null;
+    if (currentList) configListScrollTop = currentList.scrollTop;
     const { head, body } = shell("Configs", "Edit stored profiles. Apply a profile from its toggle on the node.");
     const headActions = el("div", "workflowx-csx-actions");
     headActions.append(button("Re-import from canvas", importLegacy));
@@ -242,6 +245,9 @@ export function createSelectorXController(adapter) {
     const sidebar = el("div", "workflowx-csx-config-sidebar");
     const topActions = el("div", "workflowx-csx-actions");
     const list = el("div", "workflowx-csx-config-list");
+    list.addEventListener("scroll", () => {
+      configListScrollTop = list.scrollTop;
+    }, { passive: true });
     const bottomActions = el("div", "workflowx-csx-actions");
     const editor = el("div", "workflowx-csx-editor");
     const rerender = () => renderConfigs();
@@ -350,6 +356,21 @@ export function createSelectorXController(adapter) {
     modal.append(body);
     footer();
     overlay.style.display = "grid";
+    const requestedScrollTop = configListScrollTop;
+    requestAnimationFrame(() => {
+      if (list !== modal?.querySelector(".workflowx-csx-config-list")) return;
+      list.scrollTop = requestedScrollTop;
+      const selectedItem = list.children[configIndex];
+      if (!selectedItem) return;
+      const viewportRect = list.getBoundingClientRect();
+      const selectedRect = selectedItem.getBoundingClientRect();
+      if (selectedRect.top < viewportRect.top) {
+        list.scrollTop -= viewportRect.top - selectedRect.top;
+      } else if (selectedRect.bottom > viewportRect.bottom) {
+        list.scrollTop += selectedRect.bottom - viewportRect.bottom;
+      }
+      configListScrollTop = list.scrollTop;
+    });
   }
 
   function openConfigs(node) {
@@ -359,7 +380,8 @@ export function createSelectorXController(adapter) {
     draft = reconcileSelectorXState(cloneSelectorXState(state), adapter.groupNames());
     draftSelected = adapter.selectedConfigName(node);
     configIndex = Math.max(0, draft.configs.findIndex((config) => config.name === draftSelected));
-    renderConfigs();
+    configListScrollTop = 0;
+    renderConfigs(false);
   }
 
   function addChoice(node, configName) {

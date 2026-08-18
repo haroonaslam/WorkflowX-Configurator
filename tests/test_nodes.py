@@ -2,6 +2,8 @@ import json
 import pathlib
 import sys
 
+import pytest
+
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -21,6 +23,7 @@ from nodes import (
     ConfigSelectorAdvanced,
     ConfigSelectorX,
     GetRelay,
+    LoadDiffusionModelX,
     LoraX,
     SetFloat,
     SetRelay,
@@ -93,7 +96,7 @@ def resolved_digest(type_name, key, config, value):
 
 
 def test_all_nodes_registered():
-    assert len(NODE_CLASS_MAPPINGS) == 24
+    assert len(NODE_CLASS_MAPPINGS) == 25
     assert "KVGC_SetSampler" in NODE_CLASS_MAPPINGS
     assert "KVGC_GetSampler" in NODE_CLASS_MAPPINGS
     assert "KVGC_SetScheduler" in NODE_CLASS_MAPPINGS
@@ -107,6 +110,7 @@ def test_all_nodes_registered():
     assert "KVGC_GroupScopes" in NODE_CLASS_MAPPINGS
     assert "KVGC_UnloadModelsByType" in NODE_CLASS_MAPPINGS
     assert "KVGC_LoraX" in NODE_CLASS_MAPPINGS
+    assert "KVGC_LoadDiffusionModelX" in NODE_CLASS_MAPPINGS
 
 
 def test_node_menu_hierarchy_preserves_serialized_types():
@@ -305,6 +309,77 @@ def test_lorax_uses_model_strength_and_fixed_clip_strength_when_clip_is_connecte
         "",
         "<lora:Dual:0.7>",
     )
+
+
+def test_load_diffusion_model_x_inputs_follow_native_dtype_contract():
+    class NativeLoader:
+        @classmethod
+        def INPUT_TYPES(cls):
+            return {
+                "required": {
+                    "unet_name": (["example.safetensors"],),
+                    "weight_dtype": (["native_default", "native_fp8"], {"advanced": True}),
+                }
+            }
+
+    original = LoadDiffusionModelX.__dict__["_native_loader_class"]
+    LoadDiffusionModelX._native_loader_class = classmethod(lambda cls: NativeLoader)
+    try:
+        inputs = LoadDiffusionModelX.INPUT_TYPES()
+    finally:
+        LoadDiffusionModelX._native_loader_class = original
+
+    assert inputs["required"]["weight_dtype"] == (
+        ["native_default", "native_fp8"],
+        {"advanced": True},
+    )
+    assert "diffusion_model_999" in inputs["optional"]
+    assert inputs["optional"]["diffusion_model_999"][0] == "*"
+
+
+def test_load_diffusion_model_x_normalizes_rows_and_chooses_first_active():
+    selected = LoadDiffusionModelX._select_active_entry(
+        {
+            "diffusion_model_10": {"active": True, "unet_name": "models/C.safetensors"},
+            "diffusion_model_2": {"on": True, "loadName": "models/B.safetensors"},
+            "diffusion_model_1": {"on": False, "load_name": "models/A.safetensors"},
+        }
+    )
+
+    assert selected["load_name"] == "models/B.safetensors"
+    assert selected["on"] is True
+
+
+def test_load_diffusion_model_x_rejects_missing_or_inactive_rows():
+    with pytest.raises(ValueError, match="no configured models"):
+        LoadDiffusionModelX._select_active_entry({})
+    with pytest.raises(ValueError, match="no active model"):
+        LoadDiffusionModelX._select_active_entry(
+            {"diffusion_model_1": {"on": False, "load_name": "A.safetensors"}}
+        )
+
+
+def test_load_diffusion_model_x_delegates_to_native_unet_loader():
+    calls = []
+
+    class NativeLoader:
+        def load_unet(self, unet_name, weight_dtype):
+            calls.append((unet_name, weight_dtype))
+            return (f"MODEL:{unet_name}:{weight_dtype}",)
+
+    original = LoadDiffusionModelX.__dict__["_native_loader_class"]
+    LoadDiffusionModelX._native_loader_class = classmethod(lambda cls: NativeLoader)
+    try:
+        result = LoadDiffusionModelX().load_diffusion_model(
+            "fp8_e4m3fn",
+            diffusion_model_1={"on": False, "load_name": "A.safetensors"},
+            diffusion_model_2={"on": True, "load_name": "folder/B.safetensors"},
+        )
+    finally:
+        LoadDiffusionModelX._native_loader_class = original
+
+    assert calls == [("folder/B.safetensors", "fp8_e4m3fn")]
+    assert result == ("MODEL:folder/B.safetensors:fp8_e4m3fn",)
 
 
 def test_set_float_widget_preserves_decimal_precision():

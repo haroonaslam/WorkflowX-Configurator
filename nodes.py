@@ -1397,6 +1397,175 @@ class LoraX:
         )
 
 
+class LoadDiffusionModelX:
+    DESCRIPTION = (
+        "Keep multiple diffusion-model alternatives in one node while loading the "
+        "single active model through ComfyUI's native UNETLoader."
+    )
+
+    CATEGORY = f"{CATEGORY}/Loaders"
+    FUNCTION = "load_diffusion_model"
+    RETURN_TYPES = ("MODEL",)
+    RETURN_NAMES = ("MODEL",)
+    ROW_PREFIX = "diffusion_model_"
+    DEFAULT_WEIGHT_DTYPES = (
+        "default",
+        "fp8_e4m3fn",
+        "fp8_e4m3fn_fast",
+        "fp8_e5m2",
+    )
+
+    @classmethod
+    def _native_loader_class(cls):
+        try:
+            import importlib
+
+            native_nodes = importlib.import_module("nodes")
+        except Exception:
+            return None
+
+        mappings = getattr(native_nodes, "NODE_CLASS_MAPPINGS", {})
+        loader_class = mappings.get("UNETLoader") if isinstance(mappings, dict) else None
+        if loader_class is None:
+            loader_class = getattr(native_nodes, "UNETLoader", None)
+        return loader_class
+
+    @classmethod
+    def _native_weight_dtype_spec(cls):
+        loader_class = cls._native_loader_class()
+        try:
+            inputs = loader_class.INPUT_TYPES()
+            spec = inputs["required"]["weight_dtype"]
+            if isinstance(spec, tuple) and spec:
+                return spec
+        except Exception:
+            pass
+        return (list(cls.DEFAULT_WEIGHT_DTYPES), {"advanced": True})
+
+    @classmethod
+    def INPUT_TYPES(cls) -> dict[str, dict[str, Any]]:
+        return {
+            "required": {
+                "weight_dtype": cls._native_weight_dtype_spec(),
+            },
+            "optional": _FlexibleOptionalInputType(ANY_TYPE),
+        }
+
+    @staticmethod
+    def _row_index(key: str) -> int:
+        suffix = key.rsplit("_", 1)[-1]
+        try:
+            return int(suffix)
+        except (TypeError, ValueError):
+            return 0
+
+    @staticmethod
+    def _as_bool(value: Any, default: bool = True) -> bool:
+        if value is None:
+            return default
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return value != 0
+        if isinstance(value, str):
+            return value.strip().lower() not in {"", "0", "false", "no", "off"}
+        return bool(value)
+
+    @staticmethod
+    def _first_present(data: dict[str, Any], *keys: str) -> Any:
+        for key in keys:
+            value = data.get(key)
+            if value not in (None, ""):
+                return value
+        return None
+
+    @classmethod
+    def _entry_from_value(cls, value: Any) -> dict[str, Any] | None:
+        if not isinstance(value, dict):
+            return None
+
+        load_name = cls._first_present(
+            value,
+            "load_name",
+            "loadName",
+            "unet_name",
+            "unetName",
+            "diffusion_model",
+            "name",
+        )
+        if load_name is None:
+            return None
+
+        load_name = str(load_name).replace("\\", "/").strip()
+        if not load_name or load_name.lower() == "none":
+            return None
+
+        return {
+            "load_name": load_name,
+            "display_name": str(
+                cls._first_present(value, "display_name", "displayName", "model_name")
+                or load_name
+            ),
+            "on": cls._as_bool(
+                cls._first_present(value, "on", "enabled", "active"),
+                default=True,
+            ),
+            "metadata": value.get("metadata") if isinstance(value.get("metadata"), dict) else {},
+        }
+
+    @classmethod
+    def _collect_entries(cls, kwargs: dict[str, Any]) -> list[dict[str, Any]]:
+        entries: list[dict[str, Any]] = []
+        for key, value in sorted(kwargs.items(), key=lambda item: cls._row_index(str(item[0]))):
+            if not str(key).lower().startswith(cls.ROW_PREFIX):
+                continue
+            entry = cls._entry_from_value(value)
+            if entry is not None:
+                entries.append(entry)
+        return entries
+
+    @classmethod
+    def _select_active_entry(cls, kwargs: dict[str, Any]) -> dict[str, Any]:
+        entries = cls._collect_entries(kwargs)
+        if not entries:
+            raise ValueError(
+                "Load Diffusion Model X has no configured models. Add a diffusion model first."
+            )
+
+        active = next((entry for entry in entries if entry["on"]), None)
+        if active is None:
+            raise ValueError(
+                "Load Diffusion Model X has no active model. Activate exactly one model row."
+            )
+        return active
+
+    @classmethod
+    def _load_with_native_loader(cls, load_name: str, weight_dtype: str) -> tuple[Any, ...]:
+        loader_class = cls._native_loader_class()
+        if loader_class is None:
+            raise RuntimeError(
+                "Load Diffusion Model X could not find ComfyUI's native UNETLoader. "
+                "Update ComfyUI or use the native Load Diffusion Model node."
+            )
+
+        loader = loader_class()
+        load_method = getattr(loader, "load_unet", None)
+        if not callable(load_method):
+            raise RuntimeError(
+                "Load Diffusion Model X found an incompatible native UNETLoader: "
+                "the load_unet method is unavailable."
+            )
+
+        result = load_method(load_name, weight_dtype)
+        if isinstance(result, tuple):
+            return result
+        return (result,)
+
+    def load_diffusion_model(self, weight_dtype: str, **kwargs: Any) -> tuple[Any, ...]:
+        entry = self._select_active_entry(kwargs)
+        return self._load_with_native_loader(entry["load_name"], weight_dtype)
+
+
 class GroupConfigurator:
     CATEGORY = DEPRECATED_CATEGORY
     FUNCTION = "configure"
@@ -1773,6 +1942,7 @@ NODE_CLASS_MAPPINGS = {
     "KVGC_GroupScopes": GroupScopes,
     "KVGC_UnloadModelsByType": UnloadModelsByType,
     "KVGC_LoraX": LoraX,
+    "KVGC_LoadDiffusionModelX": LoadDiffusionModelX,
     "KVGC_ImageCompareEditX": ImageCompareEditX,
 }
 
@@ -1800,5 +1970,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "KVGC_GroupScopes": "Group Scopes",
     "KVGC_UnloadModelsByType": "Unload Models By Type",
     "KVGC_LoraX": "LoraX",
+    "KVGC_LoadDiffusionModelX": "Load Diffusion Model X",
     "KVGC_ImageCompareEditX": "Image Compare Edit X",
 }

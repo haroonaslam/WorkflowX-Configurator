@@ -1,5 +1,7 @@
 # Image ProcessorX Guide
 
+> [Node contract](../README.md#image-editing-processing-and-swapping) · [Example workflow](../examples/03-image-loading-processing-and-comparison.json)
+
 `Image ProcessorX` is a fully independent evolution of `Image Compare Edit X`. It keeps its own Python renderer, frontend editor, state namespace, styles, events, and HTTP routes. Changes to either node do not change the other node's implementation.
 
 ## Node Contract

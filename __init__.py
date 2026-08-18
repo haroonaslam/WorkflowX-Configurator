@@ -56,6 +56,7 @@ DEBUG_LOG_ROUTE = "/workflowx_configurator/debug_log"
 IMAGE_COMPARE_EDIT_SAVE_ROUTE = "/workflowx_configurator/image_compare_edit_x/save"
 IMAGE_COMPARE_EDIT_PREPARE_ROUTE = "/workflowx_configurator/image_compare_edit_x/prepare"
 LORAX_LORAS_ROUTE = "/workflowx_configurator/lorax/loras"
+LOAD_DIFFUSION_MODEL_X_ROUTE = "/workflowx_configurator/load_diffusion_model_x/models"
 logger = logging.getLogger("WorkflowX_Configurator")
 
 NODE_CLASS_MAPPINGS = {
@@ -343,9 +344,109 @@ def _register_lorax_routes() -> None:
     prompt_server._workflowx_lorax_routes = True
 
 
+def _normalize_diffusion_model_path(path: object) -> str:
+    return str(path or "").replace("\\", "/")
+
+
+def _diffusion_model_entry(load_name: object, folder_paths_module) -> dict[str, object]:
+    normalized_name = _normalize_diffusion_model_path(load_name).strip()
+    folder = _normalize_diffusion_model_path(os.path.dirname(normalized_name)).strip("./")
+    filename = os.path.basename(normalized_name)
+    file_stem, extension = os.path.splitext(filename)
+
+    full_path = ""
+    try:
+        resolved = folder_paths_module.get_full_path("diffusion_models", normalized_name)
+    except Exception:
+        resolved = None
+    if resolved:
+        full_path = _normalize_diffusion_model_path(resolved)
+
+    file_size = 0
+    if full_path:
+        try:
+            file_size = os.path.getsize(full_path)
+        except (OSError, TypeError, ValueError):
+            file_size = 0
+
+    return {
+        "load_name": normalized_name,
+        "folder": folder,
+        "filename": filename,
+        "file_stem": file_stem,
+        "extension": extension,
+        "display_name": file_stem,
+        "full_path": full_path,
+        "file_size": file_size,
+        "sub_type": "diffusion_model",
+    }
+
+
+def _diffusion_model_entry_matches_query(entry: dict[str, object], query: object) -> bool:
+    terms = _lorax_search_terms(query)
+    if not terms:
+        return True
+
+    haystack = " ".join(
+        str(entry.get(key, "") or "").lower()
+        for key in (
+            "load_name",
+            "folder",
+            "filename",
+            "file_stem",
+            "display_name",
+            "full_path",
+            "extension",
+        )
+    )
+    return all(term in haystack for term in terms)
+
+
+def _build_diffusion_model_entries(folder_paths_module, query: object = "") -> list[dict[str, object]]:
+    try:
+        load_names = list(folder_paths_module.get_filename_list("diffusion_models"))
+    except Exception:
+        load_names = []
+
+    entries = [
+        _diffusion_model_entry(load_name, folder_paths_module)
+        for load_name in load_names
+        if str(load_name or "").strip()
+    ]
+    entries = [entry for entry in entries if _diffusion_model_entry_matches_query(entry, query)]
+    return sorted(entries, key=lambda item: str(item.get("load_name", "")).lower())
+
+
+def _register_load_diffusion_model_x_route() -> None:
+    try:
+        from aiohttp import web
+        import folder_paths
+        from server import PromptServer
+    except Exception:
+        return
+
+    prompt_server = getattr(PromptServer, "instance", None)
+    if prompt_server is None or getattr(prompt_server, "_workflowx_load_diffusion_model_x_route", False):
+        return
+
+    @prompt_server.routes.get(LOAD_DIFFUSION_MODEL_X_ROUTE)
+    async def workflowx_load_diffusion_model_x_models(request):
+        query = ""
+        try:
+            query = request.query.get("search", "")
+        except Exception:
+            query = ""
+
+        entries = _build_diffusion_model_entries(folder_paths, query)
+        return web.json_response({"items": entries, "total": len(entries)})
+
+    prompt_server._workflowx_load_diffusion_model_x_route = True
+
+
 _register_debug_log_route()
 _register_image_compare_edit_routes()
 _register_lorax_routes()
+_register_load_diffusion_model_x_route()
 
 
 def _register_afj_routes() -> None:

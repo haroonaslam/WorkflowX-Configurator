@@ -1,0 +1,876 @@
+{
+  "id": "workflowx-anything-swap-with-nanobanana",
+  "revision": 0,
+  "last_node_id": 7,
+  "last_link_id": 10,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "WorkflowX_LoadImageXAdv",
+      "pos": [
+        40,
+        160
+      ],
+      "size": [
+        340,
+        330
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "image"
+          }
+        },
+        {
+          "name": "workflowx_state",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "workflowx_state"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "links": [
+            1
+          ]
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "links": [
+            2
+          ]
+        },
+        {
+          "name": "inverted_mask",
+          "type": "MASK",
+          "links": []
+        },
+        {
+          "name": "width",
+          "type": "INT",
+          "links": []
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "WorkflowX_LoadImageXAdv"
+      },
+      "widgets_values": [
+        "select-an-image.png",
+        "{}"
+      ]
+    },
+    {
+      "id": 2,
+      "type": "AnythingCropForSwap",
+      "pos": [
+        460,
+        100
+      ],
+      "size": [
+        360,
+        520
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 1
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "link": 2
+        },
+        {
+          "name": "caption",
+          "type": "STRING",
+          "link": null
+        },
+        {
+          "name": "use_sam3",
+          "type": "BOOLEAN",
+          "link": null,
+          "widget": {
+            "name": "use_sam3"
+          }
+        },
+        {
+          "name": "sam3_prompt",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "sam3_prompt"
+          }
+        },
+        {
+          "name": "sam3_checkpoint",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "sam3_checkpoint"
+          }
+        },
+        {
+          "name": "threshold",
+          "type": "FLOAT",
+          "link": null,
+          "widget": {
+            "name": "threshold"
+          }
+        },
+        {
+          "name": "refine_iterations",
+          "type": "INT",
+          "link": null,
+          "widget": {
+            "name": "refine_iterations"
+          }
+        },
+        {
+          "name": "keep_model_loaded",
+          "type": "BOOLEAN",
+          "link": null,
+          "widget": {
+            "name": "keep_model_loaded"
+          }
+        },
+        {
+          "name": "select_mode",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "select_mode"
+          }
+        },
+        {
+          "name": "object_index",
+          "type": "INT",
+          "link": null,
+          "widget": {
+            "name": "object_index"
+          }
+        },
+        {
+          "name": "expand_factor",
+          "type": "FLOAT",
+          "link": null,
+          "widget": {
+            "name": "expand_factor"
+          }
+        },
+        {
+          "name": "expand_pixels",
+          "type": "INT",
+          "link": null,
+          "widget": {
+            "name": "expand_pixels"
+          }
+        },
+        {
+          "name": "force_square",
+          "type": "BOOLEAN",
+          "link": null,
+          "widget": {
+            "name": "force_square"
+          }
+        },
+        {
+          "name": "padding",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "padding"
+          }
+        },
+        {
+          "name": "edge_handling",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "edge_handling"
+          }
+        },
+        {
+          "name": "resize_mode",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "resize_mode"
+          }
+        },
+        {
+          "name": "target_size",
+          "type": "INT",
+          "link": null,
+          "widget": {
+            "name": "target_size"
+          }
+        },
+        {
+          "name": "upscale_method",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "upscale_method"
+          }
+        },
+        {
+          "name": "downscale_method",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "downscale_method"
+          }
+        },
+        {
+          "name": "mask_grow",
+          "type": "INT",
+          "link": null,
+          "widget": {
+            "name": "mask_grow"
+          }
+        },
+        {
+          "name": "mask_blur",
+          "type": "INT",
+          "link": null,
+          "widget": {
+            "name": "mask_blur"
+          }
+        },
+        {
+          "name": "swap_prompt",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "swap_prompt"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "crop",
+          "type": "IMAGE",
+          "links": [
+            5
+          ]
+        },
+        {
+          "name": "crop_mask",
+          "type": "MASK",
+          "links": [
+            4
+          ]
+        },
+        {
+          "name": "swap_prompt",
+          "type": "STRING",
+          "links": [
+            3
+          ]
+        },
+        {
+          "name": "source_masked",
+          "type": "IMAGE",
+          "links": []
+        },
+        {
+          "name": "stitch",
+          "type": "SWAP_STITCH",
+          "links": [
+            6
+          ]
+        },
+        {
+          "name": "detected",
+          "type": "BOOLEAN",
+          "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "AnythingCropForSwap"
+      },
+      "widgets_values": [
+        false,
+        "subject",
+        "select-a-sam3-checkpoint.safetensors",
+        0.5,
+        1,
+        false,
+        "largest",
+        0,
+        1.1,
+        16,
+        false,
+        16,
+        "shift",
+        "target_size",
+        1024,
+        "lanczos",
+        "area",
+        4,
+        2,
+        "Edit the selected region while preserving lighting and perspective."
+      ]
+    },
+    {
+      "id": 3,
+      "type": "NanoBanana_Gemini_2_5_Flash_V2",
+      "pos": [
+        900,
+        100
+      ],
+      "size": [
+        390,
+        600
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "api_key",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "api_key"
+          }
+        },
+        {
+          "name": "model_version",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "model_version"
+          }
+        },
+        {
+          "name": "prompt",
+          "type": "STRING",
+          "link": 3,
+          "widget": {
+            "name": "prompt"
+          }
+        },
+        {
+          "name": "system_prompt",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "system_prompt"
+          }
+        },
+        {
+          "name": "aspect_ratio",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "aspect_ratio"
+          }
+        },
+        {
+          "name": "seed",
+          "type": "INT",
+          "link": null,
+          "widget": {
+            "name": "seed"
+          }
+        },
+        {
+          "name": "temperature",
+          "type": "FLOAT",
+          "link": null,
+          "widget": {
+            "name": "temperature"
+          }
+        },
+        {
+          "name": "top_p",
+          "type": "FLOAT",
+          "link": null,
+          "widget": {
+            "name": "top_p"
+          }
+        },
+        {
+          "name": "candidate_count",
+          "type": "INT",
+          "link": null,
+          "widget": {
+            "name": "candidate_count"
+          }
+        },
+        {
+          "name": "safety_harassment",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "safety_harassment"
+          }
+        },
+        {
+          "name": "safety_hate_speech",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "safety_hate_speech"
+          }
+        },
+        {
+          "name": "safety_sexual",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "safety_sexual"
+          }
+        },
+        {
+          "name": "safety_dangerous",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "safety_dangerous"
+          }
+        },
+        {
+          "name": "edit_mode_enabled",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "edit_mode_enabled"
+          }
+        },
+        {
+          "name": "resolution",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "resolution"
+          }
+        },
+        {
+          "name": "timeout_seconds",
+          "type": "INT",
+          "link": null,
+          "widget": {
+            "name": "timeout_seconds"
+          }
+        },
+        {
+          "name": "show_thoughts",
+          "type": "BOOLEAN",
+          "link": null,
+          "widget": {
+            "name": "show_thoughts"
+          }
+        },
+        {
+          "name": "thinking_level",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "thinking_level"
+          }
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "link": 4
+        },
+        {
+          "name": "image_1",
+          "type": "IMAGE",
+          "link": 5
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image_batch",
+          "type": "IMAGE",
+          "links": [
+            7
+          ]
+        },
+        {
+          "name": "text_output",
+          "type": "STRING",
+          "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "NanoBanana_Gemini_2_5_Flash_V2"
+      },
+      "widgets_values": [
+        "",
+        "gemini-3.1-flash-image",
+        "",
+        "",
+        "1:1",
+        0,
+        1.0,
+        0.95,
+        1,
+        "BLOCK_DEFAULT",
+        "BLOCK_DEFAULT",
+        "BLOCK_DEFAULT",
+        "BLOCK_DEFAULT",
+        "yes",
+        "1K",
+        300,
+        false,
+        "minimal"
+      ]
+    },
+    {
+      "id": 4,
+      "type": "AnythingStitch",
+      "pos": [
+        1380,
+        170
+      ],
+      "size": [
+        320,
+        250
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "stitch",
+          "type": "SWAP_STITCH",
+          "link": 6
+        },
+        {
+          "name": "swapped",
+          "type": "IMAGE",
+          "link": 7
+        },
+        {
+          "name": "mask_override",
+          "type": "MASK",
+          "link": null
+        },
+        {
+          "name": "size_mismatch",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "size_mismatch"
+          }
+        },
+        {
+          "name": "mask_mode",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "mask_mode"
+          }
+        },
+        {
+          "name": "feather",
+          "type": "INT",
+          "link": null,
+          "widget": {
+            "name": "feather"
+          }
+        },
+        {
+          "name": "color_match",
+          "type": "BOOLEAN",
+          "link": null,
+          "widget": {
+            "name": "color_match"
+          }
+        },
+        {
+          "name": "color_match_method",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "color_match_method"
+          }
+        },
+        {
+          "name": "color_match_strength",
+          "type": "FLOAT",
+          "link": null,
+          "widget": {
+            "name": "color_match_strength"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "links": [
+            8
+          ]
+        },
+        {
+          "name": "changed_mask",
+          "type": "MASK",
+          "links": [
+            9
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "AnythingStitch"
+      },
+      "widgets_values": [
+        "resize",
+        "payload_mask",
+        12,
+        true,
+        "reinhard",
+        0.7
+      ]
+    },
+    {
+      "id": 5,
+      "type": "PreviewImage",
+      "pos": [
+        1800,
+        100
+      ],
+      "size": [
+        280,
+        240
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 8
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "PreviewImage"
+      },
+      "widgets_values": [],
+      "title": "Stitched result"
+    },
+    {
+      "id": 6,
+      "type": "MaskToImage",
+      "pos": [
+        1800,
+        430
+      ],
+      "size": [
+        220,
+        90
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "mask",
+          "type": "MASK",
+          "link": 9
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            10
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "MaskToImage"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 7,
+      "type": "PreviewImage",
+      "pos": [
+        2100,
+        400
+      ],
+      "size": [
+        280,
+        240
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 10
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "PreviewImage"
+      },
+      "widgets_values": [],
+      "title": "Changed mask"
+    }
+  ],
+  "links": [
+    [
+      1,
+      1,
+      0,
+      2,
+      0,
+      "IMAGE"
+    ],
+    [
+      2,
+      1,
+      1,
+      2,
+      1,
+      "MASK"
+    ],
+    [
+      3,
+      2,
+      2,
+      3,
+      2,
+      "STRING"
+    ],
+    [
+      4,
+      2,
+      1,
+      3,
+      18,
+      "MASK"
+    ],
+    [
+      5,
+      2,
+      0,
+      3,
+      19,
+      "IMAGE"
+    ],
+    [
+      6,
+      2,
+      4,
+      4,
+      0,
+      "SWAP_STITCH"
+    ],
+    [
+      7,
+      3,
+      0,
+      4,
+      1,
+      "IMAGE"
+    ],
+    [
+      8,
+      4,
+      0,
+      5,
+      0,
+      "IMAGE"
+    ],
+    [
+      9,
+      4,
+      1,
+      6,
+      0,
+      "MASK"
+    ],
+    [
+      10,
+      6,
+      0,
+      7,
+      0,
+      "IMAGE"
+    ]
+  ],
+  "groups": [
+    {
+      "id": 1,
+      "title": "Source and crop",
+      "bounding": [
+        10,
+        50,
+        840,
+        650
+      ],
+      "color": "#355c7d",
+      "font_size": 24,
+      "flags": {}
+    },
+    {
+      "id": 2,
+      "title": "Remote crop edit",
+      "bounding": [
+        870,
+        50,
+        450,
+        700
+      ],
+      "color": "#6c5b7b",
+      "font_size": 24,
+      "flags": {}
+    },
+    {
+      "id": 3,
+      "title": "Stitch and inspect",
+      "bounding": [
+        1340,
+        80,
+        1100,
+        650
+      ],
+      "color": "#2f6f62",
+      "font_size": 24,
+      "flags": {}
+    }
+  ],
+  "config": {},
+  "extra": {
+    "frontendVersion": "1.43.17",
+    "workflowx_example": {
+      "title": "Anything Swap with NanoBanana",
+      "requirements": "Select a source image and enter a Gemini API key before running.",
+      "status": "API-dependent; credentials are intentionally blank.",
+      "privacy": "No media, credentials, personal paths, model-library names, or prompts are bundled."
+    }
+  },
+  "version": 0.4
+}

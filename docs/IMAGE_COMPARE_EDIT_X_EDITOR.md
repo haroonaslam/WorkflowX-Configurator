@@ -1,5 +1,7 @@
 # Image Compare Edit X Editor Guide
 
+> [Node contract](../README.md#image-editing-processing-and-swapping) · [Example workflow](../examples/03-image-loading-processing-and-comparison.json)
+
 `Image Compare Edit X` is a WorkflowX image comparison node with an expanded in-node editor. It accepts two image inputs, previews them as Image 1 and Image 2, and lets you create an edited in-node Image 3 without adding Image 3 as a graph output.
 
 Image 3 can be compared, copied, downloaded, or saved to ComfyUI output from the node UI.

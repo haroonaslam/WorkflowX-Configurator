@@ -1,5 +1,7 @@
 # Unified Autoprompter X Guide
 
+> [Node contract](../README.md#prompting-and-jsonx) · [Example workflow](../examples/02-local-generation-and-model-management.json)
+
 `Unified Autoprompter X` is a WorkflowX prompting node for building model-targeted prompts from one UI. It can generate prompt text through Gemini, OpenAI-compatible, Ollama, or local GGUF backends, then writes the result into normal ComfyUI node outputs.
 
 The node lives under:

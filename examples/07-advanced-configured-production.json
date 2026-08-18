@@ -1,0 +1,1132 @@
+{
+  "id": "workflowx-advanced-configured-production",
+  "revision": 0,
+  "last_node_id": 15,
+  "last_link_id": 15,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "KVGC_ConfigSelectorX",
+      "pos": [
+        40,
+        40
+      ],
+      "size": [
+        330,
+        150
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "selected_config",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "selected_config"
+          }
+        },
+        {
+          "name": "console_output",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "console_output"
+          }
+        },
+        {
+          "name": "selectorx_state",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "selectorx_state"
+          }
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "KVGC_ConfigSelectorX"
+      },
+      "widgets_values": [
+        "Draft",
+        "no",
+        "{\"version\":1,\"initialized\":true,\"configs\":[{\"name\":\"Draft\",\"modes\":{\"Draft model route\":\"Active\",\"Final model route\":\"Mute\"}},{\"name\":\"Final\",\"modes\":{\"Draft model route\":\"Mute\",\"Final model route\":\"Active\"}}],\"scopes\":{\"Draft model route\":\"Group Configurator\",\"Final model route\":\"Group Configurator\"},\"advanced\":{\"mute\":{},\"bypass\":{}}}"
+      ]
+    },
+    {
+      "id": 2,
+      "type": "CheckpointLoaderSimple",
+      "pos": [
+        40,
+        280
+      ],
+      "size": [
+        300,
+        100
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "ckpt_name",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "ckpt_name"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            1
+          ]
+        },
+        {
+          "name": "CLIP",
+          "type": "CLIP",
+          "links": [
+            4
+          ]
+        },
+        {
+          "name": "VAE",
+          "type": "VAE",
+          "links": [
+            12
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "CheckpointLoaderSimple"
+      },
+      "widgets_values": [
+        "select-draft-checkpoint.safetensors"
+      ]
+    },
+    {
+      "id": 3,
+      "type": "CheckpointLoaderSimple",
+      "pos": [
+        40,
+        620
+      ],
+      "size": [
+        300,
+        100
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "ckpt_name",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "ckpt_name"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            2
+          ]
+        },
+        {
+          "name": "CLIP",
+          "type": "CLIP",
+          "links": []
+        },
+        {
+          "name": "VAE",
+          "type": "VAE",
+          "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "CheckpointLoaderSimple"
+      },
+      "widgets_values": [
+        "select-final-checkpoint.safetensors"
+      ]
+    },
+    {
+      "id": 4,
+      "type": "KVGC_SetRelay",
+      "pos": [
+        390,
+        290
+      ],
+      "size": [
+        240,
+        72
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "value",
+          "type": "*",
+          "link": 1
+        },
+        {
+          "name": "key",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "key"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "value",
+          "type": "*",
+          "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "KVGC_SetRelay"
+      },
+      "widgets_values": [
+        "production_model"
+      ]
+    },
+    {
+      "id": 5,
+      "type": "KVGC_SetRelay",
+      "pos": [
+        390,
+        630
+      ],
+      "size": [
+        240,
+        72
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "value",
+          "type": "*",
+          "link": 2
+        },
+        {
+          "name": "key",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "key"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "value",
+          "type": "*",
+          "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "KVGC_SetRelay"
+      },
+      "widgets_values": [
+        "production_model"
+      ]
+    },
+    {
+      "id": 6,
+      "type": "KVGC_GetRelay",
+      "pos": [
+        760,
+        410
+      ],
+      "size": [
+        250,
+        72
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "value",
+          "type": "*",
+          "link": null
+        },
+        {
+          "name": "key",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "key"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "value",
+          "type": "*",
+          "links": [
+            3
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "KVGC_GetRelay"
+      },
+      "widgets_values": [
+        "production_model"
+      ]
+    },
+    {
+      "id": 7,
+      "type": "KVGC_LoraX",
+      "pos": [
+        1100,
+        380
+      ],
+      "size": [
+        360,
+        120
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 3
+        },
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 4
+        }
+      ],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            7
+          ]
+        },
+        {
+          "name": "CLIP",
+          "type": "CLIP",
+          "links": [
+            5,
+            6
+          ]
+        },
+        {
+          "name": "trigger_words",
+          "type": "STRING",
+          "links": []
+        },
+        {
+          "name": "loaded_loras",
+          "type": "STRING",
+          "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "KVGC_LoraX"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 8,
+      "type": "CLIPTextEncode",
+      "pos": [
+        1100,
+        560
+      ],
+      "size": [
+        310,
+        130
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 5
+        },
+        {
+          "name": "text",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "text"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "links": [
+            8
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "CLIPTextEncode"
+      },
+      "widgets_values": [
+        "Production prompt placeholder"
+      ]
+    },
+    {
+      "id": 9,
+      "type": "CLIPTextEncode",
+      "pos": [
+        1100,
+        760
+      ],
+      "size": [
+        310,
+        130
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 6
+        },
+        {
+          "name": "text",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "text"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "links": [
+            9
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "CLIPTextEncode"
+      },
+      "widgets_values": [
+        "Production negative placeholder"
+      ]
+    },
+    {
+      "id": 10,
+      "type": "KSampler",
+      "pos": [
+        1540,
+        470
+      ],
+      "size": [
+        290,
+        300
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 7
+        },
+        {
+          "name": "seed",
+          "type": "INT",
+          "link": null,
+          "widget": {
+            "name": "seed"
+          }
+        },
+        {
+          "name": "steps",
+          "type": "INT",
+          "link": null,
+          "widget": {
+            "name": "steps"
+          }
+        },
+        {
+          "name": "cfg",
+          "type": "FLOAT",
+          "link": null,
+          "widget": {
+            "name": "cfg"
+          }
+        },
+        {
+          "name": "sampler_name",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "sampler_name"
+          }
+        },
+        {
+          "name": "scheduler",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "scheduler"
+          }
+        },
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 8
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "link": 9
+        },
+        {
+          "name": "latent_image",
+          "type": "LATENT",
+          "link": 10
+        },
+        {
+          "name": "denoise",
+          "type": "FLOAT",
+          "link": null,
+          "widget": {
+            "name": "denoise"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            11
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "KSampler"
+      },
+      "widgets_values": [
+        0,
+        "randomize",
+        20,
+        3.0,
+        "euler",
+        "normal",
+        1.0
+      ]
+    },
+    {
+      "id": 11,
+      "type": "EmptyLatentImage",
+      "pos": [
+        1540,
+        830
+      ],
+      "size": [
+        240,
+        110
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "width",
+          "type": "INT",
+          "link": null,
+          "widget": {
+            "name": "width"
+          }
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "link": null,
+          "widget": {
+            "name": "height"
+          }
+        },
+        {
+          "name": "batch_size",
+          "type": "INT",
+          "link": null,
+          "widget": {
+            "name": "batch_size"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            10
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "EmptyLatentImage"
+      },
+      "widgets_values": [
+        1024,
+        1024,
+        8
+      ]
+    },
+    {
+      "id": 12,
+      "type": "VAEDecode",
+      "pos": [
+        1920,
+        520
+      ],
+      "size": [
+        220,
+        90
+      ],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "samples",
+          "type": "LATENT",
+          "link": 11
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 12
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            13
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "VAEDecode"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 13,
+      "type": "RepeatImageBatch",
+      "pos": [
+        2200,
+        520
+      ],
+      "size": [
+        230,
+        90
+      ],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 13
+        },
+        {
+          "name": "amount",
+          "type": "INT",
+          "link": null,
+          "widget": {
+            "name": "amount"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            14
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "RepeatImageBatch"
+      },
+      "widgets_values": [
+        16
+      ]
+    },
+    {
+      "id": 14,
+      "type": "KVGC_UnloadModelsByType",
+      "pos": [
+        2520,
+        470
+      ],
+      "size": [
+        300,
+        180
+      ],
+      "flags": {},
+      "order": 13,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model_type",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "model_type"
+          }
+        },
+        {
+          "name": "device_scope",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "device_scope"
+          }
+        },
+        {
+          "name": "empty_cache",
+          "type": "BOOLEAN",
+          "link": null,
+          "widget": {
+            "name": "empty_cache"
+          }
+        },
+        {
+          "name": "trigger",
+          "type": "*",
+          "link": 14
+        },
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": null
+        },
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": null
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": null
+        },
+        {
+          "name": "conditioning",
+          "type": "CONDITIONING",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "trigger",
+          "type": "*",
+          "links": [
+            15
+          ]
+        },
+        {
+          "name": "model",
+          "type": "MODEL",
+          "links": []
+        },
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "links": []
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "links": []
+        },
+        {
+          "name": "conditioning",
+          "type": "CONDITIONING",
+          "links": []
+        },
+        {
+          "name": "status",
+          "type": "STRING",
+          "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "KVGC_UnloadModelsByType"
+      },
+      "widgets_values": [
+        "All Loaded Models",
+        "Current Device",
+        true
+      ]
+    },
+    {
+      "id": 15,
+      "type": "WorkflowX_SaveVideoX",
+      "pos": [
+        2900,
+        410
+      ],
+      "size": [
+        380,
+        360
+      ],
+      "flags": {},
+      "order": 14,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 15
+        },
+        {
+          "name": "audio",
+          "type": "AUDIO",
+          "link": null
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": null
+        },
+        {
+          "name": "frame_rate",
+          "type": "FLOAT",
+          "link": null,
+          "widget": {
+            "name": "frame_rate"
+          }
+        },
+        {
+          "name": "filename_prefix",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "filename_prefix"
+          }
+        },
+        {
+          "name": "format",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "format"
+          }
+        },
+        {
+          "name": "crf_quality",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "crf_quality"
+          }
+        },
+        {
+          "name": "pixel_format",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "pixel_format"
+          }
+        },
+        {
+          "name": "color_range",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "color_range"
+          }
+        },
+        {
+          "name": "save_metadata_preview_image",
+          "type": "BOOLEAN",
+          "link": null,
+          "widget": {
+            "name": "save_metadata_preview_image"
+          }
+        },
+        {
+          "name": "audio_bitrate",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "audio_bitrate"
+          }
+        },
+        {
+          "name": "audio_filters",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "audio_filters"
+          }
+        },
+        {
+          "name": "save_output",
+          "type": "BOOLEAN",
+          "link": null,
+          "widget": {
+            "name": "save_output"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Filenames",
+          "type": "VHS_FILENAMES",
+          "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "WorkflowX_SaveVideoX"
+      },
+      "widgets_values": [
+        24.0,
+        "WorkflowX/production-example",
+        "video/h264-mp4",
+        "High (CRF 18)",
+        "yuv420p (8-bit)",
+        "Auto (format default)",
+        true,
+        "Source/default",
+        "",
+        false
+      ]
+    }
+  ],
+  "links": [
+    [
+      1,
+      2,
+      0,
+      4,
+      0,
+      "MODEL"
+    ],
+    [
+      2,
+      3,
+      0,
+      5,
+      0,
+      "MODEL"
+    ],
+    [
+      3,
+      6,
+      0,
+      7,
+      0,
+      "*"
+    ],
+    [
+      4,
+      2,
+      1,
+      7,
+      1,
+      "CLIP"
+    ],
+    [
+      5,
+      7,
+      1,
+      8,
+      0,
+      "CLIP"
+    ],
+    [
+      6,
+      7,
+      1,
+      9,
+      0,
+      "CLIP"
+    ],
+    [
+      7,
+      7,
+      0,
+      10,
+      0,
+      "MODEL"
+    ],
+    [
+      8,
+      8,
+      0,
+      10,
+      6,
+      "CONDITIONING"
+    ],
+    [
+      9,
+      9,
+      0,
+      10,
+      7,
+      "CONDITIONING"
+    ],
+    [
+      10,
+      11,
+      0,
+      10,
+      8,
+      "LATENT"
+    ],
+    [
+      11,
+      10,
+      0,
+      12,
+      0,
+      "LATENT"
+    ],
+    [
+      12,
+      2,
+      2,
+      12,
+      1,
+      "VAE"
+    ],
+    [
+      13,
+      12,
+      0,
+      13,
+      0,
+      "IMAGE"
+    ],
+    [
+      14,
+      13,
+      0,
+      14,
+      3,
+      "IMAGE"
+    ],
+    [
+      15,
+      14,
+      0,
+      15,
+      0,
+      "*"
+    ]
+  ],
+  "groups": [
+    {
+      "id": 1,
+      "title": "Draft model route",
+      "bounding": [
+        10,
+        220,
+        650,
+        230
+      ],
+      "color": "#355c7d",
+      "font_size": 24,
+      "flags": {}
+    },
+    {
+      "id": 2,
+      "title": "Final model route",
+      "bounding": [
+        10,
+        560,
+        650,
+        230
+      ],
+      "color": "#6c5b7b",
+      "font_size": 24,
+      "flags": {}
+    },
+    {
+      "id": 3,
+      "title": "Selected model and LoRAs",
+      "bounding": [
+        720,
+        330,
+        780,
+        210
+      ],
+      "color": "#2f6f62",
+      "font_size": 24,
+      "flags": {}
+    },
+    {
+      "id": 4,
+      "title": "Prompt and sampling",
+      "bounding": [
+        1060,
+        550,
+        820,
+        470
+      ],
+      "color": "#8a6d3b",
+      "font_size": 24,
+      "flags": {}
+    },
+    {
+      "id": 5,
+      "title": "Output and cleanup",
+      "bounding": [
+        1880,
+        350,
+        1440,
+        480
+      ],
+      "color": "#7a4e48",
+      "font_size": 24,
+      "flags": {}
+    }
+  ],
+  "config": {},
+  "extra": {
+    "frontendVersion": "1.43.17",
+    "workflowx_example": {
+      "title": "Advanced configured production workflow",
+      "requirements": "Select two checkpoints, one or more LoRAs, and local output settings.",
+      "status": "Model-dependent sanitized production pattern derived from read-only workflow structure.",
+      "privacy": "No media, credentials, personal paths, model-library names, or prompts are bundled."
+    }
+  },
+  "version": 0.4
+}

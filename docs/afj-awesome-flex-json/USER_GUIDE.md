@@ -1,5 +1,7 @@
 # JsonX User Guide
 
+> [Documentation and node contracts](../../README.md#prompting-and-jsonx) · [Connected JsonX example](../../examples/06-jsonx-prompt-toolchain.json)
+
 ## 1. What You Can Do
 JsonX provides four nodes under `WorkflowX/Prompting/JsonX`:
 

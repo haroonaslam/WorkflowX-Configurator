@@ -1,5 +1,7 @@
 # Anything Swap Bridge
 
+> [Node contracts](../README.md#image-editing-processing-and-swapping) · [Example workflow](../examples/04-anything-swap-with-nanobanana.json)
+
 WorkflowX bundles two paired nodes under `WorkflowX/Anything Swap`:
 
 - `Anything Crop (for Swap)` segments or masks an object and prepares a crop.

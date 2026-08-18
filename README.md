@@ -1,669 +1,521 @@
-# WorkflowX Configurator
+# WorkflowX for ComfyUI
 
-![WorkflowX Configurator banner](docs/images/workflowx-banner-v4.png)
+![WorkflowX banner](docs/images/workflowx-banner-v4.png)
 
-WorkflowX Configurator turns sprawling ComfyUI graphs into selectable workflow profiles: reuse the same key names in different groups, switch one config, and the right value or relay source is picked at queue time. Instead of duplicating samplers, rewiring LoRA chains, or fighting nodes that can only store one global value, WorkflowX lets fast drafts, quality renders, model variants, and LoRA experiments live side by side while one selector decides which path is active. It can be used for multiple scenarios where you want to have one workflow to easily switch values of any node by preconfigure once or to switch between different profiles instead of creating separate workflows.
+WorkflowX is a production toolkit for building, configuring, editing, organizing, and reusing ComfyUI workflows. It combines image and video nodes, model and LoRA controls, structured prompting, remote image APIs, reusable workflow libraries, scoped configuration, and canvas utilities in one package.
 
-![Config SelectorX](docs/images/workflowx-config-selector-x.png)
+> **Short project brief:** WorkflowX adds 34 active ComfyUI nodes plus XFlows, XPrompts, XNodes, and package-wide right-click utilities. Use it to build configurable workflows, manage LoRA stacks and VRAM, load and edit images, create structured prompts, call supported image APIs, save video, store reusable graph fragments, group selections, and replace nodes without rebuilding compatible links.
 
-## Quick Links
+## Capabilities
 
-- [WorkflowX Configurator Nodes](#workflowx-configurator-nodes)
-- [Full Node Reference](docs/NODE_REFERENCE.md)
-- [Image Compare Edit X Editor Guide](docs/IMAGE_COMPARE_EDIT_X_EDITOR.md)
-- [Image ProcessorX Guide](docs/IMAGE_PROCESSOR_X.md)
-- [Anything Swap Bridge Guide](docs/ANYTHING_SWAP_BRIDGE.md)
-- [NanoBanana Full API Guide](docs/NANOBANANA_FULL_API.md)
-- [Kie and Atlas Image API Nodes](docs/KIE_ATLAS_API_NODES.md)
-- [Unified Autoprompter X Guide](docs/UNIFIED_AUTOPROMPTER_X.md)
-- [XFlows Workflow Manager](#xflows-workflow-manager)
-- [XPrompts Prompt Library](#xprompts-prompt-library)
-- [XNodes Node Snips](#xnodes-node-snips)
-- [WorkflowX Settings, Import, and Export](#workflowx-settings-import-and-export)
-- [JsonX Visual JSON Tools](#jsonx-visual-json-tools)
-- [LLM to JsonX](#llm-to-jsonx)
-- [JsonX Visual Builder](#jsonx---visual-builder)
-- [JsonX Templates](#jsonx-templates)
-- [JsonX Prompt Template Importer](#jsonx---prompt-template-importer)
-- [JsonX Template Randomizer](#jsonx---template-randomizer)
-- [JsonX Prompting Guidance](#jsonx-prompting-guidance)
-- [Troubleshooting](#troubleshooting)
+| Area | What WorkflowX adds | Jump to |
+|---|---|---|
+| Image input | Thumbnail browsing, masks, dimensions, advanced image-state controls | [Image and media loading](#image-and-media-loading) |
+| Models | Ordered LoRA stacks and explicit model-component unloading | [Model and LoRA management](#model-and-lora-management) |
+| Prompting | Multi-backend prompt composition and structured JsonX tools | [Prompting and JsonX](#prompting-and-jsonx) |
+| APIs | Gemini/NanoBanana, Kie, and Atlas image generation/editing | [Remote image APIs](#remote-image-apis) |
+| Image tools | Interactive compare/edit, deterministic processing, crop/stitch swap bridge | [Image editing, processing, and swapping](#image-editing-processing-and-swapping) |
+| Output | H.264, H.265, and AV1 video encoding with optional audio | [Video output](#video-output) |
+| Configuration | Config SelectorX, typed Set/Get values, and wildcard relay routing | [Workflow configuration and routing](#workflow-configuration-and-routing) |
+| Libraries | XFlows, XPrompts, and XNodes sidebar libraries | [Workflow libraries](#workflow-libraries) |
+| Canvas | Native grouping and compatible node replacement from every node menu | [Canvas right-click utilities](#canvas-right-click-utilities) |
 
-## What It Does
+## Installation and settings
 
-- Defines workflow-local values with typed `Set` nodes.
-- Reads values anywhere else with matching typed `Get` nodes.
-- Uses one self-contained `Config SelectorX` to manage configs, group scopes, and quick Mute/Bypass controls.
-- Imports existing legacy canvas configuration once so established workflows can migrate without rebuilding their profiles.
-- Applies group modes immediately in the canvas.
-- Materializes Get values just before queueing, so repeated config switches do not require a browser refresh.
-- One variable name removes any if/else logic routing. Simply the active path feeds the variable.
+1. Place this repository in `ComfyUI/custom_nodes/WorkflowX-Configurator`.
+2. Install optional dependencies required by the features you use.
+3. Restart ComfyUI and refresh the browser.
+4. Confirm **WorkflowX** appears in the node menu and **XFlows**, **XPrompts**, and **XNodes** appear in the interface.
 
-The package appears in ComfyUI's add-node menu under:
-
-```text
-WorkflowX
-```
-
-## Bundled Tools
-
-This repository also packages:
-
-- `XFlows`, an advanced workflow manager sidebar.
-- `XPrompts`, a prompt library and preset snippet side panel.
-- `XNodes`, a saved node and node-group snippets side panel.
-- `LLM to JsonX`, `JsonX - Visual Builder`, `JsonX - Template Randomizer`, and `JsonX - Prompt Template Importer`.
-- `Unified Autoprompter X`, a model-targeted prompt builder.
-- `Image Compare Edit X`, a compare and in-node image editing output node.
-- `Image ProcessorX`, an independent one/two-image processor with Continue and interactive Pause workflow control.
-- `Load ImageX`, a recursive input-folder image loader with a searchable cached thumbnail grid.
-- `Load ImageX Adv`, an interactive crop and resize loader using the same thumbnail browser.
-- `Anything Crop (for Swap)` and `Anything Stitch`, a model-agnostic crop/edit/stitch pair.
-- `NanoBanana Full API`, a Google Gemini image generation and editing node.
-- `Kie Image API X` and `Atlas Image API X`, model-aware remote generation/edit nodes with resumable task retrieval.
-
-These tools keep their existing node names, frontend extension IDs, and backend route prefixes for compatibility.
-
-## Installation
-
-WorkflowX Configurator is available through ComfyUI Manager. Open Manager, search for `WorkflowX Configurator`, install it, then restart ComfyUI.
-
-You can also install it manually by cloning this repository into your ComfyUI `custom_nodes` directory, or by copying this folder there:
-
-```text
-ComfyUI/
-  custom_nodes/
-    WorkflowX-Configurator/
-      __init__.py
-      nodes.py
-      xflows_manager.py
-      anything_swap_bridge/
-      nanobanana_full_api/
-      remote_image_api/
-      afj_awesome_flex_json_v2/
-      web/js/key_config_tools.js
-      web/js/xflows.js
-      web/js/xflows_library.js
-```
-
-Restart ComfyUI, then hard refresh the browser.
-
-ComfyUI Manager installs published Registry releases. Git changes do not become Manager updates until the Registry version is bumped and published.
-
-## WorkflowX Configurator Nodes
-
-### Typed Set/Get Nodes
-
-WorkflowX uses separate typed nodes instead of one dynamic output node. This keeps ComfyUI socket validation predictable.
-
-![Primitive Set nodes](docs/images/set%20primitive.png)
-
-| Setter | Getter | Output type |
-| --- | --- | --- |
-| `Set Int` | `Get Int` | `INT` |
-| `Set Float` | `Get Float` | `FLOAT` |
-| `Set String` | `Get String` | `STRING` |
-| `Set Text` | `Get Text` | `STRING` multiline value |
-| `Set Boolean` | `Get Boolean` | `BOOLEAN` |
-| `Set Sampler` | `Get Sampler` | ComfyUI sampler combo |
-| `Set Scheduler` | `Get Scheduler` | ComfyUI scheduler combo |
-| `Set Relay` | `Get Relay` | wildcard runtime value |
-
-Each `Set` node has:
-
-- `key`: the name to publish, for example `Steps` or `CFG`.
-- `value`: the typed value.
-
-Each `Get` node has:
-
-- `key`: the name to read.
-- hidden internal fields managed by the frontend extension.
-
-`Set Sampler` and `Set Scheduler` use ComfyUI's native sampler and scheduler option lists, so their Get nodes can be connected to sampler/scheduler inputs after those widgets are converted to inputs.
-
-![Sampler and scheduler nodes](docs/images/samper%20scheduler.png)
-
-### Set Relay / Get Relay
-
-`Set Relay` and `Get Relay` route live ComfyUI graph values by key. They are for runtime objects such as `MODEL`, `CLIP`, `VAE`, `LATENT`, `CONDITIONING`, `IMAGE`, or `MASK`.
-
-![Relay nodes](docs/images/relay.png)
-
-Relays are different from typed Set/Get nodes:
-
-- typed Set/Get nodes store serialized widget values.
-- Relay nodes route an actual graph connection into the queued prompt.
-- one Relay carries one output value.
-
-For checkpoint switching, use three relay keys:
-
-- checkpoint `MODEL` output -> `Set Relay` key `base_model`
-- checkpoint `CLIP` output -> `Set Relay` key `base_clip`
-- checkpoint `VAE` output -> `Set Relay` key `base_vae`
-
-Then use matching `Get Relay` nodes wherever those values are needed.
-
-For LoRA switching, place the LoRA loader inside a configured group, then connect its `MODEL` output into `Set Relay` key `pLora`. A downstream `Get Relay` key `pLora` can feed another LoRA loader or a sampler model input. The LoRA loader's checkpoint, epoch, strength, and other settings are preserved because the relay routes the loader's output object.
-
-Relay routing uses the same scope rules as typed values. The selected source is patched into the queued prompt only; visible canvas links are not changed.
-
-### Config SelectorX
-
-`Config SelectorX` lives under `WorkflowX/Workflow Config` and combines config selection, group scopes, and quick mute/bypass controls in one node. Config rows use ComfyUI's native toggle behavior: selecting a row applies that profile immediately, and clicking the selected row reapplies it. The padded action bar contains three separate controls:
-
-- `Console`: toggle queue-time Set/Get and Relay diagnostics. Its active color shows when logging is enabled.
-- `Scopes`: assign each current canvas group to Config, Selector Mute, Selector Bypass, or Ignore.
-- `Configs`: add, duplicate, rename, delete, reorder, and edit profiles.
-
-The Scopes and Configs editors use isolated drafts. **Save** serializes the complete state into the workflow; **Cancel** discards every unsaved change. Editing does not change canvas modes until a config row is clicked or the workflow is queued. New canvas groups begin as `Ignore`, while new configs initialize Config-scoped groups as `Active`.
-
-Group modes are `Active`, `Bypass`, `Mute`, and `Ignore`. Config modes apply only to Config-scoped groups. Selector Mute and Selector Bypass controls use the established convention: on means Active; off means Mute or Bypass. Scope-level Ignore groups are left untouched.
-
-![Config SelectorX scopes editor](docs/images/workflowx-config-selector-x-scopes.png)
-
-![Config SelectorX configs editor](docs/images/workflowx-config-selector-x-configs.png)
-
-#### Migrating Existing Workflows
-
-Add `Config SelectorX` before removing any legacy configuration nodes. On its first load with empty state, SelectorX imports `Group Configurator`, `Group Scopes`, `Config Selector`, and `Config Selector Advanced` data from the canvas. It imports once, stores the result in the workflow, and then remains fully functional after those canvas nodes are deleted.
-
-Use **Re-import from canvas** in the Configs editor when you intentionally want to replace the stored draft from legacy nodes. SelectorX shows an import preview first, and the replacement is not committed until **Save** is clicked.
-
-The legacy `Group Configurator`, `Group Scopes`, `Config Selector`, and `Config Selector Advanced` nodes remain supported and unchanged. Existing workflows do not need to migrate. If every SelectorX node is removed, WorkflowX returns to legacy resolution automatically.
-
-### Unload Models By Type
-
-`Unload Models By Type` is a VRAM utility node under `WorkflowX/VRAM`. It unloads resident ComfyUI model families while passing through common graph values so it can be placed inline.
-
-Use it when a workflow stage no longer needs a heavy model and you want to free memory before the next stage begins. For example, it can unload text encoders after prompt encoding, or unload diffusion models before a text-encoding phase.
-
-The node exposes passthrough sockets for `trigger`, `MODEL`, `CLIP`, `VAE`, and `CONDITIONING`, plus a `status` string describing what was unloaded.
-
-### Load ImageX
-
-`Load ImageX` lives under `WorkflowX/Image Loader` and returns `IMAGE` plus an alpha-derived `MASK`. It keeps ComfyUI's native upload, dropdown, and node preview while adding a large **Browse Thumbnails** modal. The modal recursively covers the `input` root and all nested input folders, with All/root/folder navigation, search, counts, refresh, and a 128 px grid.
-
-Only visible grid items request thumbnails. Generated thumbnails are cached in the ComfyUI user cache and use file-versioned browser URLs, so unchanged images reopen without being decoded again. Replacing an image changes its version automatically; use **Refresh** to rescan newly added or removed files immediately.
-
-### Load ImageX Adv
-
-`Load ImageX Adv` uses the same secure recursive thumbnail browser and exposes `image`, `mask`, `inverted_mask`, final `width`, and final `height`. Its compact light-blue surface adds an interactive crop overlay plus Max MP, longest-side, scale, fit, crop-to-fill, ratio, and padding modes. Mode controls and Crop Snap appear only when relevant, while extra node height expands the image preview. Crop snapping and final-output snapping are independent, with 8/16/32/64 pixel choices, resampling controls, and an upscaling guard.
-
-Enable **Crop** to draw, move, or resize a source-pixel crop on the preview. The crop is applied before every resize mode, saved with the workflow, and bypassed without being discarded when Crop is switched off. Selecting another image clears only the crop rectangle; the processing controls remain unchanged.
-
-The hidden native image widget preserves ComfyUI image context actions, Mask Editor, drag/drop, and Clipspace behavior. Execution accepts containment-checked `[input]`, `[output]`, and `[temp]` image annotations; thumbnail browsing and deletion remain restricted to `input`.
-
-### Image Compare Edit X
-
-`Image Compare Edit X` is an output node under `WorkflowX/Image Compare`. It accepts `image1` and `image2`, shows a professional compare UI, and creates an in-node Image 3 edit without adding Image 3 as a downstream graph output.
-
-The compact node view supports single-image viewing, split compare, overlay, difference, save, download, and copy actions. The expanded editor adds source layering, opacity, blend masks, adjustment layers, adjustment brush masks, curves, before/current preview, fast/quality preview, and Image 3 save/copy controls.
-
-Image 3 is browser-side editor state until you explicitly save, download, or copy it.
-
-For the full editing workflow, see the [Image Compare Edit X editor guide](docs/IMAGE_COMPARE_EDIT_X_EDITOR.md).
-
-### Image ProcessorX
-
-`Image ProcessorX` is a processing node under `WorkflowX/Image Compare`. It accepts one required image and an optional second image, then returns exactly one `IMAGE` selected from the original O1, optional original O2, or the Python-rendered O3 result.
-
-In **Continue** mode the queued state is processed immediately. In **Pause** mode the same queued execution waits without re-running upstream nodes. The compact node reports the pending state and enables **Resume** and **Cancel**; open the editor when you want to change the composition or adjustments. Resume submits the latest editor state and output selection.
-
-With one input, O2-specific composition controls are unavailable and O1/O3 remain available for single, split, overlay, and difference comparison. With two inputs, the copied editor retains source order, opacity, aspect-fit composition, blend masks, adjustment layers, curves, brush masks, save, download, and copy features. O3 is rendered on the backend, so Continue mode does not require an open browser.
-
-The complete editor recipe is serialized automatically and survives replacement images and workflow reloads; masks scale proportionally when dimensions change. The editor top bar also provides a full undoable Reset and reusable named presets stored in the current ComfyUI user library without embedding base images.
-
-For state behavior, batching, Pause/Resume, and validation details, see the [Image ProcessorX guide](docs/IMAGE_PROCESSOR_X.md).
-
-### Anything Crop (for Swap) / Anything Stitch
-
-These paired nodes live under `WorkflowX/Anything Swap`. The crop node can segment an object internally with native ComfyUI SAM3 or accept a connected mask, then emits the crop, crop mask, prompt text, and an opaque `SWAP_STITCH` payload. Put any local model, LoRA workflow, or remote API between the crop and stitch nodes. `Anything Stitch` uses the payload to resize, colour-match, feather, and composite the edited crop back into the untouched source.
-
-The original node IDs and `SWAP_STITCH` contract are preserved for workflow compatibility. Internal SAM3 requires a recent ComfyUI build and a SAM3 checkpoint; mask-driven operation does not.
-
-See the [Anything Swap Bridge guide](docs/ANYTHING_SWAP_BRIDGE.md) for wiring, crop geometry, mask modes, validation, and troubleshooting.
-
-### NanoBanana Full API
-
-`NanoBanana Full API` lives under `WorkflowX/API`. It supports text-to-image, up to five labeled reference images, mask-guided editing, candidate batching, a system prompt, aspect ratios, 1K/2K/4K resolution, configurable timeout, thought summaries, Flash thinking levels, seed, temperature, top-p, and per-category safety overrides.
-
-The node supports only `gemini-3.1-flash-image` and `gemini-3-pro-image`. Enter a Google Gemini API key in the password field, or leave it blank to use `GEMINI_API_KEY` and then `GOOGLE_API_KEY` from the environment.
-
-See the [NanoBanana Full API guide](docs/NANOBANANA_FULL_API.md) for the exact API mappings, model choices, safety controls, batching costs, and error behavior.
-
-### Kie Image API X / Atlas Image API X
-
-These nodes live under `WorkflowX/API` and provide one-run text-to-image or image-to-image generation through a rich dynamic panel. WorkflowX's packaged copy of GemMobi's canonical contracts controls each model's aspect ratios, named resolution tiers or explicit dimensions, output quality/type, route-specific flags, defaults, payload shape, and reference limit. Image sockets grow automatically from `image_1` to a maximum of 14, while each model's lower limit is enforced before upload.
-
-The panel streams upload, submission, polling, timeout, download, and completion updates into an in-node session log. Remote task IDs are saved before polling. If a run times out, **Force Retrieve** resumes that same paid task without another generation submission. **Stop & Retrieve Later** safely parks an accepted task; **Stop & Continue** returns a black placeholder and abandons local tracking. Provider-side work cannot be cancelled through the documented Kie/Atlas contracts.
-
-See the [Kie and Atlas Image API Nodes guide](docs/KIE_ATLAS_API_NODES.md) for credentials, supported models, controls, routing, timeouts, and retrieval safety.
-
-### Unified Autoprompter X
-
-`Unified Autoprompter X` is a prompting node under `WorkflowX/Prompting`. It is designed to build model-targeted prompt output from the WorkflowX autoprompting UI.
-
-For its JsonX target, the workflow saves the selected backend and models, portable runtime choices, and the node's JsonX profile configuration. Credentials, provider endpoints, and absolute additional-model-folder paths stay browser- or machine-local rather than being embedded in the workflow.
-
-For Local GGUF, `Additional model folders` can point to existing LM Studio or other shared GGUF directories, separated with semicolons. Refresh recursively combines those folders with `ComfyUI/models/LLM`, deduplicates resolved files, and includes external models and mmproj files without copying them. The folder list stays in Unified browser storage and is sent transiently only for listing and local generation.
-
-The node returns:
-
-- `prompt`: final prompt text for the selected target format
-- `positive`: positive prompt text
-- `negative`: negative prompt text, or an empty string when negative prompting is disabled
-
-It can optionally receive an image for visual prompt context. Its long text fields and UI state are managed by the frontend extension.
-
-For backend setup, model profiles, connected images, video fields, and Ideogram helpers, see the [Unified Autoprompter X guide](docs/UNIFIED_AUTOPROMPTER_X.md).
-
-For all node inputs, outputs, and registered names, see the [full node reference](docs/NODE_REFERENCE.md).
-
-## Lookup Rules
-
-WorkflowX uses a global-first scope model.
-
-1. If a matching `Set` node is outside configured groups, it is treated as global and wins.
-2. If no global Set exists, WorkflowX uses matching Set nodes inside groups marked `Active` by the selected config.
-3. Set nodes inside groups marked `Mute` or `Bypass` are ignored.
-4. Groups marked `Ignore` are treated as unscoped/global for lookup and do not force canvas mode changes.
-5. If duplicates remain at the chosen priority, WorkflowX logs a warning and uses the Set node with the highest node id.
-
-This means you can intentionally place a global `Set Int Steps` outside config groups to override every profile, or place separate `Set Int Steps` nodes inside groups to make each profile choose its own value.
-
-## Queue-Time Resolution
-
-ComfyUI canvas state and serialized workflow metadata can briefly disagree after switching configs. To avoid stale values, WorkflowX resolves every Get node immediately before queueing:
-
-1. The frontend reads the selected Config SelectorX config (or the selected legacy selector when no SelectorX is present).
-2. It evaluates Set/Get candidates from the live graph.
-3. It writes the resolved value into hidden fields on each Get node.
-4. The backend validates those hidden fields and returns the materialized value.
-5. If the frontend fields are missing, the backend falls back to workflow metadata lookup.
-
-This is why you can run `Speed`, switch to `Quality`, then queue again without refreshing the browser.
-
-Enable the `Console` button on Config SelectorX when debugging large workflows. Queue-time logs include the Get key, selected Set node id, group/global scope, resolved value for typed Get nodes, and selected Relay source node id for Relay nodes.
-
-## Example Scenarios
-
-### Fast Draft vs Quality Render
-
-Create two groups:
-
-- `FasterConfig`
-- `RealConfig`
-
-Inside `FasterConfig`:
-
-- `Set Int` key `Steps`, value `4`
-- `Set Float` key `CFG`, value `1.0`
-- `Set Sampler` key `Sampler`, value `euler`
-- `Set Scheduler` key `Scheduler`, value `simple`
-
-Inside `RealConfig`:
-
-- `Set Int` key `Steps`, value `20`
-- `Set Float` key `CFG`, value `2.5`
-- `Set Sampler` key `Sampler`, value `dpmpp_2m`
-- `Set Scheduler` key `Scheduler`, value `karras`
-
-In Config SelectorX, assign both groups to the Config scope and create two configs:
-
-- `Speed`: `FasterConfig = Active`, `RealConfig = Mute`
-- `Quality`: `FasterConfig = Mute`, `RealConfig = Active`
-
-Connect these getters where their values are needed:
-
-- `Get Int` key `Steps`
-- `Get Float` key `CFG`
-- `Get Sampler` key `Sampler`
-- `Get Scheduler` key `Scheduler`
-
-Selecting `Speed` queues with `Steps = 4`, `CFG = 1.0`, `Sampler = euler`, and `Scheduler = simple`. Selecting `Quality` queues with `Steps = 20`, `CFG = 2.5`, `Sampler = dpmpp_2m`, and `Scheduler = karras`.
-
-### LoRA On/Off Profiles
-
-Create a group around a LoRA loader, for example `Speedup Lora`.
-
-In Config SelectorX, assign the group to the Config scope and configure:
-
-- `Speed`: `Speedup Lora = Active`
-- `Quality`: `Speedup Lora = Bypass`
-
-Switching configs changes whether the LoRA path is active while also changing any typed values defined in the selected groups.
-
-### Global Override
-
-If you place `Set Int` key `Steps`, value `12` outside all configured groups, that value wins over grouped `Steps` values. Remove or rename the global Set node to return to profile-specific values.
-
-## XFlows Workflow Manager
-
-`XFlows` adds a WorkflowX sidebar tab for browsing, searching, organizing, tagging, and loading ComfyUI workflows from the default user workflow folder.
-
-![XFlows hierarchy view](docs/images/workflowx-xflows-hierarchy-overview.png)
-
-Core features:
-
-- hierarchy and flat list views for workflow folders
-- search across workflow name, folder path, tags, models, and node types
-- sort by name, newest, most used, and last used
-- favorites, run counts, and last-used tracking
-- auto tags generated from parsed workflow JSON and local model references
-- manual tag management, including hiding unwanted auto tags
-- workflow move dialog with folder tree and new-folder creation
-- soft delete, duplicate detection, sync, and import/export support
-
-Workflow cards show the workflow name, folder breadcrumb, run count, node count, modified date, key tags, favorite state, and action buttons.
-
-![XFlows workflow card](docs/images/workflowx-xflows-workflow-card.png)
-
-Use `Manage tags` to add custom tags or hide visible auto-generated tags without modifying the workflow JSON.
-
-![XFlows manage tags](docs/images/workflowx-xflows-manage-tags.png)
-
-The move dialog keeps workflow organization inside the configured workflow root and avoids manual path entry.
-
-![XFlows move workflow](docs/images/workflowx-xflows-move-dialog.png)
-
-The duplicate finder is an actionable cleanup view, not just a report. It separates exact byte matches, workflows with the same graph structure, and near duplicates that should be reviewed carefully. Each duplicate group lets you preview workflow details without changing the active graph, load a workflow for full inspection, mark the keeper, and soft-delete selected extras into the XFlows trash.
-
-![XFlows duplicate finder](docs/images/workflowx-xflows-duplicate-finder.png)
-
-## XPrompts Prompt Library
-
-`XPrompts` adds a compact side panel for saved prompts and quick-insert preset snippets. It is designed for prompt text you reuse often while building ComfyUI graphs.
-
-Prompt entries include:
-
-- title
-- prompt text
-- tags
-- favorite state
-- usage count
-- created and updated timestamps
-
-![XPrompts prompt list](docs/images/workflowx-xprompts-prompt-list.png)
-
-Prompt actions:
-
-- `Use`: inserts the saved prompt into the active or last-focused ComfyUI text field
-- `Edit`: updates the title, text, and tags
-- `Delete`: removes the saved prompt
-- `Save current selection`: saves selected text from the active ComfyUI text field as a new prompt
-
-The `Presets` tab stores short snippets under one-level categories such as camera, lighting, scene, character, or environment. Presets have no titles; the snippet text is the reusable insert.
-
-![XPrompts preset categories](docs/images/workflowx-xprompts-presets-expanded.png)
-
-Preset categories can be expanded/collapsed, searched, edited, renamed, and deleted. Snippets can be added, edited, favorited, filtered, deleted, and inserted into the active text field.
-
-## XNodes Node Snips
-
-`XNodes` saves selected ComfyUI nodes for reuse in other workflows. One selected node is stored as a `node`; multiple selected nodes are stored as a `group`.
-
-![XNodes saved nodes](docs/images/workflowx-xnodes-node-list.png)
-
-Node snips include:
-
-- title
-- type: `node` or `group`
-- tags
-- favorite state
-- usage count
-- serialized node data and widget values
-- internal links between selected nodes for groups
-
-Use `XNodes` when you have recurring loader chains, utility nodes, masks, routing patterns, or prompt helper groups that you want to paste into other workflows without rebuilding them.
-
-![XNodes saved group](docs/images/workflowx-xnodes-group-card.png)
-
-Groups preserve links between the selected nodes only. External graph connections are intentionally not restored.
-
-## WorkflowX Settings, Import, and Export
-
-WorkflowX settings are available under the `WorkflowX` settings category.
+WorkflowX settings let you enable or disable XFlows, XPrompts, and XNodes and export or import their local library data. Keep credentials and machine-specific paths out of workflows intended for sharing.
 
 ![WorkflowX settings](docs/images/workflowx-settings-overview.png)
 
-Settings include:
+All downloadable examples are under [`examples/`](examples/README.md). They contain no bundled media, credentials, personal paths, prompts, or model-library names. Replace the neutral resource placeholders after loading.
 
-- `XFlows`: show or hide the workflow manager UI
-- `XPrompts`: show or hide the prompt and preset panel
-- `XNodes`: show or hide the node snippets panel
-- `Export WorkflowX Data`: export workflows and WorkflowX metadata
-- `Import WorkflowX Data`: restore workflows and WorkflowX metadata
+## Image and media loading
 
-Export lets you choose which parts to include:
+WorkflowX provides a quick image picker and an advanced loader for workflows that also need mask polarity, source dimensions, or serialized image-editor state.
 
-- workflows as `workflowx_workflows.zip`
-- XFlows metadata as `workflowx_xflows_metadata.json`
-- XPrompts as `workflowx_xprompts.json`
-- preset snippets as `workflowx_presets.json`
-- XNodes as `workflowx_xnodes.json`
-- an export manifest as `workflowx_manifest.json`
+![Load ImageX and Load ImageX Adv](docs/images/workflowx-image-loaders.png)
 
-![WorkflowX export dialog](docs/images/workflowx-settings-export-dialog.png)
+### Load ImageX
 
-Import previews available files before restoring them. Selected imports overwrite the matching local stores, and WorkflowX creates a timestamped backup under `user/default/xflows_manager/import_backups` before replacing data.
+**Node ID / category:** `WorkflowX_LoadImageX` · `WorkflowX/Image Loader`
 
-## JsonX Visual JSON Tools
+| Inputs and widgets | Type | Required | Behavior |
+|---|---|---:|---|
+| `image` | image-file combo | Yes | Selects an image from ComfyUI's input directory. |
+| Upload and **Browse Thumbnails** controls | UI | — | Uploads a file or opens the searchable thumbnail browser. |
 
-JsonX adds four prompt-building tools for users who prefer structured JSON prompts over one long text field. It is especially useful when a prompt has many moving parts, such as scene, subject, pose, wardrobe, camera, lighting, style, quality, and negative prompt details.
+| Outputs | Type | Behavior |
+|---|---|---|
+| `image` | `IMAGE` | Loaded RGB image batch. |
+| `mask` | `MASK` | Alpha-derived mask, or a default empty mask when no alpha is present. |
 
-- `LLM to JsonX`: turn instructions and an optional image into preset-aware JsonX.
-- `JsonX - Visual Builder`: build and edit prompt JSON visually.
-- `JsonX - Prompt Template Importer`: convert finished prompt JSON into a reusable JsonX template.
-- `JsonX - Template Randomizer`: load a saved template and randomize selected fields at runtime.
+The backend validates the selected path against ComfyUI's input directory and participates in normal image-file change detection.
 
-JsonX lives under `WorkflowX/Prompting/JsonX`. Its legacy internal node IDs, route paths, package directory, and saved templates remain compatible with workflows created with the original system.
+### Load ImageX Adv
 
-The packaged `afj_awesome_flex_json_v2/visual_builder/presets.json` is the authoritative JsonX schema and value catalog. All root categories, nested fields, subject branches, preset IDs, and values are discovered dynamically by the builder, importer, template hydration, randomizer, and LLM context generator, so later catalog additions require only a preset-file update. Internal preset IDs are globally unique and path-qualified where needed; they are lookup metadata, not JsonX output.
+**Node ID / category:** `WorkflowX_LoadImageXAdv` · `WorkflowX/Image Loader`
+
+| Inputs and state | Type | Required | Behavior |
+|---|---|---:|---|
+| `image` | image-file combo | Yes | Selects the source image. |
+| `workflowx_state` | `STRING` | UI-managed | Serialized advanced resize, crop, mask, and display state. |
+| Picker/editor buttons | UI | — | Open thumbnail browsing and advanced image controls. |
+
+| Outputs | Type | Behavior |
+|---|---|---|
+| `image` | `IMAGE` | Processed image. |
+| `mask` | `MASK` | Effective mask. |
+| `inverted_mask` | `MASK` | Inverse of the effective mask. |
+| `width` | `INT` | Result width. |
+| `height` | `INT` | Result height. |
+
+The serialized state travels with the workflow; source files do not. See the [advanced loader guide](docs/IMAGE_LOADERS.md).
+
+### Working example
+
+![Image loading and processing workflow](docs/images/workflowx-example-03-image-tools.png)
+
+[Download: image loading, processing, and comparison](examples/03-image-loading-processing-and-comparison.json) — select two local images, then inspect the image, mask, inverted mask, processed output, and terminal comparison.
+
+## Model and LoRA management
+
+Load Diffusion Model X keeps preferred diffusion models visible on the canvas and switches between them with a single active selection. LoraX applies a visible, ordered LoRA stack. Unload Models By Type adds an execution dependency for releasing selected model components after the graph stage you choose.
+
+![LoraX and Unload Models By Type](docs/images/workflowx-lorax-unload.png)
+
+### Load Diffusion Model X
+
+**Node ID / category:** `KVGC_LoadDiffusionModelX` · `WorkflowX/Loaders`
+
+| Inputs | Type | Required | Behavior |
+|---|---|---:|---|
+| `weight_dtype` | combo | Yes | Uses the choices and behavior exposed by ComfyUI's native Load Diffusion Model node. |
+| Diffusion-model rows | UI-managed | Yes | Stores multiple preferred model filenames; exactly one row is active. |
+
+| Outputs | Type | Behavior |
+|---|---|---|
+| `MODEL` | `MODEL` | The active row loaded through ComfyUI's native `UNETLoader`. |
+
+**Controls:** add, replace, remove, search, refresh, inspect model details, and switch the active model with radio-style toggles. The picker uses LoRA Manager metadata and previews when available, while remaining fully usable from ComfyUI's diffusion-model folders alone. The shared `weight_dtype` control applies to whichever row is active. [Load Diffusion Model X guide](docs/LOAD_DIFFUSION_MODEL_X.md)
+
+### LoraX
+
+**Node ID / category:** `KVGC_LoraX` · `WorkflowX/Loaders`
+
+| Inputs | Type | Required | Behavior |
+|---|---|---:|---|
+| `model` | `MODEL` | Yes | Base diffusion model. |
+| `clip` | `CLIP` | No | Optional text encoder to receive LoRA patches. |
+| LoRA rows | UI-managed | No | Searchable LoRA selection plus model/CLIP strengths. |
+
+| Outputs | Type | Behavior |
+|---|---|---|
+| `MODEL` | `MODEL` | Model with enabled LoRAs applied in displayed order. |
+| `CLIP` | `CLIP` | Patched CLIP when supplied. |
+| `trigger_words` | `STRING` | Trigger words gathered from enabled rows. |
+| `loaded_loras` | `STRING` | Human-readable audit of the applied stack. |
+
+**Controls:** add, remove, reorder, search/select, enable/disable, and refresh LoRA rows. Empty rows are skipped; unavailable filenames are reported instead of silently substituted. [LoraX guide](docs/LORAX.md)
+
+### Unload Models By Type
+
+**Node ID / category:** `KVGC_UnloadModelsByType` · `WorkflowX/VRAM`
+
+| Inputs | Type | Required | Behavior |
+|---|---|---:|---|
+| `model_type` | combo | Yes | Text Encoder, Diffusion Model / UNet, VAE, CLIP Vision, Other, or All loaded models. |
+| `device_scope` | combo | Yes | Current device or all devices. |
+| `empty_cache` | `BOOLEAN` | Yes | Requests device-cache cleanup after unloading. |
+| `trigger` | wildcard | No | Establishes when unloading runs. |
+| `model`, `clip`, `vae`, `conditioning` | matching types | No | Optional typed passthrough values. |
+
+| Outputs | Type | Behavior |
+|---|---|---|
+| `trigger` | wildcard | Preserves the execution dependency. |
+| `model`, `clip`, `vae`, `conditioning` | matching types | Typed passthroughs. |
+| `status` | `STRING` | Reports what was requested and released. |
+
+### Working example
+
+![Local generation workflow](docs/images/workflowx-example-02-local-generation.png)
+
+[Download: local generation and model management](examples/02-local-generation-and-model-management.json) — Load Diffusion Model X selects the active model, Load ImageX guides Unified Autoprompter X, LoraX participates in sampling, and the generated batch triggers model unloading before Save Video X.
+
+## Prompting and JsonX
+
+WorkflowX supports natural or structured prompting from images and text, then provides a connected JsonX toolchain for generating, inspecting, importing, and randomizing structured prompt documents.
+
+### Unified Autoprompter X
+
+![Unified Autoprompter X](docs/images/workflowx-unified-autoprompter-x.png)
+
+**Node ID / category:** `UnifiedAutoprompterX` · `WorkflowX/Prompting`
+
+| Inputs and widgets | Type | Required | Behavior |
+|---|---|---:|---|
+| `target_model`, `prompt_format` | combo | Yes | Select target-model conventions and natural, tag, or JSON formatting. |
+| `negative_enabled`, `enable_bbox_json_input`, `enable_text_input` | `BOOLEAN` | Yes | Enable optional prompt channels. |
+| `refresh_vram`, `disable_color_palette` | `BOOLEAN` | Yes | Control model refresh and palette output. |
+| `generated_positive`, `generated_negative`, `final_prompt` | `STRING` | UI-managed | Stores generated and user-edited prompt text. |
+| `image`, dynamic `image_N` | `IMAGE` | No | Visual references. |
+| `bbox_json`, `raw_prompt_text` | `STRING` | No | Structured layout or source text. |
+| `ui_state` | `STRING` | UI-managed | Serialized frontend composition state. |
+
+| Outputs | Type | Behavior |
+|---|---|---|
+| `prompt` | `STRING` | Final selected-format prompt. |
+| `positive` | `STRING` | Positive prompt channel. |
+| `negative` | `STRING` | Negative prompt channel when enabled. |
+
+**Controls:** generate, reset, refresh VRAM, target/profile controls, video fields, bounding-box tools, and backend settings. See the [complete Autoprompter guide](docs/UNIFIED_AUTOPROMPTER_X.md).
 
 ### LLM to JsonX
 
-`LLM to JsonX` uses Gemini, OpenAI-compatible servers, Ollama, or local GGUF models. Enter multiline instructions, optionally connect an image, select `fast` or `refined`, then click `Generate`. Generate validates and saves the result in the node; a read-only output box shows the saved value, and the same value is returned from the generic `prompt` output whenever the workflow is queued. Fast JSON performs one preset-aware call; Refined JSON adds a second preset-agnostic coherence pass.
+![LLM to JsonX](docs/images/workflowx-jsonx-llm-to-jsonx-node.png)
 
-JsonX defaults to a deep hierarchy contract: visually supported concepts are decomposed into atomic leaves using the catalog's parent/child/sub-child structure instead of being compressed into short parent strings. Click `Settings` to choose Deep or Exhaustive expansion, review or customize the Stage 1 and Stage 2 system instructions, reset defaults, and preview the exact effective prompts with live preset context. Custom instruction overrides are saved in `ComfyUI/user/workflowx/jsonx_settings.json`; they are not serialized into workflows or stored with credentials.
+**Node ID / category:** `LLMToJsonX` · `WorkflowX/Prompting/JsonX`
 
-Settings also provides two generation profiles. **Adaptive** is the unchanged default and uses the node's Optimized/Full preset-context selector. **Template Fill** sends the complete live catalog hierarchy with every leaf set to JSON `null`, asks the model to fill applicable leaves without restructuring the tree, and removes remaining null leaves deterministically in the backend. Its independent **Use Presets** checkbox appends the complete raw `presets.json`; when enabled, the model prefers suitable preset values and writes a custom value in the same style when no preset fits. When disabled, no preset catalog is sent. In Refined mode, Stage 2 improves coherence and wording only at paths established by Stage 1.
+| Inputs and state | Type | Required | Behavior |
+|---|---|---:|---|
+| `user_instructions` | `STRING` | Yes | Generation instruction. |
+| `generation_mode` | combo | Yes | Fast or refined generation. |
+| `preset_context_mode` | combo | Yes | Optimized or full preset context. |
+| `generated_prompt_json` | `STRING` | UI-managed | Stored generated result. |
+| `image` | `IMAGE` | No | Optional visual context. |
+| `enable_framing_and_placement`, `output_format`, `generation_profile`, `template_use_presets`, `detail_level` | widgets | No | Profile-dependent generation controls. |
+| `ui_state` | `STRING` | UI-managed | Serialized frontend state. |
 
-The per-node **Output format** setting defaults to **JsonX JSON**. Select **Natural language** to force a two-pass flow for either profile: Stage 1 creates and validates the same canonical JsonX object, then a preset-agnostic Stage 2 refines it directly into detailed prose. The in-memory JSON is not saved as a separate artifact. Natural output may use top-level headings, preserves subjects, interactions, negative guidance, and all enabled framing regions, and is returned through the same `prompt` output. A failed prose conversion or its single repair attempt keeps the previous saved output.
+| Outputs | Type | Behavior |
+|---|---|---|
+| `prompt` | `STRING` | Validated JSON or natural prompt, according to `output_format`. |
 
-Enable **Framing & placement (3x3 rule-of-thirds map)** when the final prompt needs an explicit composition map. The setting is saved on that LLM to JsonX node and travels with the workflow. Adaptive and Template Fill then produce a `framing_and_placement` root with `top_left`, `top_center`, `top_right`, `middle_left`, `center`, `middle_right`, `bottom_left`, `bottom_center`, and `bottom_right`. Every region describes its actual visible content; empty regions describe background or negative space, and spanning elements are described in each affected region. Disabled nodes omit the root deterministically, including when Full Presets exposes its catalog entries.
+### JsonX visual and template tools
 
-Deep and Exhaustive use coverage behavior rather than numerical leaf ranges. Both maximize relevant hierarchy, subtrees, and atomic leaves and continue until all supported independent visual attributes are represented. Exhaustive performs the broader branch-by-branch relevance pass. Leaf count remains a diagnostic only: it is neither a target nor a maximum, and irrelevant or unsupported filler is still prohibited.
+![JsonX visual builder](docs/images/workflowx-jsonx-visual-builder-ui.png)
 
-The preset catalog is guidance rather than a closed vocabulary. JsonX uses an exact or semantically faithful preset value when available, but it does not force a nearby preset that changes the requested meaning. If a known path lacks the right value, the LLM writes a deterministic custom value at that path; if the concept also lacks a path, it creates the smallest coherent custom subtree beneath the closest logical parent. Uncovered visible or requested details therefore remain in the output and follow the same atomic hierarchy and concise visual wording style as catalog-backed content.
+| Node | Internal ID | Inputs | Outputs | Principal controls |
+|---|---|---|---|---|
+| JsonX - Visual Builder | `FluxVisualJsonBuilder` | Optional `prompt_json` (`STRING`) | `prompt_json` (`STRING`) | Open builder, schema fields, presets, apply, reset |
+| JsonX - Prompt Template Importer | `AFJPromptTemplateImporter` | Optional `template_name`, `source_prompt_json`, `import_report` (`STRING`) | `template_payload_json` (`STRING`) | Open importer, analyze/import, apply, clear |
+| JsonX - Template Randomizer | `FluxTemplateRandomizer` | Optional `template_name`, `randomize_rules`, `randomize_rules_help` (`STRING`), `seed` (`INT`) | `prompt_json`, `run_log` (`STRING`) | Template picker, rule editor, seeded randomization |
 
-`optimized` preset context sends the complete live schema plus a ranked, bounded set of relevant preset values. `full` sends the packaged `presets.json` verbatim and shows an estimated context-size warning; models with insufficient context return an error without replacing the previous output. JsonX provider selections and credentials use their own browser storage and are not serialized into workflows.
+The builder normalizes JSON before output; the importer reports accepted and skipped fields; the randomizer applies reproducible field choices and emits an audit log. See the [JsonX user guide](docs/afj-awesome-flex-json/USER_GUIDE.md).
 
-The Gemini panel includes the same configurable harassment, hate-speech, sexually-explicit, and dangerous-content safety thresholds exposed by Unified Autoprompter X. They default to `BLOCK_NONE` and remain in JsonX browser storage.
+### Working example
 
-Gemini, OpenAI-compatible, Ollama, and Local GGUF model results use full-list pickers rather than browser-filtered datalists. OpenAI-compatible generation exposes unload-after, Ollama exposes think and unload-after, and Local GGUF places Refresh VRAM beside Refresh models. Timeout values persist independently for each backend. Failed initial/repair responses appear only in a transient `Generation diagnostics` panel and never replace the saved output.
+![JsonX toolchain workflow](docs/images/workflowx-example-06-jsonx.png)
 
-JsonX canonicalization treats preset IDs as internal metadata. If a model emits an ID-key object such as `{"environment":{"env_indoor_home":"..."}}`, the backend resolves it to the canonical scalar path `{"environment":"canonical preset value"}`. Compatible duplicate model forms that resolve to one leaf are retained as one deterministic compound value; genuinely different catalog choices remain invalid and use the single repair pass. A narrow, path-scoped legacy alias table recognizes the pre-uniqueness IDs in old/cached model responses, but current preset contexts expose only globally unique IDs. It also restores misplaced catalog siblings and converts singular `subject` into the repeatable `subjects` array before final validation.
+[Download: JsonX prompt toolchain](examples/06-jsonx-prompt-toolchain.json) — the first lane connects LLM to JsonX → Visual Builder → Template Importer; the second connects Template Randomizer → a second builder for inspection.
 
-For Local GGUF, expand `Local generation settings` to configure context and output token limits, sampling, memory/offload mode, reasoning format, speculative decoding, and seed. JsonX defaults to reasoning off and an 8192-token output ceiling so structured output is not consumed by a hidden reasoning budget; both remain user-adjustable. `Auto` speculative decoding detects GGUFs with an embedded MTP head; `MTP` forces `draft-mtp`, and the draft-token setting controls its depth. Large `full` preset calls may require a larger context value. JsonX uses its own pinned llama.cpp backend and dedicated `vendor/jsonx-llama.cpp` runtime cache. Long system instructions are sent through short temporary UTF-8 files and removed after the local call, including failure and cancellation paths. JsonX does not import or modify Unified Autoprompter X backends.
+## Remote image APIs
 
-`Additional model folders` accepts semicolon-separated LM Studio or other shared GGUF directories. Refresh recursively combines them with `ComfyUI/models/LLM`, deduplicates resolved files, and lists external models and mmproj files without copying them. The folder list remains in JsonX browser storage and is sent transiently only for discovery and local generation. Because JsonX and Unified are isolated, configure the folders separately in each node.
+API nodes are deliberately credential-free in shared workflows. Their outputs use ordinary `IMAGE` sockets, so remote generation can feed the same preview, processing, and save nodes as local generation.
 
-![LLM to JsonX node](docs/images/workflowx-jsonx-llm-to-jsonx-node.png)
+### NanoBanana Full API
 
-### JsonX - Visual Builder
+![NanoBanana API](docs/images/workflowx-nanobanana-api.png)
 
-Use `JsonX - Visual Builder` when you want to compose a prompt as an organized tree and output clean JSON from the node's `prompt_json` socket.
+**Node ID / category:** `NanoBanana_Gemini_2_5_Flash_V2` · `WorkflowX/API`
 
-![JsonX Visual Builder node](docs/images/workflowx-jsonx-visual-builder-node.png)
+| Input group | Exact inputs | Type / behavior |
+|---|---|---|
+| Authentication and model | `api_key`, `model_version` | Private string and supported Gemini image-model combo. |
+| Prompting | `prompt`, `system_prompt` | Generation/edit instructions. |
+| Sampling and output | `aspect_ratio`, `seed`, `temperature`, `top_p`, `candidate_count`, `resolution`, `timeout_seconds` | Request and output controls. |
+| Safety | `safety_harassment`, `safety_hate_speech`, `safety_sexual`, `safety_dangerous` | Per-category blocking policy. |
+| Editing/thinking | `edit_mode_enabled`, `show_thoughts`, `thinking_level` | Edit and reasoning controls. |
+| Optional media | `mask`, `image_1` … `image_5` | Mask and reference images. |
 
-Click `Open Visual Builder` to open the full editor.
+| Outputs | Type | Behavior |
+|---|---|---|
+| `image_batch` | `IMAGE` | Returned candidate images. |
+| `text_output` | `STRING` | Provider text or response details. |
 
-![JsonX Visual Builder UI](docs/images/workflowx-jsonx-visual-builder-ui.png)
+Empty credentials, provider errors, timeouts, and safety failures are surfaced. See the [NanoBanana API guide](docs/NANOBANANA_FULL_API.md).
 
-The builder gives you three working areas:
+### Kie and Atlas Image API X
 
-- The left panel manages saved templates, expand/collapse state, reset actions, and validation.
-- The center panel is the editable prompt tree. Drag node headers to reorder or reparent sections.
-- The right panel edits the selected field, group, or array and shows preset-backed randomizer options.
+![Kie and Atlas API nodes](docs/images/workflowx-kie-atlas-api.png)
 
-Common actions:
+**Node IDs / category:** `WorkflowX_KieImageAPI`, `WorkflowX_AtlasImageAPI` · `WorkflowX/API`
 
-- Use `+ Field`, `+ Group`, and `+ Array` to shape the JSON.
-- Edit `Key` and `Label` to control the generated JSON key and readable UI label.
-- Use `Preset Value` when a field has attached preset options.
-- Use `Attach Preset Options` to connect a custom field to a known preset path.
-- Use `Duplicate Node`, `Clear Values`, and `Delete Node` while refining the tree.
-- Use `Validate & Apply` to write the compiled JSON back into the ComfyUI node.
+| Input group | Exact shared inputs | Type / behavior |
+|---|---|---|
+| Request | `api_key`, `model`, `prompt`, `aspect_ratio`, `image_size` | Provider credential, model, prompt, and dimensions. |
+| Polling | `timeout_seconds`, `poll_interval_seconds`, `retrieval_mode` | Submit/poll or force-retrieve behavior. |
+| Quality | `quality`, `guidance_scale`, `num_inference_steps`, `media_resolution`, `input_fidelity`, `enable_pro` | Provider/model-aware quality controls. |
+| Safety and provenance | `nsfw_checker`, `enable_safety_checker`, `watermark`, `show_payload` | Safety, watermark, and payload visibility. |
+| Generation options | `thinking_mode`, `seed_enabled`, `seed`, `enable_sequential`, `output_format`, `enable_web_search`, `enable_image_search` | Optional provider features. |
+| Custom dimensions | `custom_size_enabled`, `custom_size_auto`, `custom_width`, `custom_height`, `reference_max_edge` | Custom output/reference sizing. |
+| References | Dynamic `image_1` … `image_14` | Frontend adds image sockets as references are connected. |
 
-Important behavior:
+| Node | Outputs | Provider-specific behavior |
+|---|---|---|
+| `WorkflowX_KieImageAPI` | `image` (`IMAGE`) | Kie submission, polling, pending-task, and retrieval path. |
+| `WorkflowX_AtlasImageAPI` | `image` (`IMAGE`) | Atlas submission and retrieval path with its supported model/size catalog. |
 
-- All fields are optional.
-- Empty values are omitted from output.
-- `Close` discards in-session edits that have not been applied.
-- `Validate & Apply` is the save boundary for the node's current editor state.
-- Validation warnings appear in the left panel; `Force apply` is available for intentional edge cases.
+The frontend changes visible controls according to the selected model. Pending records allow later force retrieval. See the [Kie and Atlas guide](docs/KIE_ATLAS_API_NODES.md).
 
-### JsonX Templates
+### Working examples
 
-JsonX templates are reusable prompt trees saved as separate files under:
+![Kie and Atlas workflow](docs/images/workflowx-example-05-remote-apis.png)
 
-```text
-visual_builder/templates/<template_name>.json
-```
+- [Anything Swap with NanoBanana](examples/04-anything-swap-with-nanobanana.json) connects a cropped region, crop mask, and swap prompt to the API before stitching the returned image.
+- [Kie and Atlas APIs](examples/05-kie-and-atlas-apis.json) uses separate provider branches with an optional shared reference image and output previews.
 
-From the Visual Builder you can:
+## Image editing, processing, and swapping
 
-- save the current prompt tree as a template
-- load a template explicitly without changing other templates
-- delete templates you no longer need
+### Image ProcessorX
 
-Template names must be filesystem-safe. Empty names, names with invalid filename characters, reserved Windows names, and names ending in dot or space are rejected.
+![Image ProcessorX](docs/images/workflowx-image-processor-x.png)
 
-Template files do not store preset option lists. They store the prompt tree and randomizer selections, then refresh live options from the current `presets.json` when opened or used.
+**Node ID / category:** `WorkflowX_ImageProcessorX` · `WorkflowX/Image Compare`
 
-Recommended use:
+| Inputs and state | Type | Required | Behavior |
+|---|---|---:|---|
+| `image1` | `IMAGE` | Yes | Primary image. |
+| `image2` | `IMAGE` | No | Optional second layer/image. |
+| `operation_mode` | Continue / Pause | Yes | Executes immediately or pauses for interactive editing. |
+| `output_image` | O1 / O2 / O3 | Yes | Selects source one, source two, or composed output. |
+| `processor_state` | `STRING` | UI-managed | Versioned, normalized edit recipe. |
 
-- Save stable prompt structures as templates, such as portrait, product, cinematic scene, character sheet, or video shot setup.
-- Keep reusable structure in the template and vary only the fields that need variation.
-- Use preset-backed fields for repeatable controlled options.
-- Use custom fields for project-specific language that does not belong in the preset library.
+| Outputs | Type | Behavior |
+|---|---|---|
+| `image` | `IMAGE` | Selected or composed result. |
 
-### JsonX - Prompt Template Importer
+**Controls:** open editor, apply/continue, reset, layer order, opacity, adjustments, curves, presets, and save/session actions. State is validated server-side so a reloaded workflow renders deterministically. [Image ProcessorX guide](docs/IMAGE_PROCESSOR_X.md)
 
-Use `JsonX - Prompt Template Importer` when you already have final prompt JSON from another source and want to turn it into a JsonX template.
+### Image Compare Edit X
 
-![JsonX Prompt Template Importer node](docs/images/workflowx-jsonx-template-importer-node.png)
+![Image Compare Edit X](docs/images/workflowx-image-compare-edit-x.png)
 
-Quick start:
+**Node ID / category:** `KVGC_ImageCompareEditX` · `WorkflowX/Image Compare`
 
-- Add the `JsonX - Prompt Template Importer` node.
-- Click `Open Prompt Template Importer UI`.
-- Enter a template name.
-- Paste a final prompt JSON object.
-- Click `Convert/Preview`.
-- Review the preview and report.
-- Click `Save Template`.
+| Inputs | Type | Required | Behavior |
+|---|---|---:|---|
+| `image1` | `IMAGE` | Yes | First comparison image. |
+| `image2` | `IMAGE` | Yes | Second comparison image. |
 
-![JsonX Prompt Template Importer UI](docs/images/workflowx-jsonx-template-importer-ui.png)
+| Outputs | Type | Behavior |
+|---|---|---|
+| None | — | Terminal interactive output node; browser-side edits do not emit a downstream tensor. |
 
-The importer expects final prompt JSON, not a JsonX template file. If the JSON already looks like JsonX template metadata such as `tree` or `randomizer_checked`, the importer rejects it with a clear message.
+**Controls:** comparison divider, preview navigation, layers, masks, blend mask, brush, adjustments, curves, reset, copy, and save. [Editor guide](docs/IMAGE_COMPARE_EDIT_X_EDITOR.md)
 
-During conversion, JsonX builds a minimal tree from the prompt JSON, binds matching paths to preset-backed fields, keeps unknown keys as custom fields/groups/arrays, and strips stored options so the template stays compatible with the live preset library.
+### Anything Swap bridge
 
-The import report is useful after conversion. It shows how many non-empty fields were found, how many matched preset-backed fields, and how many custom fields were created.
+![Anything Crop and Stitch](docs/images/workflowx-anything-swap.png)
 
-### JsonX - Template Randomizer
+#### Anything Crop For Swap
 
-Use `JsonX - Template Randomizer` when you want repeatable variation from saved templates at queue time.
+**Node ID / category:** `AnythingCropForSwap` · `WorkflowX/Anything Swap`
 
-![JsonX Template Randomizer node](docs/images/workflowx-jsonx-template-randomizer-node.png)
+| Input group | Exact inputs | Behavior |
+|---|---|---|
+| Source | `image`; optional `mask`, `caption` | Source image plus optional precomputed mask/caption. |
+| Detection | `use_sam3`, `sam3_prompt`, `sam3_checkpoint`, `threshold`, `refine_iterations`, `keep_model_loaded`, `select_mode`, `object_index` | Optional SAM3 object selection. |
+| Geometry | `expand_factor`, `expand_pixels`, `force_square`, `padding`, `edge_handling`, `resize_mode`, `target_size`, `upscale_method`, `downscale_method` | Crop and resize policy. |
+| Mask/prompt | `mask_grow`, `mask_blur`, `swap_prompt` | Final crop mask and downstream edit instruction. |
 
-Quick start:
+| Outputs | Type | Behavior |
+|---|---|---|
+| `crop` | `IMAGE` | Selected crop. |
+| `crop_mask` | `MASK` | Crop-space mask. |
+| `swap_prompt` | `STRING` | Prompt passthrough. |
+| `source_masked` | `IMAGE` | Source with selected region visualized/masked. |
+| `stitch` | `SWAP_STITCH` | Geometry payload consumed by Anything Stitch. |
+| `detected` | `BOOLEAN` | Whether a usable region was found. |
 
-- Add the `JsonX - Template Randomizer` node.
-- Click `Open Template Randomizer UI`.
-- Select a saved template.
-- Choose which fields should randomize or override.
-- Apply the selection to write `randomize_rules` back into the node.
-- Run the graph.
+#### Anything Stitch
 
-Rules use one line per field:
+**Node ID / category:** `AnythingStitch` · `WorkflowX/Anything Swap`
 
-```text
-path | mode | value
-```
+| Inputs | Type | Required | Behavior |
+|---|---|---:|---|
+| `stitch` | `SWAP_STITCH` | Yes | Crop geometry from Anything Crop. |
+| `swapped` | `IMAGE` | Yes | Edited/replaced crop. |
+| `mask_override` | `MASK` | No | Optional replacement mask. |
+| `size_mismatch`, `mask_mode`, `feather`, `color_match`, `color_match_method`, `color_match_strength` | widgets | Yes | Resize, mask, feather, and color-matching policy. |
 
-Examples:
+| Outputs | Type | Behavior |
+|---|---|---|
+| `image` | `IMAGE` | Stitched full image. |
+| `changed_mask` | `MASK` | Effective changed region. |
 
-```text
-scene.environment | preset | indoor photography studio, seamless backdrop
-subjects[0].dress.top.color | preset | topcolor_black; topcolor_white; topcolor_red
-subjects[0].custom_tag | custom | alpha; beta; gamma
-```
+See the [Anything Swap guide](docs/ANYTHING_SWAP_BRIDGE.md).
 
-The `mode` is visual guidance. At runtime, JsonX recomputes whether the field is preset-backed or custom from the saved template metadata. If the value matches the template's current value, preset-backed fields randomize from live preset options and custom-only fields stay unchanged. If the value differs, semicolon-separated entries become override candidates.
+### Working examples
 
-The node outputs:
+![Anything Swap workflow](docs/images/workflowx-example-04-anything-swap.png)
 
-- `prompt_json`: the generated prompt JSON for downstream nodes.
-- `run_log`: a readable report of processed rules and skipped or stale paths.
+- [Image loading, processing, and comparison](examples/03-image-loading-processing-and-comparison.json)
+- [Anything Swap with NanoBanana](examples/04-anything-swap-with-nanobanana.json)
 
-Preset randomization uses the current `presets.json`, so updated preset values can affect future runs without resaving every template.
+## Video output
 
-### Recommended JsonX Workflow
+![Save Video X](docs/images/workflowx-save-video-x.png)
 
-1. Generate with `LLM to JsonX`, build a prompt tree in `JsonX - Visual Builder`, or paste existing final prompt JSON into `JsonX - Prompt Template Importer`.
-2. Save the result as a named JsonX template.
-3. Attach preset options to fields that should be controlled by the preset library.
-4. Mark preset-backed fields that should be randomizable.
-5. Use `JsonX - Template Randomizer` in your generation workflow and connect `prompt_json` to your preview, parser, or prompt-consuming nodes.
+### Save Video X
 
-### JsonX Prompting Guidance
+**Node ID / category:** `WorkflowX_SaveVideoX` · `WorkflowX/Video`
 
-The JsonX system builds prompts as deep, modular JSON instead of flattening many concepts into one string. Good JsonX prompts usually:
+| Inputs | Type | Required | Behavior |
+|---|---|---:|---|
+| `images` | `IMAGE` | Yes | Image batch encoded as frames. |
+| `audio` | `AUDIO` | No | Optional audio stream. |
+| `vae` | `VAE` | No | Optional compatibility input. |
+| `frame_rate`, `filename_prefix`, `format` | widgets | Yes | Timing, relative output prefix, and H.264/H.265/AV1 container. |
+| `crf_quality`, `pixel_format`, `color_range` | widgets | Yes | Codec quality and pixel/color policy. |
+| `save_metadata_preview_image`, `audio_bitrate`, `audio_filters`, `save_output` | widgets | Yes | Metadata preview, audio encoding, filters, and preview/output destination. |
 
-- keep the root as the prompt object itself
-- separate scene, subject, pose, wardrobe, background, camera, lighting, style, quality, and negative prompt details
-- expand important concepts into child fields when the detail matters
-- prefer preset-backed fields when the preset library has a good match
-- use custom fields when the prompt needs exact project-specific language
-- remove impossible details based on framing and visible context
-- avoid process metadata inside prompt JSON
+| Outputs | Type | Behavior |
+|---|---|---|
+| `Filenames` | `VHS_FILENAMES` | Encoded file descriptors compatible with video-preview consumers. |
 
-The JsonX prompt object should be directly usable by generation workflows. Do not wrap it in process metadata such as `pipeline_stage`, `timestamp`, `original_intent`, or similar execution notes. Keep provenance and logs outside the prompt JSON.
+Frame shape, codec settings, and FFmpeg availability are validated at execution. [Save Video X guide](docs/SAVE_VIDEO_X.md)
 
-For the full walkthrough, see the bundled [`JsonX user guide`](docs/afj-awesome-flex-json/USER_GUIDE.md).
+### Working example
 
-## Troubleshooting
+The [local generation and model management workflow](examples/02-local-generation-and-model-management.json) turns a generated batch into video and uses the batch as the trigger for model unloading before encoding.
 
-### The node package imported, but nodes do not show
+## Workflow configuration and routing
 
-Hard refresh the browser after restarting ComfyUI. The Python package can import before the frontend menu cache updates.
+Config SelectorX is WorkflowX's integrated configuration system. Its **Scopes** and **Configs** buttons manage native ComfyUI groups directly; the previous separate configurator nodes are not part of current workflows.
 
-### A new or renamed group is missing
+![Config SelectorX](docs/images/workflowx-config-selector-x.png)
 
-Open `Scopes` on Config SelectorX. Current canvas groups are reconciled whenever the editor opens; new groups begin as `Ignore`. Choose a scope and click **Save**. Removed groups are pruned only when the draft is saved.
+### Config SelectorX
 
-Legacy workflows can still use `Refresh groups` on Group Configurator and `Refresh configs` on Config Selector.
+**Node ID / category:** `KVGC_ConfigSelectorX` · `WorkflowX/Workflow Config`
 
-### A Get node returns the wrong value
+| Inputs and state | Type | Required | Behavior |
+|---|---|---:|---|
+| `selected_config` | `STRING` | Yes | Active named configuration. |
+| `console_output` | no / yes | Yes | Enables resolution diagnostics. |
+| `selectorx_state` | `STRING` | UI-managed | Versioned scopes, configurations, group modes, mute state, and bypass state. |
 
-Check for:
+| Outputs | Type | Behavior |
+|---|---|---|
+| None | — | Configuration controller; it changes scoped node participation and Get resolution. |
 
-- a global Set node with the same key outside groups
-- duplicate active Set nodes with the same key and type
-- the selected Config SelectorX row still pointing at the old config
-- a group name mismatch after renaming a group
+![Config SelectorX scopes](docs/images/workflowx-config-selector-x-scopes.png)
 
-### Duplicate key warnings
+![Config SelectorX configurations](docs/images/workflowx-config-selector-x-configs.png)
 
-Warnings such as this mean more than one eligible Set node exists at the same priority:
+**Controls:** **Scopes** assigns each native group to configuration, selector-mute, selector-bypass, or ignore behavior. **Configs** creates named configurations and assigns Active, Bypass, Mute, or Ignore per controlled group. State is stored in workflow JSON and validated during execution. [Config SelectorX guide](docs/CONFIG_SELECTOR_X.md)
 
-```text
-Multiple Set Int nodes found for key 'Steps'; using node id 123.
-```
+### Typed Set/Get values
 
-The result is deterministic, but the workflow is easier to maintain if each key/type appears once per active scope.
+![Representative typed Set/Get nodes](docs/images/workflowx-config-typed-nodes.png)
+
+Set nodes publish a keyed value from their scoped group and intentionally have no output. Get nodes resolve the selected candidate and expose it to the execution graph. `resolved_value`, `resolved_config`, and `resolved_digest` are visible but UI-managed provenance fields on every typed Get node.
+
+| Pair | Internal IDs | Set contract | Get output |
+|---|---|---|---|
+| Integer | `KVGC_SetInt`, `KVGC_GetInt` | `key: STRING`, `value: INT`; no outputs | `int: INT` |
+| Float | `KVGC_SetFloat`, `KVGC_GetFloat` | `key: STRING`, `value: FLOAT`; no outputs | `float: FLOAT` |
+| String | `KVGC_SetString`, `KVGC_GetString` | `key: STRING`, `value: STRING`; no outputs | `string: STRING` |
+| Multiline text | `KVGC_SetText`, `KVGC_GetText` | `key: STRING`, `value: STRING`; no outputs | `text: STRING` |
+| Boolean | `KVGC_SetBoolean`, `KVGC_GetBoolean` | `key: STRING`, `value: BOOLEAN`; no outputs | `boolean: BOOLEAN` |
+| Sampler | `KVGC_SetSampler`, `KVGC_GetSampler` | `key: STRING`, sampler combo `value`; no outputs | `sampler_name`: live ComfyUI sampler combo |
+| Scheduler | `KVGC_SetScheduler`, `KVGC_GetScheduler` | `key: STRING`, scheduler combo `value`; no outputs | `scheduler`: live ComfyUI scheduler combo |
+
+Sampler and scheduler values are validated against the running ComfyUI installation. Typed resolution follows native group containment and the selected Config SelectorX state.
+
+### Relay routing
+
+![Set Relay and Get Relay](docs/images/workflowx-relay-routing.png)
+
+| Node | Internal ID | Inputs | Outputs | Behavior |
+|---|---|---|---|---|
+| Set Relay | `KVGC_SetRelay` | `value` (wildcard), `key` (`STRING`) | `value` (wildcard passthrough) | Publishes a scoped object while optionally keeping it on the local execution path. |
+| Get Relay | `KVGC_GetRelay` | `key` (`STRING`), optional fallback `value` (wildcard) | `value` (wildcard) | Resolves the selected routed object or returns the connected fallback. |
+
+### Working example
+
+![Configuration and routing workflow](docs/images/workflowx-example-01-configuration.png)
+
+[Download: configuration and routing](examples/01-configuration-and-routing.json) — Draft and Final native groups provide typed values and alternative model relays; resolved values drive real sampler and text-encoding inputs.
+
+The larger [advanced configured production workflow](examples/07-advanced-configured-production.json) shows the same relay pattern inside a model → LoRA → sampler → cleanup → video pipeline.
+
+## Workflow libraries
+
+These are sidebar features rather than executable nodes, so they are demonstrated as interface workflows instead of artificial JSON nodes.
+
+### XFlows
+
+XFlows organizes ComfyUI workflows with folders, list/card views, tags, favorites, search, move tools, duplicate detection, and trash handling without changing the workflow JSON format.
+
+![XFlows hierarchy](docs/images/workflowx-xflows-hierarchy-overview.png)
+
+![XFlows search](docs/images/workflowx-xflows-search-filter.png)
+
+[XFlows guide](docs/XFLOWS.md)
+
+### XPrompts
+
+XPrompts stores searchable prompts and reusable preset blocks for insertion and editing. It complements structured JsonX workflows without forcing prompt text into a workflow graph.
+
+![XPrompts library](docs/images/workflowx-xprompts-prompt-list.png)
+
+![Expanded XPrompts presets](docs/images/workflowx-xprompts-presets-expanded.png)
+
+[XPrompts guide](docs/XPROMPTS.md)
+
+### XNodes
+
+XNodes saves reusable nodes, selections, and native groups. Group snippets preserve selected ComfyUI groups, group geometry and styling, contained nodes, widget values, and links whose endpoints are both inside the saved selection.
+
+![XNodes library](docs/images/workflowx-xnodes-node-list.png)
+
+![XNodes group save dialog](docs/images/workflowx-xnodes-save-dialog.png)
+
+[XNodes guide](docs/XNODES.md)
+
+## Canvas right-click utilities
+
+WorkflowX adds two options to every registered node's context menu.
+
+![WorkflowX context-menu utilities](docs/images/workflowx-context-menu-utilities.png)
+
+### WorkflowX: Add to group
+
+- If the clicked node is part of the current selection, all selected nodes are placed in one native ComfyUI group.
+- If the clicked node is not selected, only that node is grouped.
+- Group bounds use ComfyUI's **Group Selected Nodes Padding** setting, with a safe default when the setting is unavailable.
+
+![Nodes added to a native group](docs/images/workflowx-add-to-group-result.png)
+
+### WorkflowX: Replace node...
+
+The searchable dialog lists every registered node except the current class and can be filtered by display name, internal class, or category.
+
+![WorkflowX replacement search](docs/images/workflowx-replace-node-dialog.png)
+
+On replacement, WorkflowX preserves position, colors, mode, flags, a custom title, and a size large enough for the replacement. Matching widget names are copied. Input and output slots are matched by name and compatible type first, then by compatible type. Wildcard sockets are supported.
+
+Incompatible links are skipped rather than forced, and a result notification reports kept links, skipped links, and copied widget values. Arbitrary node-specific hidden properties are not guaranteed to transfer.
+
+![Replacement result](docs/images/workflowx-replace-node-result.png)
+
+## Examples
+
+| Workflow | Demonstrates | Execution |
+|---|---|---|
+| [Configuration and routing](examples/01-configuration-and-routing.json) | Config SelectorX, every typed Set/Get pair, Relay, real consumers | Model-dependent |
+| [Local generation and model management](examples/02-local-generation-and-model-management.json) | Load Diffusion Model X, Load ImageX, Unified Autoprompter, LoraX, unload ordering, Save Video X | Model/resource-dependent |
+| [Image loading, processing, and comparison](examples/03-image-loading-processing-and-comparison.json) | Both loaders, masks, Image ProcessorX, Image Compare Edit X | Local images required |
+| [Anything Swap with NanoBanana](examples/04-anything-swap-with-nanobanana.json) | Advanced loader, crop, remote edit, stitch, previews | API-dependent |
+| [Kie and Atlas APIs](examples/05-kie-and-atlas-apis.json) | Separate provider branches with previews | API-dependent |
+| [JsonX prompt toolchain](examples/06-jsonx-prompt-toolchain.json) | LLM, builder, importer, randomizer | Partly local/profile-dependent |
+| [Advanced configured production](examples/07-advanced-configured-production.json) | Sanitized production pattern using configuration, relay, LoRA, cleanup, and video | Model-dependent |
+
+![Advanced configured production workflow](docs/images/workflowx-example-07-production.png)
 
 ## Acknowledgements
 
@@ -679,8 +531,13 @@ WorkflowX Configurator is built for the [ComfyUI](https://github.com/Comfy-Org/C
 
 Some WorkflowX nodes preserve an established workflow contract while expanding, enhancing, or adapting its functionality for different use cases and a more unified experience. Others combine familiar interaction patterns with new implementations or interoperate with adjacent projects. These acknowledgements recognize those foundations; the resulting WorkflowX nodes may differ substantially in interface, scope, and behavior.
 
-## Repository Notes
+## Migration, compatibility, and troubleshooting
 
-- GitHub repo: `WorkflowX-Configurator`
-- ComfyUI category: `WorkflowX`
-- License: no license file included
+- Current workflows should use Config SelectorX. The four earlier configurator nodes remain registered only so old workflows can load; see [legacy migration](docs/LEGACY_MIGRATION.md).
+- Example resource names are placeholders. Select local images, checkpoints, LoRAs, masks, audio, and codecs after loading.
+- API examples have blank credentials and should not be queued until credentials and provider settings are configured.
+- If a node is missing, restart ComfyUI after updating WorkflowX and confirm the node ID appears in `/object_info`.
+- If a UI button is missing, hard-refresh the browser so the current frontend extensions load.
+- For detailed feature guides, use the [documentation index](docs/README.md).
+
+WorkflowX does not rename active node IDs or rewrite ComfyUI's workflow serialization format.
