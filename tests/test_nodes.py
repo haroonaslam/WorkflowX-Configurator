@@ -22,10 +22,14 @@ from nodes import (
     ConfigSelector,
     ConfigSelectorAdvanced,
     ConfigSelectorX,
+    GetDimensions,
+    GetReference,
     GetRelay,
     LoadDiffusionModelX,
     LoraX,
     SetFloat,
+    SetDimensions,
+    SetReference,
     SetRelay,
     UnloadModelsByType,
 )
@@ -96,13 +100,17 @@ def resolved_digest(type_name, key, config, value):
 
 
 def test_all_nodes_registered():
-    assert len(NODE_CLASS_MAPPINGS) == 25
+    assert len(NODE_CLASS_MAPPINGS) == 29
     assert "KVGC_SetSampler" in NODE_CLASS_MAPPINGS
     assert "KVGC_GetSampler" in NODE_CLASS_MAPPINGS
     assert "KVGC_SetScheduler" in NODE_CLASS_MAPPINGS
     assert "KVGC_GetScheduler" in NODE_CLASS_MAPPINGS
     assert "KVGC_SetRelay" in NODE_CLASS_MAPPINGS
     assert "KVGC_GetRelay" in NODE_CLASS_MAPPINGS
+    assert "KVGC_SetDimensions" in NODE_CLASS_MAPPINGS
+    assert "KVGC_GetDimensions" in NODE_CLASS_MAPPINGS
+    assert "KVGC_SetReference" in NODE_CLASS_MAPPINGS
+    assert "KVGC_GetReference" in NODE_CLASS_MAPPINGS
     assert "KVGC_GroupConfigurator" in NODE_CLASS_MAPPINGS
     assert "KVGC_ConfigSelector" in NODE_CLASS_MAPPINGS
     assert "KVGC_ConfigSelectorAdvanced" in NODE_CLASS_MAPPINGS
@@ -131,6 +139,10 @@ def test_node_menu_hierarchy_preserves_serialized_types():
         "KVGC_GetScheduler",
         "KVGC_SetRelay",
         "KVGC_GetRelay",
+        "KVGC_SetDimensions",
+        "KVGC_GetDimensions",
+        "KVGC_SetReference",
+        "KVGC_GetReference",
     }
     deprecated_types = {
         "KVGC_GroupConfigurator",
@@ -155,6 +167,43 @@ def test_relay_nodes_pass_through_materialized_values():
     payload = {"kind": "MODEL"}
     assert SetRelay().set_value("model", payload) == (payload,)
     assert GetRelay().get_value("model", payload) == (payload,)
+
+
+def test_dimensions_nodes_pass_through_width_and_height_in_output_order():
+    assert SetDimensions().set_value("resolution", 1280, 720) == (1280, 720)
+    assert GetDimensions().get_value("resolution", 1280, 720) == (1280, 720)
+
+
+def test_dimensions_inputs_are_positive_integers_without_mute_controls():
+    set_inputs = SetDimensions.INPUT_TYPES()["required"]
+    get_inputs = GetDimensions.INPUT_TYPES()
+    assert set_inputs["width"] == ("INT", {"default": 1024, "min": 1, "max": 16384, "step": 1})
+    assert set_inputs["height"] == ("INT", {"default": 1024, "min": 1, "max": 16384, "step": 1})
+    assert get_inputs["optional"]["width"] == ("INT", {"forceInput": True})
+    assert get_inputs["optional"]["height"] == ("INT", {"forceInput": True})
+    assert "mute" not in set_inputs
+    assert "mute" not in get_inputs["required"]
+
+
+def test_reference_nodes_pass_through_supported_objects_when_unmuted():
+    for kind in ("IMAGE", "AUDIO", "VIDEO"):
+        payload = {"kind": kind}
+        assert SetReference().set_value("reference", payload, False) == (payload,)
+        assert GetReference().get_value("reference", False, False, payload) == (payload,)
+
+
+@pytest.mark.parametrize(
+    ("get_mute", "set_mute"),
+    [(True, False), (False, True), (True, True)],
+)
+def test_reference_backend_does_not_use_execution_blockers(get_mute, set_mute):
+    payload = {"kind": "IMAGE"}
+    assert GetReference().get_value("reference", get_mute, set_mute, payload) == (payload,)
+
+
+def test_set_reference_global_mute_does_not_block_its_own_output():
+    payload = {"kind": "IMAGE"}
+    assert SetReference().set_value("reference", payload, True) == (payload,)
 
 
 def test_unload_models_by_type_inputs_and_passthrough():
@@ -515,6 +564,20 @@ def test_get_relay_requires_materialized_or_connected_value():
         assert "No Relay value found for key 'missing'" in str(exc)
     else:
         raise AssertionError("Expected missing relay value to raise ValueError")
+
+
+def test_get_dimensions_requires_both_materialized_values():
+    with pytest.raises(ValueError, match="No Dimensions value found"):
+        GetDimensions().get_value("missing")
+    with pytest.raises(ValueError, match="No Dimensions value found"):
+        GetDimensions().get_value("missing", width=1024)
+
+
+def test_get_reference_requires_value_because_muted_nodes_are_not_serialized():
+    with pytest.raises(ValueError, match="No Reference value found"):
+        GetReference().get_value("missing")
+    with pytest.raises(ValueError, match="No Reference value found"):
+        GetReference().get_value("missing", True)
 
 
 def test_typed_workflow_lookups():

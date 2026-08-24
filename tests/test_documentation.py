@@ -59,7 +59,7 @@ def _heading_slug(text):
 def test_readme_is_the_complete_active_node_reference():
     text = README.read_text(encoding="utf-8")
     active = _active_node_ids()
-    assert len(active) == 35
+    assert len(active) == 39
     missing = sorted(node_id for node_id in active if f"`{node_id}`" not in text)
     assert missing == [], missing
     for heading in (
@@ -225,7 +225,7 @@ def test_live_object_info_contains_example_node_types_when_comfyui_is_running():
 
     package_ids = set(_package().NODE_CLASS_MAPPINGS)
     assert package_ids <= set(object_info)
-    assert len(package_ids) == 39
+    assert len(package_ids) == 43
     example_types = {
         node["type"]
         for document in _example_documents().values()

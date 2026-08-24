@@ -67,7 +67,6 @@ try:
 except Exception:
     ANY_TYPE = "*"
 
-
 class _FlexibleOptionalInputType(dict):
     """Optional input map that accepts dynamic serialized widget values."""
 
@@ -949,6 +948,125 @@ class GetRelay:
                 f"No Relay value found for key '{clean_key}'. "
                 "Add a Set Relay with the same key in an active config group, "
                 "or connect the Get Relay value input directly."
+            )
+        return (value,)
+
+
+class SetDimensions:
+    CATEGORY = GET_SET_CATEGORY
+    FUNCTION = "set_value"
+    RETURN_TYPES = ("INT", "INT")
+    RETURN_NAMES = ("width", "height")
+
+    @classmethod
+    def INPUT_TYPES(cls) -> dict[str, dict[str, Any]]:
+        dimension = {"default": 1024, "min": 1, "max": 16384, "step": 1}
+        return {
+            "required": {
+                "key": ("STRING", {"default": "", "placeholder": "key"}),
+                "width": ("INT", dict(dimension)),
+                "height": ("INT", dict(dimension)),
+            }
+        }
+
+    def set_value(self, key: str, width: int, height: int) -> tuple[int, int]:
+        if not _TypedKeyValueBase._normalize_key(key):
+            raise ValueError("Set Dimensions key cannot be empty.")
+        return (int(width), int(height))
+
+
+class GetDimensions:
+    CATEGORY = GET_SET_CATEGORY
+    FUNCTION = "get_value"
+    RETURN_TYPES = ("INT", "INT")
+    RETURN_NAMES = ("width", "height")
+
+    @classmethod
+    def INPUT_TYPES(cls) -> dict[str, dict[str, Any]]:
+        return {
+            "required": {
+                "key": ("STRING", {"default": "", "placeholder": "key"}),
+            },
+            "optional": {
+                "width": ("INT", {"forceInput": True}),
+                "height": ("INT", {"forceInput": True}),
+            },
+        }
+
+    def get_value(
+        self,
+        key: str,
+        width: int | None = None,
+        height: int | None = None,
+    ) -> tuple[int, int]:
+        clean_key = _TypedKeyValueBase._normalize_key(key)
+        if not clean_key:
+            raise ValueError("Get Dimensions key cannot be empty.")
+        if width is None or height is None:
+            raise ValueError(
+                f"No Dimensions value found for key '{clean_key}'. "
+                "Add a Set Dimensions with the same key in an active config group, "
+                "or connect both Get Dimensions inputs directly."
+            )
+        return (int(width), int(height))
+
+
+class SetReference:
+    CATEGORY = GET_SET_CATEGORY
+    FUNCTION = "set_value"
+    RETURN_TYPES = (ANY_TYPE,)
+    RETURN_NAMES = ("value",)
+
+    @classmethod
+    def INPUT_TYPES(cls) -> dict[str, dict[str, Any]]:
+        return {
+            "required": {
+                "key": ("STRING", {"default": "", "placeholder": "key"}),
+                "value": (ANY_TYPE,),
+                "mute": ("BOOLEAN", {"default": False}),
+            }
+        }
+
+    def set_value(self, key: str, value: Any, mute: bool = False) -> tuple[Any]:
+        if not _TypedKeyValueBase._normalize_key(key):
+            raise ValueError("Set Reference key cannot be empty.")
+        return (value,)
+
+
+class GetReference:
+    CATEGORY = GET_SET_CATEGORY
+    FUNCTION = "get_value"
+    RETURN_TYPES = (ANY_TYPE,)
+    RETURN_NAMES = ("value",)
+
+    @classmethod
+    def INPUT_TYPES(cls) -> dict[str, dict[str, Any]]:
+        return {
+            "required": {
+                "key": ("STRING", {"default": "", "placeholder": "key"}),
+                "mute": ("BOOLEAN", {"default": False}),
+                "set_mute": ("BOOLEAN", {"default": False}),
+            },
+            "optional": {
+                "value": (ANY_TYPE,),
+            },
+        }
+
+    def get_value(
+        self,
+        key: str,
+        mute: bool = False,
+        set_mute: bool = False,
+        value: Any = None,
+    ) -> tuple[Any]:
+        clean_key = _TypedKeyValueBase._normalize_key(key)
+        if not clean_key:
+            raise ValueError("Get Reference key cannot be empty.")
+        if value is None:
+            raise ValueError(
+                f"No Reference value found for key '{clean_key}'. "
+                "Add a Set Reference with the same key in an active config group, "
+                "or connect the Get Reference value input directly."
             )
         return (value,)
 
@@ -1935,6 +2053,10 @@ NODE_CLASS_MAPPINGS = {
     "KVGC_GetScheduler": GetScheduler,
     "KVGC_SetRelay": SetRelay,
     "KVGC_GetRelay": GetRelay,
+    "KVGC_SetDimensions": SetDimensions,
+    "KVGC_GetDimensions": GetDimensions,
+    "KVGC_SetReference": SetReference,
+    "KVGC_GetReference": GetReference,
     "KVGC_GroupConfigurator": GroupConfigurator,
     "KVGC_ConfigSelector": ConfigSelector,
     "KVGC_ConfigSelectorAdvanced": ConfigSelectorAdvanced,
@@ -1963,6 +2085,10 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "KVGC_GetScheduler": "Get Scheduler",
     "KVGC_SetRelay": "Set Relay",
     "KVGC_GetRelay": "Get Relay",
+    "KVGC_SetDimensions": "Set Dimensions",
+    "KVGC_GetDimensions": "Get Dimensions",
+    "KVGC_SetReference": "Set Reference",
+    "KVGC_GetReference": "Get Reference",
     "KVGC_GroupConfigurator": "Group Configurator",
     "KVGC_ConfigSelector": "Config Selector",
     "KVGC_ConfigSelectorAdvanced": "Config Selector Advanced",

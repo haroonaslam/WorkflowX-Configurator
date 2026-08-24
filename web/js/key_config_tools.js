@@ -6,6 +6,7 @@ import {
   parseSelectorXState,
 } from "./config_selector_x_state.mjs";
 import { createSelectorXController } from "./config_selector_x_ui.js";
+import { referenceIsMuted } from "./reference_routing_state.mjs";
 
 const EXTENSION_NAME = "key_config_tools.group_configurator";
 const DEBUG_LOG_ROUTE = "/workflowx_configurator/debug_log";
@@ -17,6 +18,10 @@ const SELECTOR_X_TYPE = "KVGC_ConfigSelectorX";
 const GROUP_SCOPES_TYPE = "KVGC_GroupScopes";
 const SET_RELAY_TYPE = "KVGC_SetRelay";
 const GET_RELAY_TYPE = "KVGC_GetRelay";
+const SET_DIMENSIONS_TYPE = "KVGC_SetDimensions";
+const GET_DIMENSIONS_TYPE = "KVGC_GetDimensions";
+const SET_REFERENCE_TYPE = "KVGC_SetReference";
+const GET_REFERENCE_TYPE = "KVGC_GetReference";
 const GET_TYPES = Object.freeze({
   KVGC_GetInt: "Int",
   KVGC_GetFloat: "Float",
@@ -149,6 +154,22 @@ function isSetRelay(node) {
 
 function isGetRelay(node) {
   return nodeType(node) === GET_RELAY_TYPE;
+}
+
+function isSetDimensions(node) {
+  return nodeType(node) === SET_DIMENSIONS_TYPE;
+}
+
+function isGetDimensions(node) {
+  return nodeType(node) === GET_DIMENSIONS_TYPE;
+}
+
+function isSetReference(node) {
+  return nodeType(node) === SET_REFERENCE_TYPE;
+}
+
+function isGetReference(node) {
+  return nodeType(node) === GET_REFERENCE_TYPE;
 }
 
 function isGetNode(node) {
@@ -682,6 +703,174 @@ function resolveRelaySource(getNode, promptOutput) {
   return bestCandidates.at(-1);
 }
 
+function resolveReferenceSource(getNode, promptOutput = null) {
+  const key = relayKey(getNode);
+  if (!key) return null;
+
+  const { modes } = selectedConfigContext();
+
+  const candidates = [];
+  for (const node of allNodes()) {
+    if (!isSetReference(node)) continue;
+    if (relayKey(node) !== key) continue;
+    if (promptOutput && !promptOutput[String(node.id)]) continue;
+    if (node.mode === MODES.Mute || node.mode === MODES.Bypass) continue;
+
+    let priority = 0;
+    if (modes) {
+      priority = priorityForSetNode(node, modes);
+      if (priority === null) continue;
+    }
+
+    candidates.push({
+      id: Number(node.id ?? 0),
+      priority,
+      node,
+      groupNames: groupNamesForNode(node, modes),
+    });
+  }
+
+  if (!candidates.length) return null;
+
+  const bestPriority = Math.min(...candidates.map((candidate) => candidate.priority));
+  const bestCandidates = candidates
+    .filter((candidate) => candidate.priority === bestPriority)
+    .sort((a, b) => a.id - b.id);
+
+  if (bestCandidates.length > 1) {
+    console.warn(
+      `[WorkflowX_Configurator] Multiple active Set Reference nodes found for key "${key}"; using node id ${bestCandidates.at(-1).id}.`,
+    );
+  }
+
+  return bestCandidates.at(-1);
+}
+
+function resolveDimensionsSource(getNode, promptOutput) {
+  const key = relayKey(getNode);
+  if (!key || !promptOutput) return null;
+
+  const { modes } = selectedConfigContext();
+
+  const candidates = [];
+  for (const node of allNodes()) {
+    if (!isSetDimensions(node)) continue;
+    if (relayKey(node) !== key) continue;
+    if (!promptOutput[String(node.id)]) continue;
+
+    let priority = 0;
+    if (modes) {
+      priority = priorityForSetNode(node, modes);
+      if (priority === null) continue;
+    }
+
+    candidates.push({
+      id: Number(node.id ?? 0),
+      priority,
+      node,
+      groupNames: groupNamesForNode(node, modes),
+    });
+  }
+
+  if (!candidates.length) return null;
+
+  const bestPriority = Math.min(...candidates.map((candidate) => candidate.priority));
+  const bestCandidates = candidates
+    .filter((candidate) => candidate.priority === bestPriority)
+    .sort((a, b) => a.id - b.id);
+
+  if (bestCandidates.length > 1) {
+    console.warn(
+      `[WorkflowX_Configurator] Multiple active Set Dimensions nodes found for key "${key}"; using node id ${bestCandidates.at(-1).id}.`,
+    );
+  }
+
+  return bestCandidates.at(-1);
+}
+
+function materializeDimensionsLinksInPrompt(promptResult) {
+  const output = promptResult?.output;
+  if (!output) return promptResult;
+
+  for (const getNode of allNodes().filter(isGetDimensions)) {
+    const getOutput = output[String(getNode.id)];
+    if (!getOutput) continue;
+
+    const source = resolveDimensionsSource(getNode, output);
+    if (!source) {
+      console.warn(
+        `[WorkflowX_Configurator] No active Set Dimensions found for key "${relayKey(getNode)}"; keeping any existing Get Dimensions inputs.`,
+      );
+      continue;
+    }
+
+    getOutput.inputs ??= {};
+    getOutput.inputs.width = [String(source.node.id), 0];
+    getOutput.inputs.height = [String(source.node.id), 1];
+
+    logResolution(
+      `Get Dimensions key="${relayKey(getNode)}" resolved from Set Dimensions node ${source.id}${formatDebugGroups(source.groupNames)} width_slot=0 height_slot=1`,
+    );
+  }
+
+  return promptResult;
+}
+
+function applyReferenceMuteModesBeforeQueue() {
+  const originalModes = [];
+
+  for (const getNode of allNodes().filter(isGetReference)) {
+    const source = resolveReferenceSource(getNode);
+    const setMute = Boolean(source && getWidgetValue(source.node, "mute", false));
+    setWidgetValueSilently(getNode, "set_mute", setMute);
+
+    const getMute = getWidgetValue(getNode, "mute", false);
+    if (!referenceIsMuted(getMute, setMute)) continue;
+
+    originalModes.push({ node: getNode, mode: getNode.mode });
+    getNode.mode = MODES.Mute;
+  }
+
+  return originalModes;
+}
+
+function restoreReferenceModes(originalModes) {
+  for (const { node, mode } of originalModes) {
+    node.mode = mode;
+  }
+}
+
+function materializeReferenceLinksInPrompt(promptResult) {
+  const output = promptResult?.output;
+  if (!output) return promptResult;
+
+  for (const getNode of allNodes().filter(isGetReference)) {
+    const getOutput = output[String(getNode.id)];
+    if (!getOutput) continue;
+
+    const source = resolveReferenceSource(getNode, output);
+    if (!source) {
+      console.warn(
+        `[WorkflowX_Configurator] No active Set Reference found for key "${relayKey(getNode)}"; keeping any existing Get Reference input.`,
+      );
+      continue;
+    }
+
+    getOutput.inputs ??= {};
+    getOutput.inputs.value = [String(source.node.id), 0];
+
+    const muted = referenceIsMuted(
+      getWidgetValue(getNode, "mute", false),
+      getWidgetValue(source.node, "mute", false),
+    );
+    logResolution(
+      `Get Reference key="${relayKey(getNode)}" resolved from Set Reference node ${source.id}${formatDebugGroups(source.groupNames)} output_slot=0 muted=${muted}`,
+    );
+  }
+
+  return promptResult;
+}
+
 function materializeRelayLinksInPrompt(promptResult) {
   const output = promptResult?.output;
   if (!output) return promptResult;
@@ -706,7 +895,8 @@ function materializeRelayLinksInPrompt(promptResult) {
     );
   }
 
-  return promptResult;
+  materializeReferenceLinksInPrompt(promptResult);
+  return materializeDimensionsLinksInPrompt(promptResult);
 }
 
 function installGraphToPromptPatch() {
@@ -717,8 +907,10 @@ function installGraphToPromptPatch() {
   const originalGraphToPrompt = app.graphToPrompt.bind(app);
   app.graphToPrompt = async function (...args) {
     const shouldMaterializeRelays = app.__workflowXRelayQueueing === true;
+    let referenceModes = [];
     if (shouldMaterializeRelays) {
       applySelectedConfigAndAdvancedOverrides();
+      referenceModes = applyReferenceMuteModesBeforeQueue();
     }
 
     try {
@@ -727,6 +919,7 @@ function installGraphToPromptPatch() {
         ? materializeRelayLinksInPrompt(promptResult)
         : promptResult;
     } finally {
+      restoreReferenceModes(referenceModes);
       app.__workflowXRelayQueueing = false;
     }
   };
@@ -1260,6 +1453,18 @@ function hideGroupScopesBackingWidget(node) {
   scopesJson.draw = () => {};
 }
 
+function hideReferenceBackingWidgets(node) {
+  const setMute = findWidget(node, "set_mute");
+  if (!setMute || setMute.__workflowXHidden) return;
+
+  setMute.__workflowXHidden = true;
+  setMute.type = "hidden";
+  setMute.options ??= {};
+  setMute.options.serialize = true;
+  setMute.computeSize = () => [0, 0];
+  setMute.draw = () => {};
+}
+
 function ensureRefreshButton(node, name) {
   if (findWidget(node, name)) return;
 
@@ -1293,6 +1498,9 @@ function refreshAll() {
   refreshSelectorNodes();
   for (const node of allNodes().filter(isGetNode)) {
     hideGetBackingWidgets(node);
+  }
+  for (const node of allNodes().filter(isGetReference)) {
+    hideReferenceBackingWidgets(node);
   }
 }
 
@@ -1345,6 +1553,60 @@ app.registerExtension({
         if (key && !key.__workflowXRelayBeforeQueued) {
           key.__workflowXRelayBeforeQueued = true;
           key.beforeQueued = () => {
+            app.__workflowXRelayQueueing = true;
+          };
+        }
+      };
+    }
+
+    if (nodeData.name === GET_DIMENSIONS_TYPE) {
+      const originalOnNodeCreated = nodeTypeDef.prototype.onNodeCreated;
+      nodeTypeDef.prototype.onNodeCreated = function () {
+        originalOnNodeCreated?.apply(this, arguments);
+
+        const key = findWidget(this, "key");
+        if (key && !key.__workflowXDimensionsBeforeQueued) {
+          key.__workflowXDimensionsBeforeQueued = true;
+          key.beforeQueued = () => {
+            app.__workflowXRelayQueueing = true;
+          };
+        }
+      };
+    }
+
+    if (nodeData.name === GET_REFERENCE_TYPE) {
+      const originalOnNodeCreated = nodeTypeDef.prototype.onNodeCreated;
+      nodeTypeDef.prototype.onNodeCreated = function () {
+        originalOnNodeCreated?.apply(this, arguments);
+        hideReferenceBackingWidgets(this);
+
+        const key = findWidget(this, "key");
+        if (key && !key.__workflowXReferenceBeforeQueued) {
+          key.__workflowXReferenceBeforeQueued = true;
+          key.beforeQueued = () => {
+            app.__workflowXRelayQueueing = true;
+          };
+        }
+
+        const mute = findWidget(this, "mute");
+        if (mute && !mute.__workflowXReferenceBeforeQueued) {
+          mute.__workflowXReferenceBeforeQueued = true;
+          mute.beforeQueued = () => {
+            app.__workflowXRelayQueueing = true;
+          };
+        }
+      };
+    }
+
+    if (nodeData.name === SET_REFERENCE_TYPE) {
+      const originalOnNodeCreated = nodeTypeDef.prototype.onNodeCreated;
+      nodeTypeDef.prototype.onNodeCreated = function () {
+        originalOnNodeCreated?.apply(this, arguments);
+
+        const mute = findWidget(this, "mute");
+        if (mute && !mute.__workflowXReferenceBeforeQueued) {
+          mute.__workflowXReferenceBeforeQueued = true;
+          mute.beforeQueued = () => {
             app.__workflowXRelayQueueing = true;
           };
         }

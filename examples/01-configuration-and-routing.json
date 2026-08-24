@@ -1,8 +1,8 @@
 {
   "id": "workflowx-configuration-and-routing",
   "revision": 0,
-  "last_node_id": 34,
-  "last_link_id": 17,
+  "last_node_id": 43,
+  "last_link_id": 22,
   "nodes": [
     {
       "id": 1,
@@ -1568,7 +1568,7 @@
         {
           "name": "width",
           "type": "INT",
-          "link": null,
+          "link": 21,
           "widget": {
             "name": "width"
           }
@@ -1576,7 +1576,7 @@
         {
           "name": "height",
           "type": "INT",
-          "link": null,
+          "link": 22,
           "widget": {
             "name": "height"
           }
@@ -1683,6 +1683,514 @@
       },
       "widgets_values": [
         "WorkflowX/example"
+      ]
+    },
+    {
+      "id": 35,
+      "type": "EmptyImage",
+      "pos": [
+        60,
+        1340
+      ],
+      "size": [
+        230,
+        100
+      ],
+      "flags": {},
+      "order": 34,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "width",
+          "type": "INT",
+          "link": null,
+          "widget": {
+            "name": "width"
+          }
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "link": null,
+          "widget": {
+            "name": "height"
+          }
+        },
+        {
+          "name": "batch_size",
+          "type": "INT",
+          "link": null,
+          "widget": {
+            "name": "batch_size"
+          }
+        },
+        {
+          "name": "color",
+          "type": "INT",
+          "link": null,
+          "widget": {
+            "name": "color"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            18
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "EmptyImage"
+      },
+      "widgets_values": [
+        512,
+        512,
+        1,
+        0
+      ]
+    },
+    {
+      "id": 36,
+      "type": "EmptyImage",
+      "pos": [
+        370,
+        1340
+      ],
+      "size": [
+        230,
+        100
+      ],
+      "flags": {},
+      "order": 35,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "width",
+          "type": "INT",
+          "link": null,
+          "widget": {
+            "name": "width"
+          }
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "link": null,
+          "widget": {
+            "name": "height"
+          }
+        },
+        {
+          "name": "batch_size",
+          "type": "INT",
+          "link": null,
+          "widget": {
+            "name": "batch_size"
+          }
+        },
+        {
+          "name": "color",
+          "type": "INT",
+          "link": null,
+          "widget": {
+            "name": "color"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            19
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "EmptyImage"
+      },
+      "widgets_values": [
+        512,
+        512,
+        1,
+        0
+      ]
+    },
+    {
+      "id": 37,
+      "type": "KVGC_SetReference",
+      "pos": [
+        60,
+        1460
+      ],
+      "size": [
+        230,
+        100
+      ],
+      "flags": {},
+      "order": 36,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "value",
+          "type": "*",
+          "link": 18
+        },
+        {
+          "name": "key",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "key"
+          }
+        },
+        {
+          "name": "mute",
+          "type": "BOOLEAN",
+          "link": null,
+          "widget": {
+            "name": "mute"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "value",
+          "type": "*",
+          "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "KVGC_SetReference"
+      },
+      "widgets_values": [
+        "reference_image",
+        false
+      ]
+    },
+    {
+      "id": 38,
+      "type": "KVGC_SetReference",
+      "pos": [
+        370,
+        1460
+      ],
+      "size": [
+        230,
+        100
+      ],
+      "flags": {},
+      "order": 37,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "value",
+          "type": "*",
+          "link": 19
+        },
+        {
+          "name": "key",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "key"
+          }
+        },
+        {
+          "name": "mute",
+          "type": "BOOLEAN",
+          "link": null,
+          "widget": {
+            "name": "mute"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "value",
+          "type": "*",
+          "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "KVGC_SetReference"
+      },
+      "widgets_values": [
+        "reference_image",
+        false
+      ]
+    },
+    {
+      "id": 39,
+      "type": "KVGC_GetReference",
+      "pos": [
+        840,
+        1340
+      ],
+      "size": [
+        230,
+        100
+      ],
+      "flags": {},
+      "order": 38,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "value",
+          "type": "*",
+          "link": null
+        },
+        {
+          "name": "key",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "key"
+          }
+        },
+        {
+          "name": "mute",
+          "type": "BOOLEAN",
+          "link": null,
+          "widget": {
+            "name": "mute"
+          }
+        },
+        {
+          "name": "set_mute",
+          "type": "BOOLEAN",
+          "link": null,
+          "widget": {
+            "name": "set_mute"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "value",
+          "type": "*",
+          "links": [
+            20
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "KVGC_GetReference"
+      },
+      "widgets_values": [
+        "reference_image",
+        false,
+        false
+      ]
+    },
+    {
+      "id": 40,
+      "type": "PreviewImage",
+      "pos": [
+        1180,
+        1050
+      ],
+      "size": [
+        280,
+        240
+      ],
+      "flags": {},
+      "order": 39,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 20
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "PreviewImage"
+      },
+      "widgets_values": [],
+      "title": "Reference branch preview"
+    },
+    {
+      "id": 41,
+      "type": "KVGC_SetDimensions",
+      "pos": [
+        60,
+        1600
+      ],
+      "size": [
+        230,
+        110
+      ],
+      "flags": {},
+      "order": 40,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "key",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "key"
+          }
+        },
+        {
+          "name": "width",
+          "type": "INT",
+          "link": null,
+          "widget": {
+            "name": "width"
+          }
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "link": null,
+          "widget": {
+            "name": "height"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "width",
+          "type": "INT",
+          "links": []
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "KVGC_SetDimensions"
+      },
+      "widgets_values": [
+        "latent_size",
+        768,
+        768
+      ]
+    },
+    {
+      "id": 42,
+      "type": "KVGC_SetDimensions",
+      "pos": [
+        370,
+        1600
+      ],
+      "size": [
+        230,
+        110
+      ],
+      "flags": {},
+      "order": 41,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "key",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "key"
+          }
+        },
+        {
+          "name": "width",
+          "type": "INT",
+          "link": null,
+          "widget": {
+            "name": "width"
+          }
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "link": null,
+          "widget": {
+            "name": "height"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "width",
+          "type": "INT",
+          "links": []
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "KVGC_SetDimensions"
+      },
+      "widgets_values": [
+        "latent_size",
+        1280,
+        720
+      ]
+    },
+    {
+      "id": 43,
+      "type": "KVGC_GetDimensions",
+      "pos": [
+        840,
+        1490
+      ],
+      "size": [
+        230,
+        100
+      ],
+      "flags": {},
+      "order": 42,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "width",
+          "type": "INT",
+          "link": null
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "link": null
+        },
+        {
+          "name": "key",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "key"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "width",
+          "type": "INT",
+          "links": [
+            21
+          ]
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "links": [
+            22
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "KVGC_GetDimensions"
+      },
+      "widgets_values": [
+        "latent_size"
       ]
     }
   ],
@@ -1822,6 +2330,46 @@
       34,
       0,
       "IMAGE"
+    ],
+    [
+      18,
+      35,
+      0,
+      37,
+      0,
+      "IMAGE"
+    ],
+    [
+      19,
+      36,
+      0,
+      38,
+      0,
+      "IMAGE"
+    ],
+    [
+      20,
+      39,
+      0,
+      40,
+      0,
+      "*"
+    ],
+    [
+      21,
+      43,
+      0,
+      32,
+      0,
+      "INT"
+    ],
+    [
+      22,
+      43,
+      1,
+      32,
+      1,
+      "INT"
     ]
   ],
   "groups": [
@@ -1832,7 +2380,7 @@
         20,
         200,
         300,
-        1100
+        1530
       ],
       "color": "#355c7d",
       "font_size": 24,
@@ -1845,7 +2393,7 @@
         330,
         200,
         300,
-        1100
+        1530
       ],
       "color": "#6c5b7b",
       "font_size": 24,
@@ -1858,7 +2406,7 @@
         790,
         200,
         310,
-        1020
+        1400
       ],
       "color": "#2f6f62",
       "font_size": 24,
@@ -1871,7 +2419,7 @@
         1140,
         200,
         1420,
-        700
+        1150
       ],
       "color": "#8a6d3b",
       "font_size": 24,

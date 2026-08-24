@@ -435,6 +435,26 @@ Sampler and scheduler values are validated against the running ComfyUI installat
 | Set Relay | `KVGC_SetRelay` | `value` (wildcard), `key` (`STRING`) | `value` (wildcard passthrough) | Publishes a scoped object while optionally keeping it on the local execution path. |
 | Get Relay | `KVGC_GetRelay` | `key` (`STRING`), optional fallback `value` (wildcard) | `value` (wildcard) | Resolves the selected routed object or returns the connected fallback. |
 
+### Dimension routing
+
+Set/Get Dimensions relays a keyed width-and-height pair through the same configuration-aware selection mechanism. The pair has no mute controls.
+
+| Node | Internal ID | Inputs | Outputs | Behavior |
+|---|---|---|---|---|
+| Set Dimensions | `KVGC_SetDimensions` | `key` (`STRING`), `width` (`INT`), `height` (`INT`) | `width` (`INT`), `height` (`INT`) | Publishes and locally passes through both dimensions. Values default to 1024 and are constrained to 1–16384. |
+| Get Dimensions | `KVGC_GetDimensions` | `key` (`STRING`), optional direct `width` and `height` inputs | `width` (`INT`), `height` (`INT`) | Resolves both values from the selected Set Dimensions or uses both directly connected fallbacks. |
+
+### Reference routing with independent mute controls
+
+Set/Get Reference routes images, audio, video, or any other connected ComfyUI object through the same keyed, configuration-aware selection used by Relay. Unlike Relay, each Get Reference can apply ComfyUI's native Mute mode to its own branch while the prompt is serialized.
+
+| Node | Internal ID | Inputs | Output | Behavior |
+|---|---|---|---|---|
+| Set Reference | `KVGC_SetReference` | `value` (wildcard), `key` (`STRING`), `mute` (`BOOLEAN`, default `false`) | `value` (wildcard passthrough) | Always passes its local value through. When `mute` is true, every matching Get Reference is omitted from the API prompt using native ComfyUI mute semantics. |
+| Get Reference | `KVGC_GetReference` | `key` (`STRING`), `mute` (`BOOLEAN`, default `false`), optional fallback `value` (wildcard) | `value` (wildcard) | Resolves the selected Set Reference. When its independent mute is true, that Get node is omitted from the API prompt exactly like manually muting the node. |
+
+Set Reference mute applies only to Get Reference nodes with the same key. Muting one Get Reference does not affect its siblings, and the Set Reference output remains usable directly in either mute state.
+
 ### Working example
 
 ![Configuration and routing workflow](docs/images/workflowx-example-01-configuration.png)

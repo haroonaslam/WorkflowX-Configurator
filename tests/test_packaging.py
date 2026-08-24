@@ -88,7 +88,7 @@ def _load_package():
 
 def test_combined_package_exports_workflowx_and_afj_nodes():
     module = _load_package()
-    assert len(module.NODE_CLASS_MAPPINGS) == 39
+    assert len(module.NODE_CLASS_MAPPINGS) == 43
     assert "KVGC_GroupConfigurator" in module.NODE_CLASS_MAPPINGS
     assert "KVGC_ConfigSelectorAdvanced" in module.NODE_CLASS_MAPPINGS
     assert "KVGC_ConfigSelectorX" in module.NODE_CLASS_MAPPINGS

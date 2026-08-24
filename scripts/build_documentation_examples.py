@@ -235,6 +235,23 @@ def empty_latent(w: Workflow, x: int, y: int) -> dict[str, Any]:
     )
 
 
+def empty_image(w: Workflow, x: int, y: int) -> dict[str, Any]:
+    return w.node(
+        "EmptyImage",
+        x,
+        y,
+        size=(230, 100),
+        inputs=[
+            socket("width", "INT", widget=True),
+            socket("height", "INT", widget=True),
+            socket("batch_size", "INT", widget=True),
+            socket("color", "INT", widget=True),
+        ],
+        outputs=[port("IMAGE", "IMAGE")],
+        widgets=[512, 512, 1, 0],
+    )
+
+
 def vae_decode(w: Workflow, x: int, y: int) -> dict[str, Any]:
     return w.node("VAEDecode", x, y, size=(220, 90), inputs=[socket("samples", "LATENT"), socket("vae", "VAE")], outputs=[port("IMAGE", "IMAGE")])
 
@@ -300,10 +317,89 @@ def build_configuration() -> Workflow:
     w.connect(sampler, 0, decoded, 0)
     w.connect(relay_a_source, 2, decoded, 1)
     w.connect(decoded, 0, save, 0)
-    w.group(draft_group, 20, 200, 300, 1100, "#355c7d")
-    w.group(final_group, 330, 200, 300, 1100, "#6c5b7b")
-    w.group("Resolved values", 790, 200, 310, 1020, "#2f6f62")
-    w.group("Consumer pipeline", 1140, 200, 1420, 700, "#8a6d3b")
+    reference_a_source = empty_image(w, 60, 1340)
+    reference_b_source = empty_image(w, 370, 1340)
+    reference_a = w.node(
+        "KVGC_SetReference",
+        60,
+        1460,
+        size=(230, 100),
+        inputs=[socket("value", "*"), socket("key", "STRING", widget=True), socket("mute", "BOOLEAN", widget=True)],
+        outputs=[port("value", "*")],
+        widgets=["reference_image", False],
+    )
+    reference_b = w.node(
+        "KVGC_SetReference",
+        370,
+        1460,
+        size=(230, 100),
+        inputs=[socket("value", "*"), socket("key", "STRING", widget=True), socket("mute", "BOOLEAN", widget=True)],
+        outputs=[port("value", "*")],
+        widgets=["reference_image", False],
+    )
+    reference_get = w.node(
+        "KVGC_GetReference",
+        840,
+        1340,
+        size=(230, 100),
+        inputs=[
+            socket("value", "*"),
+            socket("key", "STRING", widget=True),
+            socket("mute", "BOOLEAN", widget=True),
+            socket("set_mute", "BOOLEAN", widget=True),
+        ],
+        outputs=[port("value", "*")],
+        widgets=["reference_image", False, False],
+    )
+    reference_preview = preview(w, 1180, 1050, "Reference branch preview")
+    w.connect(reference_a_source, 0, reference_a, 0)
+    w.connect(reference_b_source, 0, reference_b, 0)
+    w.connect(reference_get, 0, reference_preview, 0)
+    dimensions_a = w.node(
+        "KVGC_SetDimensions",
+        60,
+        1600,
+        size=(230, 110),
+        inputs=[
+            socket("key", "STRING", widget=True),
+            socket("width", "INT", widget=True),
+            socket("height", "INT", widget=True),
+        ],
+        outputs=[port("width", "INT"), port("height", "INT")],
+        widgets=["latent_size", 768, 768],
+    )
+    dimensions_b = w.node(
+        "KVGC_SetDimensions",
+        370,
+        1600,
+        size=(230, 110),
+        inputs=[
+            socket("key", "STRING", widget=True),
+            socket("width", "INT", widget=True),
+            socket("height", "INT", widget=True),
+        ],
+        outputs=[port("width", "INT"), port("height", "INT")],
+        widgets=["latent_size", 1280, 720],
+    )
+    dimensions_get = w.node(
+        "KVGC_GetDimensions",
+        840,
+        1490,
+        size=(230, 100),
+        inputs=[
+            socket("width", "INT"),
+            socket("height", "INT"),
+            socket("key", "STRING", widget=True),
+        ],
+        outputs=[port("width", "INT"), port("height", "INT")],
+        widgets=["latent_size"],
+    )
+    w.connect(dimensions_get, 0, latent, 0)
+    w.connect(dimensions_get, 1, latent, 1)
+    w.group(draft_group, 20, 200, 300, 1530, "#355c7d")
+    w.group(final_group, 330, 200, 300, 1530, "#6c5b7b")
+    w.group("Resolved values", 790, 200, 310, 1400, "#2f6f62")
+    w.group("Consumer pipeline", 1140, 200, 1420, 1150, "#8a6d3b")
     return w
 
 
