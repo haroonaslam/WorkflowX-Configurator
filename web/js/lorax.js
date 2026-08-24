@@ -7,6 +7,7 @@ const EXTENSION_NAME = "workflowx.lorax";
 const LORAX_ROUTE = "/workflowx_configurator/lorax/loras";
 const LORA_MANAGER_LIST_ROUTE = "/api/lm/loras/list";
 const LORA_MANAGER_TREE_ROUTE = "/api/lm/loras/unified-folder-tree";
+const LORA_MANAGER_SCAN_ROUTE = "/api/lm/loras/scan";
 const LORA_MANAGER_METADATA_ROUTE = "/api/lm/loras/metadata";
 const LORA_MANAGER_DESCRIPTION_ROUTE = "/api/lm/loras/model-description";
 const STYLE_ID = "workflowx-lorax-styles";
@@ -237,6 +238,13 @@ async function loadCatalog() {
   return catalogPromise;
 }
 
+async function refreshCatalog() {
+  await fetchJson(`${LORA_MANAGER_SCAN_ROUTE}?full_rebuild=false`).catch(() => null);
+  catalogPromise = null;
+  canonicalItemsPromise = null;
+  return loadCatalog();
+}
+
 function itemMatchesFolder(item, folder) {
   if (!folder) return true;
   return item.folder === folder || item.folder.startsWith(`${folder}/`);
@@ -249,11 +257,16 @@ function ensureStyles() {
   style.textContent = `
     .workflowx-lorax-backdrop{position:fixed;inset:0;z-index:10000;background:rgba(8,10,12,.58);display:flex;align-items:center;justify-content:center}
     .workflowx-lorax-picker{width:min(1180px,calc(100vw - 48px));height:min(800px,calc(100vh - 48px));background:#17191d;color:#e8ebef;border:1px solid #41464f;border-radius:8px;box-shadow:0 24px 80px rgba(0,0,0,.58);display:grid;grid-template-rows:auto 1fr;overflow:hidden;font:13px system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-    .workflowx-lorax-top{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:10px 12px;border-bottom:1px solid #30343b;background:#202328}
+    .workflowx-lorax-top{display:grid;grid-template-columns:1fr auto auto auto;gap:10px;align-items:center;padding:10px 12px;border-bottom:1px solid #30343b;background:#202328}
     .workflowx-lorax-search{height:32px;border-radius:6px;border:1px solid #4e5560;background:#111316;color:#f3f5f7;padding:0 10px;font-size:14px;outline:none}
     .workflowx-lorax-strict{height:32px;border:1px solid #4e5560;border-radius:6px;background:#1a1f26;color:#d5dce6;display:flex;align-items:center;gap:7px;padding:0 10px;white-space:nowrap;cursor:pointer;user-select:none}
     .workflowx-lorax-strict input{accent-color:#6f8fd4}
-    .workflowx-lorax-close{height:32px;width:32px;border:1px solid #4e5560;border-radius:6px;background:#242830;color:#d5d9df;cursor:pointer}
+    .workflowx-lorax-refresh,.workflowx-lorax-close{height:32px;width:32px;border:1px solid #4e5560;border-radius:6px;background:#242830;color:#d5d9df;cursor:pointer;font-size:17px;line-height:1}
+    .workflowx-lorax-refresh:hover,.workflowx-lorax-close:hover{background:#303743;border-color:#6f8fd4;color:#fff}
+    .workflowx-lorax-refresh:disabled{cursor:wait;opacity:.7}
+    .workflowx-lorax-refresh span{display:block}
+    .workflowx-lorax-refresh.loading span{animation:workflowx-lorax-spin .8s linear infinite}
+    @keyframes workflowx-lorax-spin{to{transform:rotate(360deg)}}
     .workflowx-lorax-body{display:grid;grid-template-columns:280px 1fr;min-height:0}
     .workflowx-lorax-tree{border-right:1px solid #30343b;overflow:auto;padding:8px;background:#14161a}
     .workflowx-lorax-tree-row{display:flex;align-items:center;gap:4px;height:28px;color:#bfc5ce}
@@ -308,8 +321,8 @@ function ensureStyles() {
     .workflowx-lorax-detail-actions .primary{background:#315a94;border-color:#5783c4;color:#fff}
     @media (max-width:760px){
       .workflowx-lorax-body{grid-template-columns:1fr}
-      .workflowx-lorax-top{grid-template-columns:1fr auto}
-      .workflowx-lorax-strict{grid-column:1/-1;justify-content:flex-start}
+      .workflowx-lorax-top{grid-template-columns:1fr auto auto}
+      .workflowx-lorax-strict{grid-column:1/-1;grid-row:2;justify-content:flex-start}
       .workflowx-lorax-tree{max-height:190px;border-right:0;border-bottom:1px solid #30343b}
       .workflowx-lorax-detail-body{grid-template-columns:1fr}
     }
@@ -751,11 +764,19 @@ async function openPicker(onSelect) {
   const strictText = document.createElement("span");
   strictText.textContent = "Strict search";
   strictLabel.append(strictSearch, strictText);
+  const refresh = document.createElement("button");
+  refresh.className = "workflowx-lorax-refresh";
+  refresh.type = "button";
+  refresh.title = "Refresh LoRAs";
+  refresh.setAttribute("aria-label", "Refresh LoRAs");
+  const refreshIcon = document.createElement("span");
+  refreshIcon.textContent = "\u21bb";
+  refresh.appendChild(refreshIcon);
   const close = document.createElement("button");
   close.className = "workflowx-lorax-close";
   close.type = "button";
   close.textContent = "x";
-  top.append(search, strictLabel, close);
+  top.append(search, strictLabel, refresh, close);
 
   const body = document.createElement("div");
   body.className = "workflowx-lorax-body";
@@ -816,7 +837,32 @@ async function openPicker(onSelect) {
     }
   }
 
+  async function reloadCatalog() {
+    if (refresh.disabled) return;
+    refresh.disabled = true;
+    refresh.classList.add("loading");
+    tree.innerHTML = '<div class="workflowx-lorax-empty">Refreshing LoRAs...</div>';
+    results.innerHTML = '<div class="workflowx-lorax-empty">Refreshing LoRAs...</div>';
+    try {
+      const catalog = await refreshCatalog();
+      if (!backdrop.isConnected) return;
+      allItems = catalog.items || [];
+      treeRoot = catalog.tree || buildTreeFromItems(allItems);
+      if (selectedFolder && !allItems.some((item) => itemMatchesFolder(item, selectedFolder))) selectedFolder = "";
+      render();
+    } catch (error) {
+      console.warn("[WorkflowX LoraX] Failed to refresh LoRA catalog", error);
+      if (backdrop.isConnected) {
+        results.innerHTML = '<div class="workflowx-lorax-empty">Could not refresh LoRAs</div>';
+      }
+    } finally {
+      refresh.disabled = false;
+      refresh.classList.remove("loading");
+    }
+  }
+
   close.addEventListener("click", closePicker);
+  refresh.addEventListener("click", reloadCatalog);
   backdrop.addEventListener("click", (event) => {
     if (event.target === backdrop) closePicker();
   });
