@@ -261,15 +261,35 @@ function screenGeometryToGraph(node, rect, fallbackGraph) {
   };
 }
 
+function resolveDockCanvasLayer(node) {
+  const root = node?.__workflowXUapRoot || node?.__workflowXUapWidget?.element;
+  const widgetHost = root?.closest?.(".dom-widget");
+  const layerHost = widgetHost?.parentElement;
+  if (!widgetHost || !layerHost?.classList?.contains("isolate")) return null;
+  return { widgetHost, layerHost };
+}
+
+function syncDockCanvasLayer(dock) {
+  const layer = resolveDockCanvasLayer(dock?.__workflowXNode);
+  if (!layer) return null;
+  if (dock.parentElement !== layer.layerHost) layer.layerHost.appendChild(dock);
+  const ownerZ = window.getComputedStyle(layer.widgetHost).zIndex;
+  dock.style.zIndex = ownerZ && ownerZ !== "auto"
+    ? ownerZ
+    : String(Number(layer.widgetHost.style.zIndex) || 1);
+  return layer;
+}
+
 function applyGraphDockTransform(dock) {
   const canvas = app.canvas;
   const node = dock?.__workflowXNode;
   const graph = dock?.__workflowXGraph;
   if (!canvas || !dock || !node || !graph) return;
+  const canvasLayer = syncDockCanvasLayer(dock);
   if (dock.classList.contains("fullscreen")) return;
 
   let nodeEl = null;
-  if (window.LiteGraph?.vueNodesMode && node.id != null) {
+  if (!canvasLayer && window.LiteGraph?.vueNodesMode && node.id != null) {
     nodeEl = node.__workflowXUapDockNodeEl;
     if (!nodeEl || !nodeEl.isConnected) {
       nodeEl = node.__workflowXUapDockNodeEl = document.querySelector(`[data-node-id="${node.id}"]`);
@@ -296,7 +316,7 @@ function applyGraphDockTransform(dock) {
     return;
   }
 
-  if (dock.parentElement !== document.body) {
+  if (!canvasLayer && dock.parentElement !== document.body) {
     document.body.appendChild(dock);
     dock.__workflowXDockSig = "";
   }
@@ -2273,6 +2293,8 @@ function dockIsOpen(node, key) {
 }
 
 function bringDockForward(dock) {
+  const canvasLayer = syncDockCanvasLayer(dock);
+  if (canvasLayer) return;
   if (nextDockZ >= DOCK_Z_LIMIT) {
     let z = DOCK_Z_BASE;
     for (const openDock of graphDocks) openDock.style.zIndex = String(++z);
@@ -7105,6 +7127,7 @@ function setupUnifiedAutoprompter(node) {
   });
 
   node.__workflowXUapWidgetHeight = NODE_MIN_WIDGET_HEIGHT;
+  node.__workflowXUapRoot = wrap;
   node.__workflowXUapWidget = node.addDOMWidget("unified_autoprompter_x", "Unified Autoprompter X", wrap, {
     serialize: false,
     hideOnZoom: false,

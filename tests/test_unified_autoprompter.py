@@ -2205,6 +2205,16 @@ def test_unified_frontend_routes_shared_controls_to_isolated_jsonx_state():
     assert 'if (isJsonXProfile()) {\n      persistJsonXProviderFromControls();\n      return;' in source
 
 
+def test_unified_preview_and_bbox_docks_follow_canvas_widget_stacking():
+    source = (ROOT / "web" / "js" / "unified_autoprompter.js").read_text(encoding="utf-8")
+    assert 'const widgetHost = root?.closest?.(".dom-widget")' in source
+    assert 'layerHost?.classList?.contains("isolate")' in source
+    assert "dock.style.zIndex = ownerZ" in source
+    assert "if (!canvasLayer && dock.parentElement !== document.body)" in source
+    assert "if (canvasLayer) return" in source
+    assert "node.__workflowXUapRoot = wrap" in source
+
+
 def test_unified_frontend_exposes_provider_aware_openai_controls_and_discovery():
     source = (ROOT / "web" / "js" / "unified_autoprompter.js").read_text(encoding="utf-8")
     for label in (
