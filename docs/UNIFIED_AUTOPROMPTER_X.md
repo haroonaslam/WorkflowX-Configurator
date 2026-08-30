@@ -1,374 +1,188 @@
-# Unified Autoprompter X Guide
+# Unified PrompterX Guide
 
 > [Node contract](../README.md#prompting-and-jsonx) · [Example workflow](../examples/02-local-generation-and-model-management.json)
 
-`Unified Autoprompter X` is a WorkflowX prompting node for building model-targeted prompts from one UI. It can generate prompt text through Gemini, OpenAI-compatible, Ollama, or local GGUF backends, then writes the result into normal ComfyUI node outputs.
+The source-to-field and reverse-payload review is recorded in the [Canonical Guide Audit](UNIFIED_CANONICAL_GUIDE_AUDIT.md).
 
-The node lives under:
+`Unified Autoprompter X` builds model-specific image, video, and JsonX prompts through one compact ComfyUI node. It lives under `WorkflowX/Prompting` and keeps its existing node ID and three `STRING` outputs: `prompt`, `positive`, and `negative`.
 
-```text
-WorkflowX/Prompting
-```
+## Node workflow
 
-## What It Does
+1. Select a target profile.
+2. Select one of that profile's supported generation types.
+3. Select an output format.
+4. Enter the request in **Prompt instructions**, or enable a connected `raw_prompt_text` input.
+5. Keep **Detail level** as a separate explicit instruction.
+6. Optionally connect images as prompt-authoring evidence. The selected generation type determines how their role is described.
+7. Choose a provider from the **Provider** dropdown, expand **Model settings**, and generate.
 
-Unified Autoprompter X helps convert a short idea, subject, image reference, or video intent into prompt output tailored for the selected target model.
+The NSFW checkbox adds exactly one shared Markdown block selected by output medium: Image or Video. It does not change Gemini or provider safety settings.
 
-It supports:
+Prompt instructions, detail level, generation type, NSFW state, generated outputs, and functional UI state travel with the workflow. Credentials, provider URLs, provider model choices, tuning parameters, and additional local-model folders remain in engine-specific browser storage.
 
-- image and video prompt profiles
-- natural, tags, and JSON prompt formats
-- optional negative prompt output
-- optional connected image references
-- Gemini model generation
-- Ollama model generation
-- local GGUF generation
-- editable model/profile instructions
-- BBox Layout editing helpers for bbox-capable targets
-- an isolated JsonX profile with Adaptive / Template Fill two-stage generation
+## Generation types
 
-## Node Inputs And Outputs
+Images belong to prompt authoring and do not choose or change the downstream generation type. Unified applies this four-state resolver:
 
-Inputs:
+| Downstream path | Image connected | Model-facing image block | Authoring image sent |
+| --- | --- | --- | ---: |
+| Supports image input | Yes | Supported with image connected | Yes |
+| Supports image input | No | Supported with image not connected | No |
+| Reference-unsupported | Yes | `without_reference_unsupported.md` | Yes |
+| Reference-unsupported | No | `without_reference_unsupported.md` | No |
 
-| Name | Type | Notes |
+Image-capable paths therefore remain usable when the user describes an assumed reference without attaching it. Text-to-Image and Text-to-Video can use connected images as visual evidence, but their final contracts remain self-contained text and never imply that the downstream generator receives those images. Unified enforces only its nine-image authoring limit and the selected provider/model's vision capability; it does not enforce downstream reference counts.
+
+Built-in support:
+
+| Profiles | Supported generation types | Default |
 | --- | --- | --- |
-| `target_model` | dropdown | Prompt profile target, such as `ideogram4` or `sdxl`. |
-| `prompt_format` | dropdown | `natural`, `tags`, or `json`; unsupported choices are normalized for the selected profile. |
-| `negative_enabled` | `BOOLEAN` | Enables separate negative prompt generation/output. |
-| `enable_bbox_json_input` | `BOOLEAN` | UI-managed toggle for reading connected `bbox_json` during BBox Layout sync. |
-| `enable_text_input` | `BOOLEAN` | UI-managed toggle for using connected `raw_prompt_text` during generation. |
-| `refresh_vram` | `BOOLEAN` | UI-managed toggle to unload ComfyUI models and clear cache before prompt generation. |
-| `generated_positive` | multiline `STRING` | UI-managed positive output. |
-| `generated_negative` | multiline `STRING` | UI-managed negative output. |
-| `final_prompt` | multiline `STRING` | UI-managed final prompt. |
-| `image` | optional `IMAGE` | Optional legacy visual reference. |
-| `image_1`, `image_2`, ... | optional dynamic `IMAGE` | Auto-growing ordered visual references for multi-ref prompting. |
-| `bbox_json` | optional connected `STRING` | Raw bbox layout JSON used only when `enable_bbox_json_input` is on and the user clicks BBox Layout `Sync`. |
-| `raw_prompt_text` | optional connected `STRING` | Raw upstream prompt text or JSON used as the generation source when `enable_text_input` is on. |
-| `ui_state` | optional multiline `STRING` | UI-managed editor/backend state. |
+| Image profiles | Text to Image, Image to Image | Text to Image |
+| JsonX | Text to Image, Image to Image | Text to Image |
+| WAN 2.2, LTX 2.3 | Text to Video, First Frame, First–Last Frame | Text to Video |
+| MiniMax H3 Official | Text to Video, First Frame, First–Last Frame, Last Frame, Reference to Video | Text to Video |
+| MiniMax H3 Alternate | Text to Video, First Frame, First–Last Frame, Reference to Video | Text to Video |
 
-Outputs:
+Connected images are sent to the authoring LLM in socket order. A path's editable canonical reference-usage block defines their role: for example, First–Last Frame treats the first two as boundary frames, while Reference to Video assigns bounded authority. If no image is attached, the corresponding no-image block tells the LLM to derive only the reference assumptions explicitly present in the user's description. For text-only downstream paths, connected media remains authoring guidance: the LLM combines visible evidence with the user's description to infer intent without emitting reference commentary or implying that the downstream generator receives the media.
 
-| Name | Type | Notes |
-| --- | --- | --- |
-| `prompt` | `STRING` | Final prompt ready for downstream nodes. |
-| `positive` | `STRING` | Positive prompt text. |
-| `negative` | `STRING` | Negative prompt text, or empty when negative output is disabled. |
+## Minimal prompt assembly
 
-For JSON prompt formats, the `prompt` output is the final JSON text. For natural and tag formats, `prompt` is assembled from positive and optional negative text.
+For standard profiles, Unified sends only exact Markdown file contents, in this order:
 
-## Built-In Profiles
+1. `split/common.md`.
+2. The selected generation-type file from `split/`, when it is non-empty.
+3. `nsfw-image.md` or `nsfw-video.md`, only when NSFW is enabled.
+4. Exactly one profile-level reference-processing file from `Supporting/`.
+5. Exactly one profile-wide output-contract file from `Supporting/`, selected by output format and negative state.
 
-Default profiles are stored in:
+File contents are not trimmed, interpolated, summarized, converted, or reformatted. Unified inserts only a fixed blank-line separator between selected blocks. An enabled generation type may have a blank file, in which case that optional block is skipped.
 
-```text
-unified_autoprompter/model_prompt_profiles.defaults.json
-```
+It does not send Unified identity text, target keys, display labels, profile notes, editor commentary, unrelated generation paths, or generic metadata headings.
 
-Current built-in targets:
+The user input contains only:
 
-| Profile | Key | Media | Default format |
-| --- | --- | --- | --- |
-| Ideogram 4 | `ideogram4` | image | `json` |
-| SDXL | `sdxl` | image | `tags` |
-| Qwen-Image | `qwen_image` | image | `natural` |
-| FLUX.1 dev | `flux1_dev` | image | `natural` |
-| FLUX.2 dev | `flux2_dev` | image | `natural` |
-| Flux Klein | `flux_klein` | image | `natural` |
-| Krea2 | `krea2` | image | `natural` |
-| Z-Image | `z_image` | image | `natural` |
-| WAN 2.2 | `wan2_2` | video | `natural` |
-| LTX 2.3 | `ltx_2_3` | video | `natural` |
-| MiniMax H3 Official | `minimax_h3_official` | video | `natural` |
-| MiniMax H3 Alternate | `minimax_h3_alternate` | video | `natural` |
-| JsonX | `jsonx` | image | `json` |
+- effective manual or connected prompt instructions;
+- detail level.
 
-Profiles define:
+Actual images are transmitted separately in the provider's multimodal payload. The **Preview** page separates the exact system text, exact user text, and submitted authoring media from **Local routing only** data such as activated relative filenames and sanitized provider parameters. Local routing metadata is never inserted into the model prompt. Preview and generation call the same Markdown payload builder.
 
-- display label
-- media type: image or video
-- enabled prompt formats
-- default format
-- negative prompt support
-- with-image and without-image instructions
-- output contracts for negative on/off states
+## Providers
 
-## Prompt Formats
-
-| Format | Typical use |
-| --- | --- |
-| `natural` | A polished paragraph or production prompt. |
-| `tags` | Comma-separated diffusion-style tags. |
-| `json` | Structured prompt JSON for models or workflows that benefit from schema-like control. |
-
-The selected profile decides which formats are available. If a workflow stores an invalid format for the current target, the node normalizes to that profile's default enabled format.
-
-## JsonX Profile
-
-Select **JsonX** to generate a structured JsonX prompt from the same Unified node. The normal prompt fields and connected images become JsonX instructions; the `prompt` and `positive` outputs contain the completed JSON or natural-language prompt, while `negative` is collected from the validated Stage 1 `negative` branch.
-
-Use the node's expandable **Model settings** section for Gemini, OpenAI-compatible, Ollama, and Local GGUF controls. The same controls are shown for every target; when JsonX is active they use JsonX-specific provider choices and browser-local credentials. Switching away and back restores each pathway's prior selection.
-
-Unified saves the active JsonX backend, selected provider models, portable runtime choices, and each used JsonX profile's generation configuration in that node's workflow state. This makes the workflow reproduce its JsonX setup after refresh and when it is reopened. API keys, provider URLs or hosts, and absolute additional-model-folder paths remain browser- or machine-local and are never embedded in workflow JSON. When an older workflow has no JsonX snapshot, Unified initializes it from the current browser/provider and profile settings, then saves the resulting per-node snapshot.
-
-Click **Profile settings**, select a JsonX profile in the left panel, and use the JsonX, Instructions, Image Mode, and Preview pages to configure Adaptive or Template Fill, Fast or Refined, Optimized or Full presets, Template Fill `Use Presets`, depth, the optional 3×3 framing map, editable Stage 1/Stage 2 instructions, and with/without-image additions. These settings participate in the normal Save, Duplicate, Import, Export, and Reset actions. Closing the editor without saving discards its draft. Natural language automatically uses the two-pass path. Use **Cancel JsonX** during an active generation to retain the prior output.
-
-Saving **Profile settings** still updates the shared profile definition for newly created nodes. The Unified node also records its own JsonX profile snapshot, so later shared-profile changes do not silently alter an existing workflow's generation contract.
-
-## Generation Backends
-
-Unified Autoprompter X can generate through four backend modes.
+Use the single **Provider** dropdown. The expandable **Model settings** panel changes to the selected provider and the node refits its height when the panel, provider, model list, or profile changes.
 
 ### Gemini
 
-Use Gemini when you want cloud model generation.
+Gemini exposes API key, model discovery, timeout, and harassment, hate-speech, sexually-explicit, and dangerous-content thresholds. Optional generation parameters are left to the provider unless the interface explicitly supplies them.
 
-UI fields:
+### Grok API
 
-- Gemini API key
-- Gemini model
-- timeout
-- safety thresholds for harassment, hate speech, sexually explicit, and dangerous content
-- fetch models
+Grok uses xAI's first-party Responses API at `https://api.x.ai/v1` with `store: false`. Settings include:
 
-The API key is stored in the browser via the frontend helper, not in the node's visible prompt outputs.
+- xAI API key;
+- language-model discovery and manual fallback;
+- timeout and maximum output tokens;
+- temperature and top-p;
+- model-supported reasoning effort;
+- prompt caching Auto/Off.
 
-Gemini safety thresholds default to `BLOCK_NONE` for all adjustable categories. The UI exposes the same public threshold set used by WorkflowX Gemini image nodes, excluding the special `OFF` value.
+Model discovery combines `/language-models` capability data with `/models` context metadata. Image-assisted generation is blocked for a discovered text-only model. JSON contracts request structured JSON output; natural contracts request text. Unified does not enable search, tools, citations, conversation persistence, code execution, or encrypted reasoning.
+
+Auto caching derives a stable non-sensitive key from engine, profile, generation type, format, stage, and the selected system-instruction checksum. User text, images, and credentials are excluded. Diagnostics may report sanitized model, context, input, output, reasoning, cached-token, and total-token statistics.
+
+### DeepSeek API
+
+DeepSeek is a dedicated first-party provider path using the official Chat Completions API at `https://api.deepseek.com`. It is separate from the generic OpenAI-compatible provider and exposes:
+
+- DeepSeek API key;
+- live `/models` discovery with manual model fallback;
+- timeout and maximum output tokens;
+- thinking mode and supported reasoning effort;
+- temperature and top-p for non-thinking generation;
+- capability-aware image input and image-detail selection for `deepseek-v4-flash-vision-exp`.
+
+DeepSeek text-only models work for any path when no authoring image is connected. If an image is connected—even as Text-to-Image or Text-to-Video guidance—the selected model must support vision. The vision model accepts ordered ComfyUI images using inline OpenAI-compatible `image_url` blocks. Non-vision models reject submitted images before dispatch. Image detail supports Provider Default, Auto, Low, High, and Original; inline requests enforce DeepSeek's 32 MiB per-image and 48 MiB request-body limits.
+
+Thinking output is never merged into the generated prompt; only final response content is parsed, while sanitized reasoning-token and automatic context-cache statistics may appear in diagnostics. Optional sampling values are omitted in thinking mode because the provider documents them as ineffective there.
 
 ### OpenAI Compatible
 
-Use OpenAI Compatible when you want generation through LM Studio, Open WebUI, LiteLLM, or another server that exposes an OpenAI-compatible API.
+The generic OpenAI-compatible path supports arbitrary servers with base URL/key, discovery or manual model ID, timeout, reasoning where supported, and server-managed/keep-loaded/unload-after lifecycle behavior. It uses Chat Completions and does not assume LM Studio- or Unsloth-specific request fields.
 
-UI fields:
+### LM Studio
 
-- base URL, default `http://localhost:1234/v1`
-- optional API key
-- model ID, typed manually or selected after fetching
-- optional unload after
-- timeout
-- fetch models
+The dedicated LM Studio path uses the native `/api/v1/chat` interface with storage disabled. It supports multimodal image payloads, native model discovery, model instance lifecycle, maximum output tokens, context length, temperature, top-p, top-k, min-p, repeat penalty, and supported reasoning controls. When returned by the server, diagnostics include token counts, tokens per second, time to first token, and model-load time.
 
-The backend lists models from `{base_url}/models` and generates through `{base_url}/chat/completions`. Connected image previews are sent as Chat Completions `image_url` data URLs when available.
+Unload failures are non-blocking. The generated result is retained and a sanitized warning is printed to the ComfyUI console.
 
-The API key is stored in the browser via the frontend helper, not in the node's visible prompt outputs. Leave it empty for local servers that do not require authentication.
+### Unsloth Studio
 
-When `unload after` is enabled, the compatible backend first generates through Chat Completions and then attempts LM Studio's unload endpoint, `POST /api/v1/models/unload`, using the selected model ID as `instance_id`. This unload request is best effort: if the endpoint is missing, rejects the request, or times out, generation output is still returned normally. Ollama keeps its separate `keep_alive: 0` unload behavior.
+The dedicated Unsloth path exposes server URL/key, discovery, timeout, maximum new tokens, temperature, top-p, top-k, min-p, repetition penalty, presence penalty, enable-thinking mode, reasoning effort, and preserve-thinking when advertised.
 
-Common base URL examples:
-
-- LM Studio: `http://localhost:1234/v1`
-- Open WebUI: use the OpenAI-compatible base URL exposed by the instance, commonly ending in `/v1` or `/api` depending on setup.
+Discovery reports active/native/maximum context information. Unified does not send an unsupported per-request context override. Image calls are blocked when the active model reports that it lacks vision support. Unload failures remain non-blocking console warnings.
 
 ### Ollama
 
-Use Ollama when you have a local Ollama server running.
-
-UI fields:
-
-- Ollama host, default `http://localhost:11434`
-- Ollama model
-- optional think mode
-- fetch models
-
-The backend calls the configured Ollama host and can send the connected image when the selected model supports image input.
+Ollama exposes host, model discovery, timeout, think, unload, maximum output tokens, context length, temperature, top-p, top-k, min-p, repeat penalty, and seed. Empty optional values are omitted so Ollama retains its own defaults.
 
 ### Local GGUF
 
-Use Local GGUF when you want generation through local llama.cpp-compatible files discovered by WorkflowX.
+Local GGUF keeps the existing recursive `ComfyUI/models/LLM` discovery plus optional semicolon-separated additional folders. It exposes model, mmproj, prompt preset, context, output length, sampling, memory/offload, reasoning, GPU/CPU layers, seed, and speculative MTP settings.
 
-WorkflowX registers:
+The standard Unified runtime is pinned under `vendor/llama.cpp`; the isolated Unified JsonX profile uses `vendor/unified-jsonx-llama.cpp`. MTP Auto detects compatible embedded metadata, Off disables it, and forced MTP enables the configured draft-token count. Long system prompts use short temporary UTF-8 files that are cleaned on success, failure, cancellation, and process-start errors.
 
-```text
-ComfyUI/models/LLM/
-ComfyUI/models/LLM/prompts/
-```
+## JsonX profile
 
-Local model support uses:
+JsonX uses the common Provider and Model settings UI but dispatches only through its private routes, providers, reference store, validation engine, cancellation registry, and llama.cpp cache. Its reference subtree is managed independently under `reference/original/JsonX` and `reference/current_use/JsonX`; standard profile operations ignore and preserve that subtree. The only shared prompt content is `nsfw-image.md`.
 
-- `.gguf` model files under `models/LLM`
-- optional mmproj `.gguf` files under `models/LLM`
-- optional system prompt `.txt` presets under `models/LLM/prompts`
+The JsonX profile action opens an isolated Markdown-backed editor with Overview, Path Settings, Templates, Presets, Output Contracts, and Preview. Overview controls Adaptive/Template Fill, Fast/Refined, Ranked/Full Adaptive context, hierarchy depth, Template Fill presets, framing, default format, and enabled/default generation route. Path Settings exposes every stage, repair, conditional, reference, and user-message template as an exact file-backed editor.
 
-Use `Additional model folders` to reuse GGUF files already managed by LM Studio or another application. Enter one or more directory paths separated by semicolons, then click `Refresh local GGUF list`. WorkflowX scans each directory recursively, combines the results with `ComfyUI/models/LLM`, and removes duplicate resolved files. External models and mmproj files appear with an `(external)` label; system prompt presets continue to come from `ComfyUI/models/LLM/prompts`.
+Templates exposes the ranked and full Adaptive context carriers plus both Template Fill hierarchy variants. Presets exposes the complete raw JSON catalog and validates it before Save. Output Contracts exposes the exact Stage 1, refined JSON, natural prose, JSON repair, and natural repair contracts. Unknown or missing template tokens, malformed presets, missing required blocks, and unsafe paths fail explicitly instead of falling back to hidden constants.
 
-The additional-folder list is browser-local Unified state. It is not written into workflow JSON and is sent to the backend only while refreshing the list or running the selected local model. External selections use opaque identifiers and can resolve only inside the currently configured folders. Missing paths are skipped and reported in the node status.
+Natural output always follows the validated two-call path. Stage 1 remains in memory, Stage 2 receives no preset catalog, and Unified derives its `negative` output locally from the validated Stage 1 `negative` branch. Preview and generation use the same private payload builder. Duplicate, Import, Export, Save, Reset Profile, Reset All, and Revert operate on exact JsonX Markdown bundles, while the node serializes only behavior selections and JsonX provider choices remain isolated in browser storage.
 
-UI fields include model selection, mmproj selection, system prompt preset, and local generation options.
+## Markdown-backed profile settings
 
-The standard Unified Local GGUF runtime is pinned to llama.cpp `b10252` and no longer reuses older runtime folders automatically. Its local options include speculative decoding: `Auto` detects embedded MTP metadata, `Off` disables it, and `Force embedded MTP` sends `draft-mtp`; the draft-token value defaults to `2`. Long system instructions are placed in a temporary UTF-8 system file rather than the Windows command line and are cleaned after the request ends.
+Standard profiles use a dedicated reference schema independently from the existing Unified/JsonX schema. Packaged defaults are immutable under `unified_autoprompter/reference/original`; runtime and UI always load `unified_autoprompter/reference/current_use`. On upgrade, newly packaged profiles and files are copied into `current_use` only when missing, so existing edits are not overwritten. Direct filesystem edits become active on the next Preview or Generate request without restarting ComfyUI.
 
-## Connected Image Inputs
+The standard editor has two modes. **Profiles** provides Overview, Common Profile Rules, Generation Paths, Reference Usage, Output Contracts, and Preview. **Global NSFW Rules** provides exactly two editors: Image and Video. Every textarea contains the exact corresponding Markdown string, including headings, lists, tags, blank lines, and line endings.
 
-The optional `image` input is kept for backward compatibility. The frontend also adds auto-growing `image_1`, `image_2`, and later sockets as you connect references.
+- **Common Profile Rules** edits `split/common.md`.
+- **Generation Paths** edits the selected enabled generation type's mapped file. Enabling a type without a file exposes a blank editor, and Save creates it.
+- **Reference Usage** edits the three profile-level conditional files.
+- **Output Contracts** selects one profile-wide contract by Natural/JSON/Tags and negative on/off; it is not duplicated per generation path.
+- **Preview** reads the last saved `current_use`, which is also the generation source. Save draft edits before previewing them.
 
-Connected images are sent to the prompt backend in socket order. The first connected image is also used as the BBox Layout overlay. Prompt context names them as `Image1`, `Image2`, and so on.
+Save transactionally replaces only `current_use`. Revert discards unsaved modal edits. Reset Profile restores one built-in profile from `original`; Reset All restores all built-ins and both NSFW files while preserving custom profiles. Duplicate copies exact current Markdown into a custom profile. Import creates an unsaved draft, while Export downloads the last saved versioned bundle.
 
-Use it for:
+The standard manifest stores routing metadata only: profile keys and labels, folder mappings, media type, enabled/default formats and generation types, negative support, reference capability, filename mappings, and the reference schema version. It contains no model-facing instructions. JsonX has a separate manifest and reference-schema handshake; legacy profile JSON is not a JsonX prompt source.
 
-- image-to-prompt
-- reference-based edits
-- layout or identity preservation
-- color, lighting, pose, or composition extraction
+The frontend/backend Unified handshake remains version 7. Standard Markdown references and JsonX Markdown references each have an independent version-1 handshake. If any browser/backend pair is stale, generation stops and asks you to restart ComfyUI and hard-refresh instead of sending an incompatible payload.
 
-If a connected image has no preview yet, run or refresh the upstream image node first so the frontend can capture it.
+## Preserved controls
 
-## Connected JSON And Text Inputs
-
-The optional `bbox_json` and `raw_prompt_text` inputs are raw `STRING` connections.
-
-`bbox_json` is sync-only. When `Use connected bbox JSON` is enabled, the BBox Layout editor's `Sync` button first reads the connected JSON and renders its regions. Generation does not automatically use connected bbox JSON until you sync or apply the layout.
-
-`raw_prompt_text` is generation-source only. When `Use connected text` is enabled and the connected text is readable, Unified Autoprompter X sends that raw text to the selected backend instead of the Idea, Subject, Style, Camera, and Text fields. The backend still refines it normally for the selected target model and format. The connected text can be plain text or arbitrary JSON.
-
-If either enabled input is missing or unreadable, the UI shows a status warning and falls back to the current cached output or form fields.
-
-## VRAM Refresh
-
-Enable `refresh VRAM` before generation when existing ComfyUI image/video models are still resident and may compete with the prompt model for VRAM. When checked, Unified Autoprompter X asks ComfyUI to unload all loaded models and clear cache before calling the selected prompt backend. This may make generation start a little slower, but can prevent prompt LLM loading from spilling into system RAM.
-
-## Video Prompt Fields
-
-For video profiles, the UI exposes extra intent fields:
-
-- video duration or frames
-- motion / action
-- temporal beats
-- camera movement
-- audio / dialogue
-- reference or control notes
-
-These fields are included only when the active profile is a video profile, such as `wan2_2`, `ltx_2_3`, `minimax_h3_official`, or `minimax_h3_alternate`.
-
-MiniMax H3 profiles prepare prompts for an external video model; they do not call a MiniMax API directly. Unlike the image prompt profiles, MiniMax H3 outputs are plain-text prompt bodies, not JSON-wrapped positive/negative objects. The node preserves MiniMax section headings, reference-definition lines, and blank lines so the output can be pasted directly into the video model.
-
-Connected image refs are converted into exact `<Picture N>` tokens in the generated prompt. Audio and video references are text-only in this node: describe them in Audio / dialogue, Reference / control notes, Raw input prompt, or Extra instructions, for example `Audio1 is a female vocal track`, `use Audio1 as-is as the final soundtrack`, or `Video1 defines the background motion`, and the MiniMax profiles will map them to `<Audio N>` or `<Video N>` roles. Audio roles follow the wording you provide: direct reuse, partial copy, music style, ambience, sound effects, dialogue or lyrics, beat/rhythm, continuity, or voice characteristics. When Urdu dialogue is requested, MiniMax profiles instruct the generator to write the spoken line in native Urdu script, not Roman Urdu, unless romanized text is explicitly requested. MiniMax profiles do not produce a separate UAP negative prompt; the Alternate profile may still include its skill-native `[NEGATIVES]` section inside the prompt body.
-
-## BBox Layout Tools
-
-When `target_model` is bbox-capable, the UI exposes BBox Layout helpers.
-
-Initial bbox-capable targets:
-
-| Target | Key | BBox order |
-| --- | --- | --- |
-| Ideogram 4 | `ideogram4` | `[y_min,x_min,y_max,x_max]` |
-| Krea2 | `krea2` | `[x_min,y_min,x_max,y_max]` |
-
-Capabilities include:
-
-- structured JSON prompt output
-- bbox/layout JSON hints
-- palette hints
-- layout editor
-- image overlay preview
-- saved layout templates
-- apply layout to output
-- copy/sync layout JSON
-- keyboard delete/backspace for the selected unlocked region
-
-The BBox Layout editor stores boxes internally as normalized canvas rectangles, then imports and exports the correct bbox order for the active target model. `Apply layout to output` writes the current layout JSON to the node output and selects JSON format for the active bbox-capable target.
-
-## Model Settings
-
-Click `Model settings` in the UI to edit target profiles.
-
-Profile settings include:
-
-- key
-- label
-- media type
-- default format
-- negative support
-- JSON support
-- notes
-- per-format enablement
-- common format instructions
-- with-image instructions
-- without-image instructions
-- output contract when negative is off
-- output contract when negative is on
-
-Built-in profiles can be reset to WorkflowX defaults. Custom profiles can be added, duplicated, edited, and deleted.
-
-Use `Export JSON` to write the current model settings, default profiles, custom profiles, and profile metadata to one JSON file. Use `Import JSON` to load a previously exported file back into the settings draft, then review it and click `Save` to apply it.
-
-User profile settings are saved to:
-
-```text
-unified_autoprompter/model_prompt_profiles.json
-```
-
-When saving over an existing file, WorkflowX creates a `.bak` backup.
-
-## Output Behavior
-
-The backend generation route returns parsed fields:
-
-- `prompt`
-- `positive`
-- `negative`
-- raw backend response
-- target model
-- prompt format
-- negative enabled state
-
-The frontend writes generated values back into node widgets. The Python node then returns those widget values as ComfyUI outputs at execution time.
-
-Important details:
-
-- If `final_prompt` is populated, it wins as the `prompt` output.
-- If `negative_enabled` is off, the negative output is empty.
-- For tag format, generated text is normalized into comma-separated tags.
-- For JSON format, the parser extracts the JSON object from fenced or plain responses when possible.
-
-## Practical Workflow
-
-1. Add `Unified Autoprompter X`.
-2. Choose `target_model`.
-3. Choose `prompt_format`.
-4. Enable negative output only if the downstream workflow needs it.
-5. Optionally connect one or more image inputs.
-6. Choose Gemini, OpenAI Compatible, Ollama, or Local GGUF.
-7. Enter the idea, subject, image note, or video notes.
-8. Click `Generate`.
-9. Review positive, negative, and final prompt output.
-10. Connect `prompt`, `positive`, or `negative` to downstream text-consuming nodes.
+- `raw_prompt_text`, when enabled and readable, replaces only the manual Prompt instructions; Detail level still applies.
+- BBox JSON sync, BBox Layout, palettes, layout application, image ordering, negative output, saved output widgets, node ID, and output indices remain compatible.
+- **Cancel** marks the active request cancelled and preserves the previous output. Local llama.cpp processes are terminated through their cancellation event; remote results that arrive after cancellation are discarded.
+- **Refresh VRAM** requests ComfyUI model unloading/cache cleanup before generation.
 
 ## Troubleshooting
 
-### Gemini models do not load
+### Schema mismatch after updating
 
-Check that the API key is present, the timeout is high enough, and the network can reach Gemini.
+Restart ComfyUI and hard-refresh the browser. The node deliberately refuses to mix v7 JavaScript with an older Python route or the reverse.
 
-### OpenAI Compatible models do not load
+### Image guidance error
 
-Check that the base URL is correct, the timeout is high enough, and the API key is present if the server requires one. Some compatible servers do not expose model discovery; type the model ID manually and generate through chat completions.
+Unified accepts at most nine authoring images. If any image is connected, the selected provider model must accept vision input; Local GGUF also requires a compatible vision `mmproj`. Run or refresh upstream image nodes so their previews are readable before generating.
 
-### Ollama models do not load
+### Models do not appear
 
-Check that Ollama is running and the host field points to the correct server, usually:
+Use the active provider's discovery action. Generic OpenAI-compatible servers may require a manual model ID. For Local GGUF, add the existing model folder to **Additional model folders** and refresh instead of duplicating the file under ComfyUI.
 
-```text
-http://localhost:11434
-```
+### Provider Default
 
-### Local GGUF list is empty
+Leave an optional number empty to omit it from the request. Unified does not manufacture a sampling value for empty Grok, Studio, generic OpenAI, Gemini, or Ollama controls.
 
-Place `.gguf` files under:
+### Previous output remains after an error
 
-```text
-ComfyUI/models/LLM/
-```
-
-Then click `Refresh local GGUF list`.
-
-If the model is already stored by LM Studio or another tool, place its containing directory in `Additional model folders` instead of copying the file. Multiple directories can be separated with semicolons.
-
-### Connected image is ignored
-
-Run or refresh the upstream image node first. Unified Autoprompter X needs a frontend image preview to convert the connected image into generation context.
-
-### Output format looks wrong
-
-Open `Model settings` and check the selected profile's enabled formats and output contracts. The parser expects backend responses to follow the active profile's contract.
+This is intentional. Provider, validation, repair, context, image-capability, and cancellation failures do not replace the last successful output.

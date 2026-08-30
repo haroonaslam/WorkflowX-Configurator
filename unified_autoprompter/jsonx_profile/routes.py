@@ -8,9 +8,16 @@ from typing import Any
 from aiohttp import web
 
 from . import engine
+from . import reference_store
+from ..profiles import (
+    get_profile,
+    normalize_format,
+    normalize_generation_type,
+)
 
 
 ROUTE_PREFIX = "/workflowx/unified_autoprompter/jsonx"
+SCHEMA_VERSION = 7
 
 
 class CancellationRegistry:
@@ -48,19 +55,28 @@ class CancellationRegistry:
 
 def _instructions_from_fields(fields: Any) -> str:
     data = fields if isinstance(fields, dict) else {}
-    items = (
-        ("Idea", data.get("idea")),
-        ("Subject", data.get("subject")),
-        ("Style", data.get("style")),
-        ("Lighting", data.get("lighting")),
-        ("Camera / composition", data.get("composition")),
-        ("Text / typography", data.get("text")),
-        ("Detail level", data.get("detail")),
-        ("Reference image note", data.get("image_note")),
-        ("Connected text", data.get("raw_prompt_text")),
-        ("Extra instructions", data.get("extra_instructions")),
+    selected_prompt = str(data.get("raw_prompt_text") or data.get("prompt_text") or "").strip()
+    if selected_prompt:
+        items = (("", selected_prompt), ("Detail level", data.get("detail")))
+    else:
+        # Legacy route/API compatibility for callers that still submit the old
+        # structured field collection.
+        items = (
+            ("Idea", data.get("idea")),
+            ("Subject", data.get("subject")),
+            ("Style", data.get("style")),
+            ("Lighting", data.get("lighting")),
+            ("Camera / composition", data.get("composition")),
+            ("Text / typography", data.get("text")),
+            ("Detail level", data.get("detail")),
+            ("Reference image note", data.get("image_note")),
+            ("Extra instructions", data.get("extra_instructions")),
+        )
+    return "\n".join(
+        f"{label}: {str(value).strip()}" if label else str(value).strip()
+        for label, value in items
+        if str(value or "").strip()
     )
-    return "\n".join(f"{label}: {str(value).strip()}" for label, value in items if str(value or "").strip())
 
 
 def _negative_text(prompt: Any) -> str:
@@ -77,14 +93,58 @@ def _negative_text(prompt: Any) -> str:
             values.append(value.strip())
 
     if isinstance(prompt, dict):
-        collect(prompt.get("negative"))
+        for key in ("negative", "negative_prompts", "negative_prompt", "avoid"):
+            collect(prompt.get(key))
     return "\n".join(dict.fromkeys(values))
 
 
 def _request_payload(body: dict[str, Any]) -> dict[str, Any]:
     payload = dict(body)
+    profile = get_profile(str(body.get("target_model") or body.get("profile_key") or "jsonx"))
+    if profile.engine != "jsonx":
+        raise ValueError("The selected profile is not a JsonX engine profile.")
+    generation_type = normalize_generation_type(profile.key, str(body.get("generation_type") or ""))
+    images = body.get("images_b64") if isinstance(body.get("images_b64"), list) else []
+    if not images and str(body.get("image_b64") or "").strip():
+        images = [body.get("image_b64")]
+    connected_images = [item for item in images if str(item or "").strip()]
+    if len(connected_images) > 9:
+        raise ValueError("Unified JsonX accepts at most nine connected authoring images.")
+    output_format = normalize_format(profile.key, str(body.get("output_format") or ""))
+    image_state = (
+        "supported_with_image" if generation_type == "image_to_image" and connected_images
+        else "supported_without_image" if generation_type == "image_to_image"
+        else "unsupported_with_image_guidance" if connected_images
+        else None
+    )
+    payload["generation_type"] = generation_type
+    payload["output_format"] = output_format
+    payload["profile_key"] = profile.key
+    payload["images_b64"] = connected_images
+    payload["image_b64"] = connected_images[0] if connected_images else ""
+    payload["has_image"] = bool(connected_images)
+    payload["_connected_image_count"] = len(connected_images)
+    payload["_ignored_image_count"] = 0
+    payload["_submitted_image_count"] = len(connected_images)
+    payload["_image_state"] = image_state
     payload["user_instructions"] = _instructions_from_fields(body.get("fields"))
     return payload
+
+
+def _require_schema(body: dict[str, Any]) -> None:
+    supplied = int(body.get("schema_version") or 0)
+    if supplied != SCHEMA_VERSION:
+        raise ValueError(
+            f"Unified schema mismatch (frontend {supplied or 'missing'}, backend {SCHEMA_VERSION}). "
+            "Restart ComfyUI and hard-refresh the browser."
+        )
+    reference_supplied = int(body.get("jsonx_reference_schema_version") or 0)
+    if reference_supplied != reference_store.JSONX_REFERENCE_SCHEMA_VERSION:
+        raise ValueError(
+            "Unified JsonX reference schema mismatch "
+            f"(frontend {reference_supplied or 'missing'}, backend "
+            f"{reference_store.JSONX_REFERENCE_SCHEMA_VERSION}). Restart ComfyUI and hard-refresh the browser."
+        )
 
 
 def _valid_generation_id(value: Any) -> str:
@@ -99,25 +159,67 @@ def register_routes(prompt_server) -> None:
         return
     routes = prompt_server.routes
 
+    @routes.get(f"{ROUTE_PREFIX}/reference_config")
+    async def reference_config(_request):
+        try:
+            return web.json_response({
+                "current": reference_store.current_bundle(),
+                "original": reference_store.original_bundle(),
+            })
+        except Exception as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+
+    @routes.post(f"{ROUTE_PREFIX}/reference_config")
+    async def save_reference_config(request):
+        try:
+            body = await request.json()
+            saved = reference_store.save_current_bundle(body if isinstance(body, dict) else {})
+            return web.json_response({"ok": True, "current": saved})
+        except Exception as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+
+    @routes.post(f"{ROUTE_PREFIX}/reference_config/reset_profile")
+    async def reset_reference_profile(request):
+        try:
+            body = await request.json()
+            saved = reference_store.reset_profile(str((body or {}).get("profile_key") or ""))
+            return web.json_response({"ok": True, "current": saved})
+        except Exception as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+
+    @routes.post(f"{ROUTE_PREFIX}/reference_config/reset_all")
+    async def reset_all_references(_request):
+        try:
+            saved = reference_store.reset_all()
+            return web.json_response({"ok": True, "current": saved})
+        except Exception as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+
     @routes.get(f"{ROUTE_PREFIX}/presets/info")
-    async def presets_info(_request):
-        raw = engine.raw_presets_text()
+    async def presets_info(request):
+        profile_key = str(request.query.get("profile_key") or "jsonx")
+        raw = engine.raw_presets_text(profile_key)
         return web.json_response({
             "characters": len(raw),
             "estimated_tokens": max(1, (len(raw) + 3) // 4),
-            "schema_paths": len(engine.preset_schema_paths()),
+            "schema_paths": len(engine.preset_schema_paths(engine.load_presets(profile_key))),
         })
 
     @routes.get(f"{ROUTE_PREFIX}/instructions")
-    async def instruction_templates(_request):
-        return web.json_response(engine.instruction_templates())
+    async def instruction_templates(request):
+        return web.json_response(engine.instruction_templates(str(request.query.get("profile_key") or "jsonx")))
 
     @routes.post(f"{ROUTE_PREFIX}/instructions/preview")
     async def instruction_preview(request):
         try:
             body = await request.json()
+            _require_schema(body if isinstance(body, dict) else {})
             body = _request_payload(body if isinstance(body, dict) else {})
             result = await asyncio.get_event_loop().run_in_executor(None, engine.effective_instruction_preview, body)
+            result["connected_image_count"] = body.get("_connected_image_count", 0)
+            result["image_count"] = body.get("_submitted_image_count", 0)
+            result["ignored_image_count"] = body.get("_ignored_image_count", 0)
+            result["image_state"] = body.get("_image_state")
             return web.json_response(result)
         except Exception as exc:
             return web.json_response({"error": str(exc)}, status=400)
@@ -150,8 +252,76 @@ def register_routes(prompt_server) -> None:
         try:
             body = await request.json()
             timeout = float(body.get("timeout") or 120)
+            discovery = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: engine.openai_backend.discover_models(
+                    str(body.get("base_url") or "").strip(),
+                    str(body.get("api_key") or "").strip(),
+                    timeout,
+                    str(body.get("server_type") or "auto"),
+                ),
+            )
+            return web.json_response(discovery)
+        except Exception as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+
+    @routes.post(f"{ROUTE_PREFIX}/lm_studio/models")
+    async def lm_studio_models(request):
+        try:
+            body = await request.json()
+            discovery = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: engine.openai_backend.discover_models(
+                    str(body.get("base_url") or "").strip(),
+                    str(body.get("api_key") or "").strip(),
+                    float(body.get("timeout") or 120),
+                    "lm_studio",
+                ),
+            )
+            return web.json_response(discovery)
+        except Exception as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+
+    @routes.post(f"{ROUTE_PREFIX}/unsloth/models")
+    async def unsloth_models(request):
+        try:
+            body = await request.json()
+            discovery = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: engine.openai_backend.discover_models(
+                    str(body.get("base_url") or "").strip(),
+                    str(body.get("api_key") or "").strip(),
+                    float(body.get("timeout") or 120),
+                    "unsloth",
+                ),
+            )
+            return web.json_response(discovery)
+        except Exception as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+
+    @routes.post(f"{ROUTE_PREFIX}/grok/models")
+    async def grok_models(request):
+        try:
+            body = await request.json()
             models = await asyncio.get_event_loop().run_in_executor(
-                None, engine.openai_backend.list_models, str(body.get("base_url") or "").strip(), str(body.get("api_key") or "").strip(), timeout
+                None,
+                lambda: engine.grok_backend.list_models(
+                    str(body.get("api_key") or "").strip(), float(body.get("timeout") or 120)
+                ),
+            )
+            return web.json_response({"models": models})
+        except Exception as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+
+    @routes.post(f"{ROUTE_PREFIX}/deepseek/models")
+    async def deepseek_models(request):
+        try:
+            body = await request.json()
+            models = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: engine.deepseek_backend.list_models(
+                    str(body.get("api_key") or "").strip(), float(body.get("timeout") or 120)
+                ),
             )
             return web.json_response({"models": models})
         except Exception as exc:
@@ -173,6 +343,7 @@ def register_routes(prompt_server) -> None:
         generation_id = ""
         try:
             body = await request.json()
+            _require_schema(body if isinstance(body, dict) else {})
             body = _request_payload(body if isinstance(body, dict) else {})
             generation_id = _valid_generation_id(body.get("generation_id"))
             body["_cancel_event"] = CancellationRegistry.begin(generation_id)
@@ -180,6 +351,10 @@ def register_routes(prompt_server) -> None:
             stage_one = result.pop("_stage_one", None)
             result["positive"] = result.get("prompt", "")
             result["negative"] = _negative_text(stage_one)
+            result["connected_image_count"] = body.get("_connected_image_count", 0)
+            result["image_count"] = body.get("_submitted_image_count", 0)
+            result["ignored_image_count"] = body.get("_ignored_image_count", 0)
+            result["image_state"] = body.get("_image_state")
             return web.json_response(result)
         except engine.JsonXGenerationCancelled:
             return web.json_response({"error": "Unified JsonX generation cancelled.", "cancelled": True}, status=409)

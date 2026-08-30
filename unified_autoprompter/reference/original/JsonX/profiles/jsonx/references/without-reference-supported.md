@@ -1,0 +1,1 @@
+No connected image is available. Derive the intended reference roles and all visual details from the user's description without claiming visual inspection. If the user supplies textual assumptions such as “assume Image 1 shows…”, treat them as described evidence and preserve the assigned roles; otherwise construct the requested JsonX description directly from the text.

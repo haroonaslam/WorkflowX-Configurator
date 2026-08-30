@@ -3,7 +3,14 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from .profiles import FORMAT_JSON, format_options, normalize_format, profile_options
+from .profiles import (
+    ALL_GENERATION_TYPES,
+    FORMAT_JSON,
+    GENERATION_TEXT_TO_IMAGE,
+    format_options,
+    normalize_format,
+    profile_options,
+)
 from .prompt_io import build_outputs
 
 
@@ -64,6 +71,11 @@ class UnifiedAutoprompterX:
                 "target_model": (profile_options(), {"default": "ideogram4"}),
                 "prompt_format": (format_options(), {"default": FORMAT_JSON}),
                 "negative_enabled": ("BOOLEAN", {"default": False}),
+                "generation_type": (ALL_GENERATION_TYPES, {"default": GENERATION_TEXT_TO_IMAGE}),
+                "nsfw_enabled": (
+                    "BOOLEAN",
+                    {"default": False, "tooltip": "UI-managed toggle for generation-path-specific NSFW prompt rules."},
+                ),
                 "enable_bbox_json_input": (
                     "BOOLEAN",
                     {"default": False, "tooltip": "UI-managed toggle for syncing a connected bbox_json STRING into BBox Layout."},
@@ -101,6 +113,8 @@ class UnifiedAutoprompterX:
         target_model: str = "ideogram4",
         prompt_format: str = FORMAT_JSON,
         negative_enabled: bool = False,
+        generation_type: str = GENERATION_TEXT_TO_IMAGE,
+        nsfw_enabled: bool = False,
         enable_bbox_json_input: bool = False,
         enable_text_input: bool = False,
         refresh_vram: bool = False,

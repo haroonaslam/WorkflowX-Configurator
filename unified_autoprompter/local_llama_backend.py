@@ -306,6 +306,7 @@ def generate(
     system_prompt_preset: str = NO_SYSTEM_PROMPT,
     additional_model_paths: Any = None,
     options: dict[str, Any] | None = None,
+    cancel_event: Any = None,
 ) -> str:
     if not model or model == NO_MODELS_FOUND:
         raise ValueError("Select a local GGUF model from the configured model folders.")
@@ -328,6 +329,7 @@ def generate(
         command,
         timeout_seconds=_int_value(options.get("timeout"), 180, 5, 3600),
         cleanup_paths=cleanup_paths,
+        cancel_event=cancel_event,
     )
     return response
 
@@ -336,6 +338,7 @@ def run_llama_cli(
     command: list[str],
     timeout_seconds: int,
     cleanup_paths: tuple[Path | None, ...] = (),
+    cancel_event: Any = None,
 ) -> tuple[str, str, str]:
     process = None
     try:
@@ -349,7 +352,7 @@ def run_llama_cli(
             errors="replace",
             shell=False,
         )
-        stdout, stderr = _communicate_with_interrupt(process, timeout_seconds)
+        stdout, stderr = _communicate_with_interrupt(process, timeout_seconds, cancel_event=cancel_event)
         result = subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
     except BaseException:
         if process is not None:
@@ -382,9 +385,16 @@ def _stop_process(process: subprocess.Popen) -> None:
         process.wait(timeout=3)
 
 
-def _communicate_with_interrupt(process: subprocess.Popen, timeout_seconds: int) -> tuple[str, str]:
+def _communicate_with_interrupt(
+    process: subprocess.Popen,
+    timeout_seconds: int,
+    cancel_event: Any = None,
+) -> tuple[str, str]:
     deadline = time.monotonic() + timeout_seconds
     while True:
+        if cancel_event is not None and cancel_event.is_set():
+            _stop_process(process)
+            raise RuntimeError("Generation cancelled.")
         if _processing_interrupted():
             _stop_process(process)
             _throw_if_interrupted()

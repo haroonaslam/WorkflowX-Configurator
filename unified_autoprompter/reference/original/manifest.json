@@ -1,0 +1,165 @@
+{
+  "schema_version": 1,
+  "generation_types": {
+    "text_to_image": {"label": "Text to Image", "filename": "text-to-image.md", "output_medium": "image", "reference_supported": false},
+    "image_to_image": {"label": "Image to Image", "filename": "image-to-image.md", "output_medium": "image", "reference_supported": true},
+    "text_to_video": {"label": "Text to Video", "filename": "text-to-video.md", "output_medium": "video", "reference_supported": false},
+    "first_frame_to_video": {"label": "First Frame to Video", "filename": "first-frame-to-video.md", "output_medium": "video", "reference_supported": true},
+    "first_last_frame_to_video": {"label": "First-Last Frame to Video", "filename": "first-last-frame-to-video.md", "output_medium": "video", "reference_supported": true},
+    "last_frame_to_video": {"label": "Last Frame to Video", "filename": "last-frame-to-video.md", "output_medium": "video", "reference_supported": true},
+    "reference_to_video": {"label": "Reference to Video", "filename": "reference-to-video.md", "output_medium": "video", "reference_supported": true},
+    "video_to_video": {"label": "Video to Video", "filename": "video-to-video.md", "output_medium": "video", "reference_supported": true}
+  },
+  "formats": {
+    "natural": {"label": "Natural", "contract_prefix": "natural_output"},
+    "json": {"label": "JSON", "contract_prefix": "json_output"},
+    "tags": {"label": "Tags", "contract_prefix": "tags_output"}
+  },
+  "nsfw_files": {"image": "nsfw-image.md", "video": "nsfw-video.md"},
+  "profiles": [
+    {
+      "key": "ideogram4",
+      "label": "Ideogram 4",
+      "folder": "Ideogram 4",
+      "media_type": "image",
+      "enabled_formats": ["natural", "json"],
+      "default_format": "json",
+      "enabled_generation_types": ["text_to_image", "image_to_image"],
+      "default_generation_type": "text_to_image",
+      "negative_supported": true,
+      "builtin": true
+    },
+    {
+      "key": "sdxl",
+      "label": "SDXL",
+      "folder": "SDXL",
+      "media_type": "image",
+      "enabled_formats": ["natural", "tags"],
+      "default_format": "tags",
+      "enabled_generation_types": ["text_to_image", "image_to_image"],
+      "default_generation_type": "text_to_image",
+      "negative_supported": true,
+      "builtin": true
+    },
+    {
+      "key": "qwen_image",
+      "label": "Qwen-Image",
+      "folder": "Qwen-Image",
+      "media_type": "image",
+      "enabled_formats": ["natural"],
+      "default_format": "natural",
+      "enabled_generation_types": ["text_to_image", "image_to_image"],
+      "default_generation_type": "text_to_image",
+      "negative_supported": true,
+      "builtin": true
+    },
+    {
+      "key": "flux1_dev",
+      "label": "FLUX.1 dev",
+      "folder": "FLUX.1 dev",
+      "media_type": "image",
+      "enabled_formats": ["natural"],
+      "default_format": "natural",
+      "enabled_generation_types": ["text_to_image", "image_to_image"],
+      "default_generation_type": "text_to_image",
+      "negative_supported": true,
+      "builtin": true
+    },
+    {
+      "key": "flux2_dev",
+      "label": "FLUX.2 dev",
+      "folder": "FLUX.2 dev",
+      "media_type": "image",
+      "enabled_formats": ["natural", "json"],
+      "default_format": "natural",
+      "enabled_generation_types": ["text_to_image", "image_to_image"],
+      "default_generation_type": "text_to_image",
+      "negative_supported": true,
+      "builtin": true
+    },
+    {
+      "key": "flux_klein",
+      "label": "Flux Klein",
+      "folder": "Flux Klein",
+      "media_type": "image",
+      "enabled_formats": ["natural", "json"],
+      "default_format": "natural",
+      "enabled_generation_types": ["text_to_image", "image_to_image"],
+      "default_generation_type": "text_to_image",
+      "negative_supported": true,
+      "builtin": true
+    },
+    {
+      "key": "krea2",
+      "label": "Krea2",
+      "folder": "Krea2",
+      "media_type": "image",
+      "enabled_formats": ["natural", "json"],
+      "default_format": "natural",
+      "enabled_generation_types": ["text_to_image", "image_to_image"],
+      "default_generation_type": "text_to_image",
+      "negative_supported": true,
+      "builtin": true
+    },
+    {
+      "key": "z_image",
+      "label": "Z-Image",
+      "folder": "Z-Image",
+      "media_type": "image",
+      "enabled_formats": ["natural"],
+      "default_format": "natural",
+      "enabled_generation_types": ["text_to_image", "image_to_image"],
+      "default_generation_type": "text_to_image",
+      "negative_supported": true,
+      "builtin": true
+    },
+    {
+      "key": "wan2_2",
+      "label": "WAN 2.2",
+      "folder": "WAN 2.2",
+      "media_type": "video",
+      "enabled_formats": ["natural"],
+      "default_format": "natural",
+      "enabled_generation_types": ["text_to_video", "first_frame_to_video", "first_last_frame_to_video"],
+      "default_generation_type": "text_to_video",
+      "negative_supported": true,
+      "builtin": true
+    },
+    {
+      "key": "ltx_2_3",
+      "label": "LTX 2.3",
+      "folder": "LTX 2.3",
+      "media_type": "video",
+      "enabled_formats": ["natural"],
+      "default_format": "natural",
+      "enabled_generation_types": ["text_to_video", "first_frame_to_video", "first_last_frame_to_video"],
+      "default_generation_type": "text_to_video",
+      "negative_supported": true,
+      "builtin": true
+    },
+    {
+      "key": "minimax_h3_official",
+      "label": "MiniMax H3 Official",
+      "folder": "MiniMax H3 Official",
+      "media_type": "video",
+      "enabled_formats": ["natural"],
+      "default_format": "natural",
+      "enabled_generation_types": ["text_to_video", "first_frame_to_video", "first_last_frame_to_video", "reference_to_video", "last_frame_to_video"],
+      "default_generation_type": "text_to_video",
+      "negative_supported": false,
+      "builtin": true
+    },
+    {
+      "key": "minimax_h3_alternate",
+      "label": "MiniMax H3 Alternate",
+      "folder": "MiniMax H3 Alternate",
+      "media_type": "video",
+      "enabled_formats": ["natural"],
+      "default_format": "natural",
+      "enabled_generation_types": ["text_to_video", "first_frame_to_video", "first_last_frame_to_video", "reference_to_video"],
+      "default_generation_type": "text_to_video",
+      "negative_supported": false,
+      "builtin": true
+    }
+  ]
+}

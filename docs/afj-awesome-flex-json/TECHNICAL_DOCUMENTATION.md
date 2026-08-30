@@ -1,90 +1,60 @@
-# JsonX Technical Documentation
+# JsonX Visual and Template Tools — Technical Documentation
 
 ## 1. Purpose
-This project provides JsonX nodes for JSON-prompt generation, authoring, and runtime randomization in ComfyUI:
-1. `LLMToJsonX` (display: `LLM to JsonX`)
-2. `FluxVisualJsonBuilder` (display: `JsonX - Visual Builder`)
-3. `FluxTemplateRandomizer` (display: `JsonX - Template Randomizer`)
-4. legacy internal `AFJPromptTemplateImporter` (display: `JsonX - Prompt Template Importer`)
+
+This package supplies three local JsonX authoring and template nodes:
+
+1. `FluxVisualJsonBuilder` — `JsonX - Visual Builder`
+2. `FluxTemplateRandomizer` — `JsonX - Template Randomizer`
+3. `AFJPromptTemplateImporter` — `JsonX - Prompt Template Importer`
+
+LLM-backed JsonX generation is provided by the independently implemented JsonX profile in `UnifiedAutoprompterX`; see [Unified Autoprompter X](../UNIFIED_AUTOPROMPTER_X.md).
 
 ## 2. Active Components
-1. Package entry: `__init__.py`
+
+1. Package entry: `afj_awesome_flex_json_v2/__init__.py`
 2. Backend:
    1. `visual_builder/api.py`
    2. `visual_builder/node.py`
-   3. `visual_builder/jsonx_llm.py`
-   4. `visual_builder/jsonx_backends/` (isolated provider and local-runtime implementations)
-   5. `visual_builder/presets.json`
-   6. `visual_builder/templates/` (one JSON file per template)
-3. Frontend extensions:
+   3. `visual_builder/presets.json`
+   4. `visual_builder/templates/`
+3. Frontend:
    1. `web/js/flux_visual_builder.js`
    2. `web/js/flux_template_randomizer.js`
    3. `web/js/afj_prompt_template_importer.js`
-   4. `web/js/llm_to_jsonx.js`
+
+There is no provider, model-discovery, or llama.cpp runtime in this visual/template subsystem.
 
 ## 3. Node Contracts
-### 3.1 LLM to JsonX
 
-Node class: `LLMToJsonXNode`
+### 3.1 JsonX - Visual Builder
 
-1. Inputs: multiline `user_instructions`, `generation_mode`, `preset_context_mode`, UI-managed final output storage, optional `IMAGE`, a reserved UI state string, and the UI-managed per-node `enable_framing_and_placement` and `output_format` settings.
-2. Output: one generic `prompt` string containing either validated pretty JSON or validated natural-language prose.
-3. Provider calls happen only through the Generate action. Queue execution returns the saved final output without calling a provider; JSON mode revalidates and pretty-prints the saved object.
-4. Browser provider configuration and credentials use JsonX-specific local-storage keys; the UI never writes them into node widgets or workflow properties.
-5. The read-only output preview mirrors the managed final-output widget and changes its label for JSON or natural language; it adds no serialized field.
-6. JSON extraction accepts exactly one unambiguous object, including a sole fence or common reasoning/preamble wrappers. Natural extraction accepts non-empty prose and a sole generic/text fence while rejecting JSON, mixed objects, and process commentary. An unfinished local reasoning channel remains transient input to the relevant single repair pass and never enters the final `prompt`.
-7. Canonicalization keeps catalog leaves scalar while preserving open-world nested expansions in deterministic sibling `<leaf>_details` branches. Scalar lists at catalog leaves are joined without dropping entries, which supports negative-prompt lists from local models.
-8. Adaptive is the default generation profile and retains the existing Optimized/Full context behavior. Template Fill dynamically converts every live catalog leaf to `null`, maps `subject` to the repeatable `subjects` array, and maps `interaction_suggestions` to `interactions`. Its independent preset checkbox sends either no catalog or the complete raw catalog verbatim.
-9. Template Fill null pruning is deterministic backend work. Refined Template Fill overlays Stage 2 scalar changes only at Stage 1 paths, preserves omitted Stage 1 paths, honors explicit null removal, and discards structural additions.
-10. Natural output forces Refined and uses exactly two normal calls for either profile: canonical validated JSON Stage 1, then a preset-agnostic prose refinement using the same provider, original instructions, and optional image. Stage 1 remains in memory and only the successful prose is serialized.
-11. Gemini safety thresholds mirror Unified Autoprompter X and are transported in the transient `gemini_safety` request object.
-12. Canonicalization resolves recognized preset-ID keys to catalog paths/values, rebases misplaced known siblings, flattens leaf objects, and maps singular `subject` to `subjects` before final validation.
-13. A failed initial response, prose conversion, or repair response is returned only as transient route diagnostics; none replaces the previously saved workflow output.
-14. Provider parity state includes full-list model pickers, per-backend timeouts, OpenAI unload, Ollama think/unload, and a JsonX-owned VRAM refresh helper.
-15. JsonX provider modules do not import Unified Autoprompter X. Local model discovery reads `ComfyUI/models/LLM` independently, and local inference uses only `vendor/jsonx-llama.cpp`.
-16. An empty Gemini candidates response is not retried. Sanitized prompt feedback is returned as transient diagnostics while the saved output remains unchanged.
-17. Stage 1 defaults require atomic parent/child/sub-child expansion to the deepest coherent catalog or custom paths. Deep maximizes relevant hierarchy; Exhaustive performs a broader branch-by-branch relevance pass. Neither mode has a numerical leaf target, depth ceiling, or maximum, and leaf count never acts as a stopping condition.
-18. `/workflowx/jsonx/instructions` returns packaged JSON and natural-language instruction templates. `/workflowx/jsonx/instructions/preview` returns exact effective Stage 1 and selected Stage 2 prompts without invoking a provider. Browser-local custom templates and detail level are sent transiently only during Generate.
-19. The generation route returns generic `prompt` and `output_format` fields, plus the legacy `prompt_json` alias only for JSON mode. Hierarchy metrics describe the validated JSON source and are never inserted into the final output.
-20. The optional framing map adds exactly nine scalar `framing_and_placement` regions to Adaptive and Template Fill. Its boolean is serialized per node, mandatory framing guidance is appended outside customizable instructions, malformed maps use the existing single repair call, and disabled generation strips unsolicited framing output.
-21. The always-appended open-world preset contract treats catalog entries as canonical guidance rather than an allow-list. Meaning-preserving matches are canonicalized, while unmatched known-path values and unknown nested branches remain custom prompt content. This invariant also applies when browser-local custom instruction templates replace the packaged editable text.
-22. Local discovery accepts up to 16 transient additional roots from JsonX browser storage. Recursive `.gguf` results are deduplicated by resolved path; external selections use a root-hash plus relative-path token and are revalidated inside the supplied root before generation. The setting and absolute roots are never serialized into workflow JSON.
-23. JsonX pins its isolated CUDA llama.cpp runtime to `b10252`. Local command construction reads the GGUF metadata needed to detect an embedded Qwen MTP head and applies `--spec-type draft-mtp` plus the configured draft-token depth without importing or executing LM Studio or Unified runtime files.
+- Class: `FluxVisualJsonBuilderNode`
+- Input: optional multiline `prompt_json`
+- Output: validated `prompt_json`
+- The frontend writes compiled JSON directly to the node widget.
 
-### 3.2 JsonX - Visual Builder
-Node class: `FluxVisualJsonBuilderNode`
-1. Input widget: `prompt_json` (multiline string, optional)
-2. Output: `prompt_json` string
-3. UI writes compiled JSON directly to node `prompt_json`.
+### 3.2 JsonX - Template Randomizer
 
-### 3.3 JsonX - Template Randomizer
-Node class: `FluxTemplateRandomizerNode`
-1. Inputs:
-   1. `template_name`
-   2. `randomize_rules` (`path | mode | value` lines)
-   3. `randomize_rules_help`
-   4. `seed`
-2. Outputs:
-   1. `prompt_json`
-   2. `run_log`
+- Class: `FluxTemplateRandomizerNode`
+- Inputs: `template_name`, `randomize_rules`, `randomize_rules_help`, and `seed`
+- Outputs: `prompt_json` and `run_log`
 
-### 3.4 JsonX - Prompt Template Importer
-Node class: `AFJPromptTemplateImporterNode`
-1. Inputs:
-   1. `template_name`
-   2. `source_prompt_json`
-   3. `import_report`
-2. Output:
-   1. `template_payload_json`
-3. UI supports Convert/Preview and Save to template storage.
+### 3.3 JsonX - Prompt Template Importer
 
-## 4. Template Storage v2
-Storage is now **folder-based**.
+- Class: `AFJPromptTemplateImporterNode`
+- Inputs: `template_name`, `source_prompt_json`, and `import_report`
+- Output: `template_payload_json`
+- The frontend supports conversion preview and saving to template storage.
 
-Path:
-1. `visual_builder/templates/<template_name>.json`
+## 4. Template Storage
 
-File payload (strict):
+Templates use one file per template:
+
+`visual_builder/templates/<template_name>.json`
+
+The strict payload is:
+
 ```json
 {
   "tree": { "...": "..." },
@@ -92,23 +62,14 @@ File payload (strict):
 }
 ```
 
-Rules:
-1. `options` are not stored in template files.
-2. Legacy template files embedding `options` are rejected at load time.
+Preset `options` are not stored in template files; they are rehydrated from the current `presets.json`. Legacy files embedding option catalogs are rejected.
 
-`templates.json` is no longer used.
-
-### Name validation rules
-Template save rejects names that:
-1. Are empty/whitespace
-2. Start/end with whitespace
-3. End with `.` or space
-4. Contain control chars or any of `< > : " / \ | ? *`
-5. Use reserved Windows names (`CON`, `PRN`, `AUX`, `NUL`, `COM1`...`COM9`, `LPT1`...`LPT9`)
-6. Resolve outside template directory
+Template names are rejected when they are empty, contain control or Windows-invalid filename characters, start or end with whitespace, end with a dot or space, use a reserved Windows filename, or resolve outside the templates directory.
 
 ## 5. API Layer
-`register_visual_builder_routes()` exposes:
+
+`register_visual_builder_routes()` exposes only the local visual/template API:
+
 1. `GET /fluxvisual/presets`
 2. `GET /fluxvisual/templates`
 3. `POST /fluxvisual/templates/save`
@@ -116,87 +77,47 @@ Template save rejects names that:
 5. `POST /fluxvisual/validate`
 6. `POST /fluxvisual/import/convert`
 
-Legacy `/fluxvisual` routes remain unchanged. JsonX generation additionally exposes:
+Unified JsonX owns its separate `/workflowx/unified_autoprompter/jsonx/*` routes.
 
-1. `GET /workflowx/jsonx/presets/info`
-2. `GET /workflowx/jsonx/local/models`
-3. `POST /workflowx/jsonx/gemini/models`
-4. `POST /workflowx/jsonx/openai/models`
-5. `POST /workflowx/jsonx/ollama/models`
-6. `POST /workflowx/jsonx/generate`
+### Import conversion
 
-### `/fluxvisual/import/convert`
-Input:
+`POST /fluxvisual/import/convert` accepts:
+
 ```json
 { "source_prompt_json": "{...}" }
 ```
 
-Output:
-```json
-{
-  "ok": true,
-  "report": "...",
-  "warnings": [],
-  "summary": {
-    "total_fields": 0,
-    "non_empty_fields": 0,
-    "non_empty_preset_fields": 0,
-    "non_empty_custom_fields": 0
-  },
-  "data": {
-    "tree": { "...": "..." },
-    "randomizer_checked": []
-  }
-}
-```
+It returns an `ok` flag, conversion report, warnings, field summary, and a strict template payload containing `tree` and `randomizer_checked`.
 
-## 6. Importer Conversion Behavior
-1. Accepts **final prompt JSON object only**.
-2. Rejects JsonX metadata/template payloads (`tree`, `randomizer_checked`) with explicit error.
-3. Builds a minimal tree from the prompt object only (no starter blank sections).
-4. Unknown keys become custom fields/groups/arrays.
-5. Arrays support object items and primitive items (`value` field mapping for primitives).
-6. Preset binding is path-first from `presets.json`; unmatched fields remain custom.
-7. Converted/saved template payload strips `options` (dynamic rehydration on load).
+## 6. Importer Conversion
 
-## 7. Visual Builder Persistence
-Applied editor state is stored in node hidden props:
-1. `properties.flux_visual_state`
+1. Accepts a final prompt JSON object only.
+2. Rejects template metadata payloads containing `tree` or `randomizer_checked`.
+3. Builds a minimal tree without unrelated starter sections.
+4. Keeps unknown keys as custom fields, groups, or arrays.
+5. Supports object and primitive array items.
+6. Uses path-first preset binding from `presets.json`.
+7. Strips option catalogs before saving.
 
-Payload:
-1. `version`
-2. `prompt_signature`
-3. `tree`
-4. `randomizer_checked`
+## 7. Visual Builder Persistence and Validation
 
-State persists only on `Validate & Apply`.
+Applied editor state is stored under `properties.flux_visual_state` with version, prompt signature, tree, and `randomizer_checked`. State persists only after `Validate & Apply`.
 
-## 8. Validation Rules (Current)
-`validate_prompt_payload()` checks:
-1. Payload is object
-2. `subjects` is array when present
-3. Subject items are objects
-4. Duplicate `subject.id` warns
-5. `interactions` non-object warns
+`validate_prompt_payload()` verifies that the payload is an object, `subjects` is an array when present, subject items are objects, duplicate subject IDs are reported, and malformed `interactions` values are reported.
 
-## 9. Extension Notes
-### Add new preset options to existing field
-Edit `visual_builder/presets.json` leaf object values. UI picks up after reload.
+## 8. Extension Notes
 
-### Add a new root category
+- Add preset options or new paths in `visual_builder/presets.json`; the visual tools traverse the catalog dynamically.
+- Add structural backend validation only when a new category requires more than the generic prompt contract.
+- Add subject subsections below `subject`; repeatable subject templates discover them automatically.
+- Do not import Unified JsonX provider or reference-store modules into this subsystem.
 
-Add the root key in `visual_builder/presets.json`. Backend/frontend starter trees, preset attachment, importer hydration, randomizer lookup, and LLM schema generation traverse the catalog dynamically. Add bespoke backend validation only when the new category requires a structural rule beyond the generic prompt contract.
+## 9. Smoke Checklist
 
-### Add subject subsection
-Add it under `subject` in `visual_builder/presets.json`; repeatable subject templates discover it dynamically.
-
-## 10. Smoke Checklist
-1. Save/load/delete templates and verify per-file creation/removal under `visual_builder/templates/`
-2. Invalid filename save returns clear error
-3. Visual Builder template list still works
-4. Template Randomizer resolves preset options dynamically from current `presets.json` using field binding metadata
-5. Importer Convert/Preview works with valid prompt JSON
-6. Importer rejects JsonX metadata payload with explicit message
-7. Optimized context contains every schema path and only a bounded ranked value subset
-8. Full context ends with the exact raw `presets.json` text and never falls back to Optimized
-9. Fast, Refined, malformed-JSON repair, optional-image, and context-limit failures preserve the node contract
+1. Save, load, and delete individual templates.
+2. Reject invalid and traversal-style template names.
+3. Load preset options dynamically from `presets.json`.
+4. Convert valid final prompt JSON into a template.
+5. Reject template metadata passed as final prompt JSON.
+6. Apply Visual Builder edits and confirm persisted state.
+7. Randomize the same template and rules reproducibly for a fixed seed.

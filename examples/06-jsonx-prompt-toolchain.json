@@ -6,49 +6,113 @@
   "nodes": [
     {
       "id": 1,
-      "type": "LLMToJsonX",
+      "type": "UnifiedAutoprompterX",
       "pos": [
         40,
         120
       ],
       "size": [
-        380,
-        320
+        430,
+        420
       ],
       "flags": {},
       "order": 0,
       "mode": 0,
       "inputs": [
         {
-          "name": "user_instructions",
-          "type": "STRING",
-          "link": null,
-          "widget": {
-            "name": "user_instructions"
-          }
-        },
-        {
-          "name": "generation_mode",
+          "name": "target_model",
           "type": "COMBO",
           "link": null,
           "widget": {
-            "name": "generation_mode"
+            "name": "target_model"
           }
         },
         {
-          "name": "preset_context_mode",
+          "name": "prompt_format",
           "type": "COMBO",
           "link": null,
           "widget": {
-            "name": "preset_context_mode"
+            "name": "prompt_format"
           }
         },
         {
-          "name": "generated_prompt_json",
+          "name": "negative_enabled",
+          "type": "BOOLEAN",
+          "link": null,
+          "widget": {
+            "name": "negative_enabled"
+          }
+        },
+        {
+          "name": "generation_type",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "generation_type"
+          }
+        },
+        {
+          "name": "nsfw_enabled",
+          "type": "BOOLEAN",
+          "link": null,
+          "widget": {
+            "name": "nsfw_enabled"
+          }
+        },
+        {
+          "name": "enable_bbox_json_input",
+          "type": "BOOLEAN",
+          "link": null,
+          "widget": {
+            "name": "enable_bbox_json_input"
+          }
+        },
+        {
+          "name": "enable_text_input",
+          "type": "BOOLEAN",
+          "link": null,
+          "widget": {
+            "name": "enable_text_input"
+          }
+        },
+        {
+          "name": "refresh_vram",
+          "type": "BOOLEAN",
+          "link": null,
+          "widget": {
+            "name": "refresh_vram"
+          }
+        },
+        {
+          "name": "disable_color_palette",
+          "type": "BOOLEAN",
+          "link": null,
+          "widget": {
+            "name": "disable_color_palette"
+          }
+        },
+        {
+          "name": "generated_positive",
           "type": "STRING",
           "link": null,
           "widget": {
-            "name": "generated_prompt_json"
+            "name": "generated_positive"
+          }
+        },
+        {
+          "name": "generated_negative",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "generated_negative"
+          }
+        },
+        {
+          "name": "final_prompt",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "final_prompt"
           }
         },
         {
@@ -57,51 +121,21 @@
           "link": null
         },
         {
+          "name": "bbox_json",
+          "type": "STRING",
+          "link": null
+        },
+        {
+          "name": "raw_prompt_text",
+          "type": "STRING",
+          "link": null
+        },
+        {
           "name": "ui_state",
           "type": "STRING",
           "link": null,
           "widget": {
             "name": "ui_state"
-          }
-        },
-        {
-          "name": "enable_framing_and_placement",
-          "type": "BOOLEAN",
-          "link": null,
-          "widget": {
-            "name": "enable_framing_and_placement"
-          }
-        },
-        {
-          "name": "output_format",
-          "type": "COMBO",
-          "link": null,
-          "widget": {
-            "name": "output_format"
-          }
-        },
-        {
-          "name": "generation_profile",
-          "type": "COMBO",
-          "link": null,
-          "widget": {
-            "name": "generation_profile"
-          }
-        },
-        {
-          "name": "template_use_presets",
-          "type": "BOOLEAN",
-          "link": null,
-          "widget": {
-            "name": "template_use_presets"
-          }
-        },
-        {
-          "name": "detail_level",
-          "type": "COMBO",
-          "link": null,
-          "widget": {
-            "name": "detail_level"
           }
         }
       ],
@@ -112,22 +146,35 @@
           "links": [
             1
           ]
+        },
+        {
+          "name": "positive",
+          "type": "STRING",
+          "links": []
+        },
+        {
+          "name": "negative",
+          "type": "STRING",
+          "links": []
         }
       ],
       "properties": {
-        "Node name for S&R": "LLMToJsonX"
+        "Node name for S&R": "UnifiedAutoprompterX"
       },
       "widgets_values": [
-        "Create a neutral structured scene.",
-        "fast",
-        "optimized",
-        "{\"scene\":\"neutral documentation example\"}",
-        "{}",
-        true,
+        "jsonx",
         "json",
-        "adaptive",
-        true,
-        "deep"
+        false,
+        "text_to_image",
+        false,
+        false,
+        false,
+        false,
+        false,
+        "{\"scene\":\"neutral documentation example\"}",
+        "",
+        "{\"scene\":\"neutral documentation example\"}",
+        "{}"
       ]
     },
     {
@@ -357,8 +404,8 @@
       "bounding": [
         10,
         60,
-        1320,
-        440
+        1370,
+        540
       ],
       "color": "#355c7d",
       "font_size": 24,
@@ -369,7 +416,7 @@
       "title": "Seeded template randomization",
       "bounding": [
         10,
-        590,
+        620,
         900,
         400
       ],
@@ -383,8 +430,8 @@
     "frontendVersion": "1.43.17",
     "workflowx_example": {
       "title": "JsonX prompt toolchain",
-      "requirements": "Configure an LLM profile only if you want to regenerate the first lane.",
-      "status": "Builder/importer/randomizer are local; LLM generation is profile-dependent.",
+      "requirements": "Select the JsonX profile in Unified Autoprompter X to regenerate the first lane.",
+      "status": "Builder/importer/randomizer are local; Unified generation is provider-dependent.",
       "privacy": "No media, credentials, personal paths, model-library names, or prompts are bundled."
     }
   },

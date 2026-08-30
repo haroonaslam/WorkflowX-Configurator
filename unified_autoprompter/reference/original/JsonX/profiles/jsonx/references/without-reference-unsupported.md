@@ -1,0 +1,1 @@
+Construct the JsonX description from the user's instructions. If connected images are supplied as authoring guidance, inspect them and combine relevant visible evidence with the user's description to infer intent. Do not emit image-reference commentary or imply that a downstream image generator will receive the connected images.

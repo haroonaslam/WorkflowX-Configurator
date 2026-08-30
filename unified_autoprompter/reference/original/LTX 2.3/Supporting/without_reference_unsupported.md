@@ -1,0 +1,3 @@
+The downstream generation type does not consume references. If connected images are available to the authoring model, inspect them only as visual guidance and combine relevant visible evidence with the user's description to infer the intended self-contained result. The user's stated intent controls which evidence matters and what must change.
+
+Write a complete LTX 2.3 prompt that stands on its own. Do not emit attachment counts, upload commentary, filenames, reference tokens, or language implying that the downstream generator will receive an image. If no connected image is available, construct the result only from the user's description.

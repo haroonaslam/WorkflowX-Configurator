@@ -157,8 +157,8 @@ WorkflowX supports natural or structured prompting from images and text, then pr
 
 | Inputs and widgets | Type | Required | Behavior |
 |---|---|---:|---|
-| `target_model`, `prompt_format` | combo | Yes | Select target-model conventions and natural, tag, or JSON formatting. |
-| `negative_enabled`, `enable_bbox_json_input`, `enable_text_input` | `BOOLEAN` | Yes | Enable optional prompt channels. |
+| `target_model`, `generation_type`, `prompt_format` | combo | Yes | Select target-model conventions, a downstream generation path, and natural, tag, or JSON formatting. |
+| `nsfw_enabled`, `negative_enabled`, `enable_bbox_json_input`, `enable_text_input` | `BOOLEAN` | Yes | Enable optional path rules and prompt channels. |
 | `refresh_vram`, `disable_color_palette` | `BOOLEAN` | Yes | Control model refresh and palette output. |
 | `generated_positive`, `generated_negative`, `final_prompt` | `STRING` | UI-managed | Stores generated and user-edited prompt text. |
 | `image`, dynamic `image_N` | `IMAGE` | No | Visual references. |
@@ -171,27 +171,9 @@ WorkflowX supports natural or structured prompting from images and text, then pr
 | `positive` | `STRING` | Positive prompt channel. |
 | `negative` | `STRING` | Negative prompt channel when enabled. |
 
-**Controls:** generate, reset, refresh VRAM, target/profile controls, video fields, bounding-box tools, and backend settings. See the [complete Autoprompter guide](docs/UNIFIED_AUTOPROMPTER_X.md).
+**Controls:** one Provider dropdown for Gemini, Grok API, DeepSeek API, OpenAI Compatible, LM Studio, Unsloth Studio, Ollama, or Local GGUF; profile-aware Generation type; Prompt instructions; Detail level; NSFW/negative controls; dynamic Model settings; bounding-box tools; Profile settings; Generate and Cancel. Provider credentials and tuning remain browser-local. See the [complete Autoprompter guide](docs/UNIFIED_AUTOPROMPTER_X.md).
 
-### LLM to JsonX
-
-![LLM to JsonX](docs/images/workflowx-jsonx-llm-to-jsonx-node.png)
-
-**Node ID / category:** `LLMToJsonX` · `WorkflowX/Prompting/JsonX`
-
-| Inputs and state | Type | Required | Behavior |
-|---|---|---:|---|
-| `user_instructions` | `STRING` | Yes | Generation instruction. |
-| `generation_mode` | combo | Yes | Fast or refined generation. |
-| `preset_context_mode` | combo | Yes | Optimized or full preset context. |
-| `generated_prompt_json` | `STRING` | UI-managed | Stored generated result. |
-| `image` | `IMAGE` | No | Optional visual context. |
-| `enable_framing_and_placement`, `output_format`, `generation_profile`, `template_use_presets`, `detail_level` | widgets | No | Profile-dependent generation controls. |
-| `ui_state` | `STRING` | UI-managed | Serialized frontend state. |
-
-| Outputs | Type | Behavior |
-|---|---|---|
-| `prompt` | `STRING` | Validated JSON or natural prompt, according to `output_format`. |
+Connected images are optional prompt-authoring evidence and never select the downstream generation path. Image-capable paths switch between with-reference and inferred-reference instructions; text-only paths can inspect connected media and combine visible evidence with the user's description without exposing reference commentary downstream. Standard-profile instructions are Markdown-backed: packaged defaults live under `unified_autoprompter/reference/original`, while the editable runtime copy lives under `reference/current_use`. Profile Settings edits the exact Common, selected Generation Path, Reference Usage, Output Contract, and Image/Video NSFW files without reformatting them. JsonX has an independently managed `reference/original/JsonX` and `reference/current_use/JsonX` subtree with exact editors for paths, conditions, user templates, context templates, presets, and stage contracts. Preview and dispatch share their respective backend payload builders and keep routing metadata out of model-facing text.
 
 ### JsonX visual and template tools
 
@@ -207,9 +189,7 @@ The builder normalizes JSON before output; the importer reports accepted and ski
 
 ### Working example
 
-![JsonX toolchain workflow](docs/images/workflowx-example-06-jsonx.png)
-
-[Download: JsonX prompt toolchain](examples/06-jsonx-prompt-toolchain.json) — the first lane connects LLM to JsonX → Visual Builder → Template Importer; the second connects Template Randomizer → a second builder for inspection.
+[Download: JsonX prompt toolchain](examples/06-jsonx-prompt-toolchain.json) — the first lane connects Unified Autoprompter X with its JsonX profile → Visual Builder → Template Importer; the second connects Template Randomizer → a second builder for inspection.
 
 ## Remote image APIs
 
@@ -532,7 +512,7 @@ Incompatible links are skipped rather than forced, and a result notification rep
 | [Image loading, processing, and comparison](examples/03-image-loading-processing-and-comparison.json) | Both loaders, masks, Image ProcessorX, Image Compare Edit X | Local images required |
 | [Anything Swap with NanoBanana](examples/04-anything-swap-with-nanobanana.json) | Advanced loader, crop, remote edit, stitch, previews | API-dependent |
 | [Kie and Atlas APIs](examples/05-kie-and-atlas-apis.json) | Separate provider branches with previews | API-dependent |
-| [JsonX prompt toolchain](examples/06-jsonx-prompt-toolchain.json) | LLM, builder, importer, randomizer | Partly local/profile-dependent |
+| [JsonX prompt toolchain](examples/06-jsonx-prompt-toolchain.json) | Unified JsonX, builder, importer, randomizer | Partly local/profile-dependent |
 | [Advanced configured production](examples/07-advanced-configured-production.json) | Sanitized production pattern using configuration, relay, LoRA, cleanup, and video | Model-dependent |
 
 ![Advanced configured production workflow](docs/images/workflowx-example-07-production.png)

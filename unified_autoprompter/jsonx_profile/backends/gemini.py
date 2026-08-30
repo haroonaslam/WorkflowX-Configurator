@@ -143,7 +143,7 @@ def generate(
     body: dict[str, Any] = {
         "systemInstruction": {"parts": [{"text": system_prompt}]},
         "contents": [{"role": "user", "parts": parts}],
-        "generationConfig": {"temperature": 0.7, "responseMimeType": response_mime_type},
+        "generationConfig": {"responseMimeType": response_mime_type},
     }
     safety = _safety_settings(safety_settings)
     if safety:

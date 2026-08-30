@@ -1,0 +1,1 @@
+Return the JsonX prompt object itself as valid JSON only. Do not wrap it in `positive`, `negative`, `prompt_json`, `result`, or another envelope. Do not return Markdown, code fences, commentary, or process metadata.

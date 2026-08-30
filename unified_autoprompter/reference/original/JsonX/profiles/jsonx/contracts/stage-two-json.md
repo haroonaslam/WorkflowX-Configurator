@@ -1,0 +1,1 @@
+Return the complete refined JsonX prompt object itself as valid JSON only. Do not return a partial patch or wrap it in another object. Do not return Markdown, code fences, commentary, or process metadata.

@@ -1,0 +1,1 @@
+Rewrite the malformed response into the final natural-language prompt. Use the validated JsonX draft as the complete semantic source of truth. Preserve every non-null detail without adding unsupported content.

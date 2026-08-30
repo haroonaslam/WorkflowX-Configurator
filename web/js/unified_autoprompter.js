@@ -2,6 +2,9 @@ import { app } from "../../scripts/app.js";
 
 const TARGET_NODE = "UnifiedAutoprompterX";
 const ROUTE = "/workflowx/unified_autoprompter";
+const FRONTEND_SCHEMA_VERSION = 7;
+const REFERENCE_SCHEMA_VERSION = 1;
+const JSONX_REFERENCE_SCHEMA_VERSION = 1;
 const GEMINI_KEY_STORAGE_KEY = "workflowx_unified_autoprompter_gemini_api_key";
 const OPENAI_KEY_STORAGE_KEY = "workflowx_unified_autoprompter_openai_api_key";
 const OPENAI_BASE_URL_STORAGE_KEY = "workflowx_unified_autoprompter_openai_base_url";
@@ -36,6 +39,68 @@ const JSONX_ROUTE = `${ROUTE}/jsonx`;
 const JSONX_SETTINGS_KEY = "workflowx_unified_jsonx_provider_settings";
 const JSONX_GEMINI_KEY = "workflowx_unified_jsonx_gemini_api_key";
 const JSONX_OPENAI_KEY = "workflowx_unified_jsonx_openai_api_key";
+const STANDARD_PROVIDER_SETTINGS_KEY = "workflowx_unified_provider_settings_v5";
+const JSONX_PROVIDER_SETTINGS_KEY = "workflowx_unified_jsonx_provider_settings_v5";
+const PROVIDERS = [
+  ["gemini", "Gemini"],
+  ["grok", "Grok API"],
+  ["deepseek", "DeepSeek API"],
+  ["openai", "OpenAI Compatible"],
+  ["lm_studio", "LM Studio"],
+  ["unsloth", "Unsloth Studio"],
+  ["ollama", "Ollama"],
+  ["local", "Local GGUF"],
+];
+const DEEPSEEK_VISION_MODELS = new Set(["deepseek-v4-flash-vision-exp"]);
+function deepseekModelSupportsVision(modelId) {
+  return DEEPSEEK_VISION_MODELS.has(String(modelId || "").trim().toLowerCase());
+}
+const GENERATION_TYPES = [
+  ["text_to_image", "Text to Image", 0, 0],
+  ["image_to_image", "Image to Image", 1, null],
+  ["text_to_video", "Text to Video", 0, 0],
+  ["first_frame_to_video", "First Frame to Video", 1, 1],
+  ["first_last_frame_to_video", "First–Last Frame to Video", 2, 2],
+  ["last_frame_to_video", "Last Frame to Video", 1, 1],
+  ["reference_to_video", "Reference to Video", 1, null],
+  ["video_to_video", "Video to Video", 1, null],
+];
+const MAX_AUTHORING_IMAGES = 9;
+const IMAGE_STATE_KEYS = ["supported_with_image", "supported_without_image", "unsupported_with_image_guidance"];
+const GENERATION_TYPE_MAP = new Map(GENERATION_TYPES.map(([value, label, min, max]) => [value, {
+  value,
+  label,
+  min,
+  max,
+  supportsImages: max !== 0,
+}]));
+
+function loadProviderSettings(engine = "standard") {
+  const key = engine === "jsonx" ? JSONX_PROVIDER_SETTINGS_KEY : STANDARD_PROVIDER_SETTINGS_KEY;
+  try {
+    const value = JSON.parse(localStorage.getItem(key) || "{}");
+    return value && typeof value === "object" ? value : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveProviderSettings(engine, settings) {
+  const key = engine === "jsonx" ? JSONX_PROVIDER_SETTINGS_KEY : STANDARD_PROVIDER_SETTINGS_KEY;
+  localStorage.setItem(key, JSON.stringify(settings && typeof settings === "object" ? settings : {}));
+}
+
+function optionalNumber(value, integer = false) {
+  const text = String(value ?? "").trim();
+  if (!text) return undefined;
+  const number = integer ? Number.parseInt(text, 10) : Number(text);
+  return Number.isFinite(number) ? number : undefined;
+}
+
+const JSONX_BEHAVIOR_KEYS = [
+  "generation_profile", "generation_mode", "preset_context_mode", "template_use_presets",
+  "enable_framing_and_placement", "detail_level",
+];
 
 function defaultJsonXConfig() {
   return {
@@ -45,19 +110,22 @@ function defaultJsonXConfig() {
     template_use_presets: false,
     enable_framing_and_placement: false,
     detail_level: "deep",
-    stage_one_instructions: "",
-    template_fill_instructions: "",
-    refinement_instructions: "",
-    natural_language_instructions: "",
-    with_image_instructions: "",
-    without_image_instructions: "",
   };
+}
+
+function jsonxBehaviorConfig(value = {}) {
+  const source = value && typeof value === "object" ? value : {};
+  const defaults = defaultJsonXConfig();
+  return Object.fromEntries(JSONX_BEHAVIOR_KEYS.map((key) => [
+    key,
+    typeof defaults[key] === "boolean" ? Boolean(source[key] ?? defaults[key]) : String(source[key] || defaults[key]),
+  ]));
 }
 
 function workflowJsonXProviderSettings(settings = {}) {
   const source = settings && typeof settings === "object" ? settings : {};
   if (!Object.keys(source).length) return {};
-  const backend = ["gemini", "openai", "ollama", "local"].includes(source.backend)
+  const backend = PROVIDERS.some(([value]) => value === source.backend)
     ? source.backend
     : "gemini";
   return {
@@ -67,6 +135,11 @@ function workflowJsonXProviderSettings(settings = {}) {
     gemini_safety: { ...(source.gemini_safety && typeof source.gemini_safety === "object" ? source.gemini_safety : {}) },
     openai_model: String(source.openai_model || ""),
     openai_timeout: Number(source.openai_timeout || 180),
+    openai_server_type: normalizeOpenAIServerType(source.openai_server_type),
+    openai_lifecycle: normalizeOpenAILifecycle(
+      source.openai_lifecycle || (source.unload_after === true ? "unload_after" : "server_managed"),
+    ),
+    openai_reasoning_effort: normalizeOpenAIReasoning(source.openai_reasoning_effort),
     ollama_model: String(source.ollama_model || ""),
     ollama_timeout: Number(source.ollama_timeout || 180),
     ollama_think: Boolean(source.ollama_think),
@@ -77,6 +150,27 @@ function workflowJsonXProviderSettings(settings = {}) {
     local_system_prompt_preset: String(source.local_system_prompt_preset || "none"),
     local_options: { ...(source.local_options && typeof source.local_options === "object" ? source.local_options : {}) },
   };
+}
+
+function normalizeOpenAIServerType(value) {
+  const mode = String(value || "auto").toLowerCase().replaceAll("-", "_");
+  if (mode === "lmstudio") return "lm_studio";
+  if (mode === "unsloth_studio") return "unsloth";
+  return ["auto", "generic", "lm_studio", "unsloth"].includes(mode) ? mode : "auto";
+}
+
+function normalizeOpenAILifecycle(value) {
+  const mode = String(value || "server_managed").toLowerCase().replaceAll("-", "_");
+  return ["server_managed", "keep_loaded", "unload_after"].includes(mode) ? mode : "server_managed";
+}
+
+function normalizeOpenAIReasoning(value) {
+  let mode = String(value || "default").toLowerCase().replaceAll("-", "_").replaceAll(" ", "_");
+  if (mode === "off") mode = "none";
+  if (mode === "extra_high") mode = "xhigh";
+  return ["default", "none", "on", "minimal", "low", "medium", "high", "max", "xhigh"].includes(mode)
+    ? mode
+    : "default";
 }
 
 function normalizeUnifiedReasoning(value) {
@@ -93,27 +187,24 @@ const BBOX_LAYOUT_TARGETS = {
 function fallbackRule(enabled, text = "") {
   return {
     enabled,
-    common_instructions: text,
-    output_contract_negative_off: enabled ? '{"positive":"the final prompt","negative":""}' : "",
-    output_contract_negative_on: enabled ? '{"positive":"the final positive prompt","negative":"the final negative prompt"}' : "",
-    with_image_reference_instructions: enabled ? "Use the connected image as visual reference." : "",
-    without_image_reference_instructions: enabled ? "Use the text fields only." : "",
+    common_rules: ensureInstructionBlock({ title: "Core Model Rules", text: enabled ? text : "", source: "Frontend fallback" }),
+    common_guide: ensureInstructionBlock({ title: "Profile Guide", text: "", source: "Frontend fallback" }),
   };
 }
 
 const FALLBACK_PROFILES = [
-  { key: "ideogram4", label: "Ideogram 4", formats: { natural: fallbackRule(true, "Write an Ideogram natural-language prompt."), tags: fallbackRule(false), json: fallbackRule(true, "Write Ideogram structured caption JSON.") }, default_format: "json", negative_supported: true, json_supported: true, media_type: "image", notes: "" },
-  { key: "sdxl", label: "SDXL", formats: { natural: fallbackRule(true, "Write an SDXL natural prompt."), tags: fallbackRule(true, "Write comma-separated SDXL tags."), json: fallbackRule(false) }, default_format: "tags", negative_supported: true, json_supported: false, media_type: "image", notes: "" },
-  { key: "qwen_image", label: "Qwen-Image", formats: { natural: fallbackRule(true, "Write a Qwen-Image natural prompt."), tags: fallbackRule(false), json: fallbackRule(false) }, default_format: "natural", negative_supported: true, json_supported: false, media_type: "image", notes: "" },
-  { key: "flux1_dev", label: "FLUX.1 dev", formats: { natural: fallbackRule(true, "Write a FLUX.1 natural prompt."), tags: fallbackRule(false), json: fallbackRule(false) }, default_format: "natural", negative_supported: true, json_supported: false, media_type: "image", notes: "" },
-  { key: "flux2_dev", label: "FLUX.2 dev", formats: { natural: fallbackRule(true, "Write a FLUX.2 natural prompt."), tags: fallbackRule(false), json: fallbackRule(true, "Write FLUX.2 structured JSON.") }, default_format: "natural", negative_supported: true, json_supported: true, media_type: "image", notes: "" },
-  { key: "flux_klein", label: "Flux Klein", formats: { natural: fallbackRule(true, "Write a compact Flux Klein prompt."), tags: fallbackRule(false), json: fallbackRule(true, "Write compact Flux Klein JSON.") }, default_format: "natural", negative_supported: true, json_supported: true, media_type: "image", notes: "" },
-  { key: "krea2", label: "Krea2", formats: { natural: fallbackRule(true, "Write a Krea2 natural prompt."), tags: fallbackRule(false), json: fallbackRule(true, "Write Krea2 structured bbox JSON.") }, default_format: "natural", negative_supported: true, json_supported: true, media_type: "image", notes: "" },
-  { key: "z_image", label: "Z-Image", formats: { natural: fallbackRule(true, "Write a detailed Z-Image natural prompt."), tags: fallbackRule(false), json: fallbackRule(false) }, default_format: "natural", negative_supported: true, json_supported: false, media_type: "image", notes: "" },
-  { key: "wan2_2", label: "WAN 2.2", formats: { natural: fallbackRule(true, "Write a WAN 2.2 video prompt."), tags: fallbackRule(false), json: fallbackRule(false) }, default_format: "natural", negative_supported: true, json_supported: false, media_type: "video", notes: "" },
-  { key: "ltx_2_3", label: "LTX 2.3", formats: { natural: fallbackRule(true, "Write an LTX 2.3 chronological video prompt."), tags: fallbackRule(false), json: fallbackRule(false) }, default_format: "natural", negative_supported: true, json_supported: false, media_type: "video", notes: "" },
-  { key: "minimax_h3_official", label: "MiniMax H3 Official", formats: { natural: fallbackRule(true, "Write a MiniMax H3 prompt using the official video guide structure."), tags: fallbackRule(false), json: fallbackRule(false) }, default_format: "natural", negative_supported: false, json_supported: false, media_type: "video", notes: "" },
-  { key: "minimax_h3_alternate", label: "MiniMax H3 Alternate", formats: { natural: fallbackRule(true, "Write a MiniMax H3 prompt using the alternate cinematic reference-control structure."), tags: fallbackRule(false), json: fallbackRule(false) }, default_format: "natural", negative_supported: false, json_supported: false, media_type: "video", notes: "" },
+  { key: "ideogram4", label: "Ideogram 4", formats: { natural: fallbackRule(true), tags: fallbackRule(false), json: fallbackRule(true) }, default_format: "json", negative_supported: true, json_supported: true, media_type: "image", notes: "" },
+  { key: "sdxl", label: "SDXL", formats: { natural: fallbackRule(true), tags: fallbackRule(true), json: fallbackRule(false) }, default_format: "tags", negative_supported: true, json_supported: false, media_type: "image", notes: "" },
+  { key: "qwen_image", label: "Qwen-Image", formats: { natural: fallbackRule(true), tags: fallbackRule(false), json: fallbackRule(false) }, default_format: "natural", negative_supported: true, json_supported: false, media_type: "image", notes: "" },
+  { key: "flux1_dev", label: "FLUX.1 dev", formats: { natural: fallbackRule(true), tags: fallbackRule(false), json: fallbackRule(false) }, default_format: "natural", negative_supported: true, json_supported: false, media_type: "image", notes: "" },
+  { key: "flux2_dev", label: "FLUX.2 dev", formats: { natural: fallbackRule(true), tags: fallbackRule(false), json: fallbackRule(true) }, default_format: "natural", negative_supported: true, json_supported: true, media_type: "image", notes: "" },
+  { key: "flux_klein", label: "Flux Klein", formats: { natural: fallbackRule(true), tags: fallbackRule(false), json: fallbackRule(true) }, default_format: "natural", negative_supported: true, json_supported: true, media_type: "image", notes: "" },
+  { key: "krea2", label: "Krea2", formats: { natural: fallbackRule(true), tags: fallbackRule(false), json: fallbackRule(true) }, default_format: "natural", negative_supported: true, json_supported: true, media_type: "image", notes: "" },
+  { key: "z_image", label: "Z-Image", formats: { natural: fallbackRule(true), tags: fallbackRule(false), json: fallbackRule(false) }, default_format: "natural", negative_supported: true, json_supported: false, media_type: "image", notes: "" },
+  { key: "wan2_2", label: "WAN 2.2", formats: { natural: fallbackRule(true), tags: fallbackRule(false), json: fallbackRule(false) }, default_format: "natural", negative_supported: true, json_supported: false, media_type: "video", notes: "" },
+  { key: "ltx_2_3", label: "LTX 2.3", formats: { natural: fallbackRule(true), tags: fallbackRule(false), json: fallbackRule(false) }, default_format: "natural", negative_supported: true, json_supported: false, media_type: "video", notes: "" },
+  { key: "minimax_h3_official", label: "MiniMax H3 Official", formats: { natural: fallbackRule(true), tags: fallbackRule(false), json: fallbackRule(false) }, default_format: "natural", negative_supported: false, json_supported: false, media_type: "video", notes: "" },
+  { key: "minimax_h3_alternate", label: "MiniMax H3 Alternate", formats: { natural: fallbackRule(true), tags: fallbackRule(false), json: fallbackRule(false) }, default_format: "natural", negative_supported: false, json_supported: false, media_type: "video", notes: "" },
   { key: "jsonx", label: "JsonX", engine: "jsonx", jsonx_config: defaultJsonXConfig(), formats: { natural: fallbackRule(true, "Convert validated JsonX into natural language."), tags: fallbackRule(false), json: fallbackRule(true, "Generate validated JsonX JSON.") }, default_format: "json", negative_supported: true, json_supported: true, media_type: "image", notes: "JsonX structured prompt profile." },
 ];
 const NODE_MIN_WIDGET_HEIGHT = 420;
@@ -137,6 +228,10 @@ const DOCK_OBSCURING_MODAL_SELECTOR = [
 let nextDockZ = DOCK_Z_BASE;
 
 let profilesPromise = null;
+let backendSchemaVersion = 0;
+let backendReferenceSchemaVersion = 0;
+let backendJsonXReferenceSchemaVersion = 0;
+let profileLoadError = "";
 const graphDocks = new Set();
 let dockRAF = 0;
 let dockWakesInstalled = false;
@@ -798,6 +893,9 @@ function injectStyle() {
   grid-template-columns: 285px minmax(0, 1fr);
   min-height: 0;
 }
+.workflowx-uap-settings-body.global-rules-mode {
+  grid-template-columns: minmax(0, 1fr);
+}
 .workflowx-uap-settings-list {
   border-right: 1px solid #303842;
   display: flex;
@@ -877,11 +975,86 @@ function injectStyle() {
   border-color: #7bafd1;
 }
 .workflowx-uap-settings-card {
+  background: #121820;
   border: 1px solid #303842;
-  border-radius: 6px;
+  border-radius: 9px;
   display: grid;
   gap: 10px;
-  padding: 10px;
+  padding: 12px;
+}
+.workflowx-uap-settings-card-head {
+  align-items: flex-start;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+.workflowx-uap-settings-card-title {
+  color: #eef4f8;
+  font-size: 13px;
+  font-weight: 650;
+}
+.workflowx-uap-settings-card-source {
+  color: #8fa0ad;
+  font: 10px ui-monospace, SFMono-Regular, Consolas, monospace;
+  margin-top: 3px;
+}
+.workflowx-uap-condition-badge {
+  background: #172536;
+  border: 1px solid #36506a;
+  border-radius: 999px;
+  color: #9dcae9;
+  font-size: 10px;
+  line-height: 1.25;
+  max-width: 420px;
+  padding: 4px 8px;
+  text-align: right;
+}
+.workflowx-uap-field-help {
+  color: #91a0ad;
+  font-size: 10px;
+  line-height: 1.35;
+  margin-top: 4px;
+}
+.workflowx-uap-field.is-disabled .workflowx-uap-label,
+.workflowx-uap-field.is-disabled .workflowx-uap-field-help,
+.workflowx-uap-toggle.is-disabled {
+  opacity: .58;
+}
+.workflowx-uap-field select:disabled,
+.workflowx-uap-field input:disabled {
+  cursor: not-allowed;
+}
+.workflowx-uap-preview-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1.45fr) minmax(280px, .55fr);
+}
+.workflowx-uap-preview-section {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.workflowx-uap-preview-heading {
+  color: #eef4f8;
+  font-size: 14px;
+  font-weight: 700;
+}
+.workflowx-uap-routing-list {
+  color: #c6d1da;
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding-left: 18px;
+}
+.workflowx-uap-global-rules-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+@media (max-width: 980px) {
+  .workflowx-uap-global-rules-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 .workflowx-uap-settings-large {
   min-height: 260px !important;
@@ -904,6 +1077,38 @@ function injectStyle() {
 }
 .workflowx-uap-modal-message.error {
   color: #ff8585;
+}
+.workflowx-uap-modal-v6 {
+  background: linear-gradient(180deg, #12171c 0%, #0d1115 100%);
+  height: min(920px, 96vh);
+  width: min(1500px, 98vw);
+}
+.workflowx-uap-modal-v6 .workflowx-uap-settings-form {
+  background: rgba(9, 13, 17, .55);
+  overflow: hidden;
+}
+.workflowx-uap-settings-page {
+  display: grid;
+  gap: 12px;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+}
+.workflowx-uap-settings-page > .workflowx-uap-field {
+  background: #121820;
+  border: 1px solid #283440;
+  border-radius: 8px;
+  padding: 9px;
+}
+.workflowx-uap-settings-page .workflowx-uap-text {
+  min-height: 150px;
+}
+@media (max-width: 980px) {
+  .workflowx-uap-preview-grid { grid-template-columns: 1fr; }
+}
+.workflowx-uap-modal-v6 .workflowx-uap-modal-head:last-child .workflowx-uap-status {
+  flex: 1 1 auto;
+  min-width: 260px;
 }
 .workflowx-uap-hidden {
   display: none !important;
@@ -1196,9 +1401,37 @@ function option(select, value, label) {
 async function loadProfiles() {
   if (!profilesPromise) {
     profilesPromise = fetch(`${ROUTE}/profiles`)
-      .then((response) => (response.ok ? response.json() : null))
-      .then((data) => (data?.profiles || FALLBACK_PROFILES).map(ensureProfileShape))
-      .catch(() => FALLBACK_PROFILES.map(ensureProfileShape));
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`Profile schema request failed with HTTP ${response.status}.`);
+        const data = await response.json();
+        backendSchemaVersion = Number(data?.schema_version || 0);
+        backendReferenceSchemaVersion = Number(data?.reference_schema_version || 0);
+        backendJsonXReferenceSchemaVersion = Number(data?.jsonx_reference_schema_version || 0);
+        if (backendSchemaVersion !== FRONTEND_SCHEMA_VERSION) {
+          throw new Error(
+            `Unified schema mismatch (frontend ${FRONTEND_SCHEMA_VERSION}, backend ${backendSchemaVersion || "missing"}). ` +
+            "Restart ComfyUI and hard-refresh the browser.",
+          );
+        }
+        if (backendReferenceSchemaVersion !== REFERENCE_SCHEMA_VERSION) {
+          throw new Error(
+            `Unified reference schema mismatch (frontend ${REFERENCE_SCHEMA_VERSION}, backend ${backendReferenceSchemaVersion || "missing"}). ` +
+            "Restart ComfyUI and hard-refresh the browser.",
+          );
+        }
+        if (backendJsonXReferenceSchemaVersion !== JSONX_REFERENCE_SCHEMA_VERSION) {
+          throw new Error(
+            `Unified JsonX reference schema mismatch (frontend ${JSONX_REFERENCE_SCHEMA_VERSION}, backend ${backendJsonXReferenceSchemaVersion || "missing"}). ` +
+            "Restart ComfyUI and hard-refresh the browser.",
+          );
+        }
+        profileLoadError = "";
+        return (data?.profiles || FALLBACK_PROFILES).map(ensureProfileShape);
+      })
+      .catch((error) => {
+        profileLoadError = error?.message || String(error);
+        return FALLBACK_PROFILES.map(ensureProfileShape);
+      });
   }
   return profilesPromise;
 }
@@ -1265,14 +1498,43 @@ function enabledProfileFormats(profile) {
   return ALL_PROMPT_FORMATS.filter((format) => formats?.[format]?.enabled);
 }
 
+function ensureInstructionBlock(value = {}, defaultTitle = "Instructions") {
+  if (typeof value === "string") value = { text: value };
+  return {
+    title: String(value?.title || defaultTitle),
+    text: String(value?.text || ""),
+    source: String(value?.source || ""),
+  };
+}
+
+function ensureInstructionBlocks(value, defaultTitle) {
+  const values = Array.isArray(value) ? value : value ? [value] : [];
+  return values.map((item) => ensureInstructionBlock(item, defaultTitle));
+}
+
+function collapseInstructionBlocks(value, title, source) {
+  const blocks = ensureInstructionBlocks(value, title);
+  return ensureInstructionBlock({
+    title,
+    text: blocks
+      .filter((item) => String(item.text || "").trim())
+      .map((item) => `${item.title ? `## ${item.title}\n` : ""}${String(item.text || "").trim()}`)
+      .join("\n\n"),
+    source: blocks.map((item) => item.source).filter(Boolean).join("; ") || source,
+  }, title);
+}
+
 function ensureRule(rule = {}, enabled = false) {
+  const legacy = rule.common_blocks ?? (rule.common_instructions
+    ? [{ title: "Core model behavior", text: rule.common_instructions, source: "Legacy profile rule" }]
+    : []);
   return {
     enabled: Boolean(rule.enabled ?? enabled),
-    common_instructions: rule.common_instructions || "",
-    output_contract_negative_off: rule.output_contract_negative_off || "",
-    output_contract_negative_on: rule.output_contract_negative_on || "",
-    with_image_reference_instructions: rule.with_image_reference_instructions || "",
-    without_image_reference_instructions: rule.without_image_reference_instructions || "",
+    common_rules: ensureInstructionBlock(
+      rule.common_rules || collapseInstructionBlocks(legacy, "Core Model Rules", "Migrated profile rules"),
+      "Core Model Rules",
+    ),
+    common_guide: ensureInstructionBlock(rule.common_guide, "Profile Guide"),
   };
 }
 
@@ -1280,7 +1542,7 @@ function ensureProfileShape(profile) {
   const next = { ...profile };
   next.engine = String(next.engine || (next.key === "jsonx" ? "jsonx" : "standard")).toLowerCase();
   next.jsonx_config = next.engine === "jsonx"
-    ? { ...defaultJsonXConfig(), ...(next.jsonx_config && typeof next.jsonx_config === "object" ? next.jsonx_config : {}) }
+    ? jsonxBehaviorConfig(next.jsonx_config)
     : {};
   const rawFormats = next.formats;
   if (Array.isArray(rawFormats)) {
@@ -1294,18 +1556,52 @@ function ensureProfileShape(profile) {
   next.json_supported = Boolean(next.json_supported);
   next.media_type ||= "image";
   next.notes ||= "";
+  const defaultTypes = next.media_type === "video"
+    ? ["text_to_video", "first_frame_to_video", "first_last_frame_to_video"]
+    : ["text_to_image", "image_to_image"];
+  const sourcePaths = next.generation_paths && typeof next.generation_paths === "object"
+    ? next.generation_paths
+    : Object.fromEntries(defaultTypes.map((type) => [type, {
+      label: GENERATION_TYPE_MAP.get(type)?.label || type,
+      path_rules: ensureInstructionBlock({}, "Generation Path Rules"),
+      path_guide: ensureInstructionBlock({}, "Generation Path Guide"),
+      image_state_blocks: {},
+      output_contracts: {},
+    }]));
+  next.generation_paths = Object.fromEntries(Object.entries(sourcePaths).map(([type, path]) => {
+    const contracts = path?.output_contracts && typeof path.output_contracts === "object" ? path.output_contracts : {};
+    for (const format of ALL_PROMPT_FORMATS) {
+      if (!contracts[format]) {
+        const rule = next.formats[format] || ensureRule();
+        contracts[format] = {
+          negative_off: rule.output_contract_negative_off || "",
+          negative_on: rule.output_contract_negative_on || "",
+        };
+      }
+    }
+    return [type, {
+      label: path?.label || GENERATION_TYPE_MAP.get(type)?.label || type,
+      path_rules: ensureInstructionBlock(
+        path?.path_rules || collapseInstructionBlocks(
+          path?.instruction_blocks ?? (path?.instructions
+            ? [{ title: "Generation-path guide", text: path.instructions, source: "Legacy generation-path rule" }]
+            : []),
+          "Generation Path Rules",
+          "Migrated generation-path rules",
+        ),
+        "Generation Path Rules",
+      ),
+      path_guide: ensureInstructionBlock(path?.path_guide, "Generation Path Guide"),
+      image_state_blocks: Object.fromEntries(IMAGE_STATE_KEYS.map((key) => [
+        key,
+        ensureInstructionBlock(path?.image_state_blocks?.[key], key.replaceAll("_", " ")),
+      ])),
+      output_contracts: contracts,
+    }];
+  }));
+  const pathKeys = Object.keys(next.generation_paths);
+  if (!pathKeys.includes(next.default_generation_type)) next.default_generation_type = pathKeys[0] || defaultTypes[0];
   return next;
-}
-
-function profileOutputContract(profile, promptFormat, negativeEnabled) {
-  const rule = formatRule(profile, promptFormat);
-  return negativeEnabled ? rule?.output_contract_negative_on || "" : rule?.output_contract_negative_off || "";
-}
-
-function negativeInstruction(negativeEnabled) {
-  return negativeEnabled
-    ? "Generate the negative output only in the contract's negative field. Keep it separate from the positive prompt."
-    : "Do not invent a negative prompt. Return an empty negative string when the output contract includes negative.";
 }
 
 function isMiniMaxProfile(profile) {
@@ -1313,47 +1609,45 @@ function isMiniMaxProfile(profile) {
   return key === "minimax_h3_official" || key === "minimax_h3_alternate";
 }
 
+function promptInstructionsPlaceholder(profile) {
+  if (profile?.engine === "jsonx") {
+    return [
+      "Describe the requested scene, subjects, environment, style, lighting, camera, interactions, and constraints.",
+      "Create the deepest coherent JsonX hierarchy possible, using detailed branches and leaves wherever they apply.",
+    ].join("\n");
+  }
+  if (isMiniMaxProfile(profile)) {
+    return [
+      "Idea: A 5-second cinematic video of the subject performing a clear action.",
+      "Action and timing: 0-2s ..., 2-4s ..., 4-5s ...",
+      "Camera: Describe framing and any material camera change or cut.",
+      "Audio / dialogue: Describe speech, music, ambience, or reference <Audio 1>.",
+      "Reference intent: Explain what <Picture 1> or <Video 1> supplies and what must not be inferred from it.",
+    ].join("\n");
+  }
+  if (profileIsVideo(profile)) {
+    return [
+      "Idea: A 5-second video of a woman walking steadily along a beach.",
+      "Action and timing: 0-2s she enters frame, 2-4s she follows the shoreline, 4-5s she pauses at the water.",
+      "Camera: Static locked camera with a medium-wide composition.",
+      "Audio / dialogue: Gentle surf and light wind; no dialogue.",
+      "Reference intent: Preserve the connected image subject's identity and clothing if provided.",
+    ].join("\n");
+  }
+  return [
+    "Idea: Create a detailed image of a woman walking along a beach.",
+    "Subject and environment: Describe the subject, clothing, action, setting, and important objects.",
+    "Style and lighting: Natural editorial photography in soft overcast daylight.",
+    "Camera / composition: Eye-level medium-wide framing using the rule of thirds.",
+    "Text / typography: State any required visible text, or specify none.",
+    "Reference intent: Explain what to preserve from connected images if provided.",
+  ].join("\n");
+}
+
 function renderTemplatePreview(profile, promptFormat, negativeEnabled, hasImage = false) {
   profile = ensureProfileShape(profile || {});
-  negativeEnabled = Boolean(negativeEnabled) && Boolean(profile.negative_supported);
-  promptFormat = promptFormat || profile?.default_format || "natural";
-  const rule = formatRule(profile, promptFormat) || ensureRule();
-  const contract = profileOutputContract(profile, promptFormat, negativeEnabled);
-  const imageRule = hasImage ? rule.with_image_reference_instructions : rule.without_image_reference_instructions;
-  const template = [
-    "You are Unified Autoprompter X.",
-    `Target model: ${profile?.label || ""}`,
-    `Target key: ${profile?.key || ""}`,
-    `Output format: ${promptFormat}`,
-    "",
-    "Model notes:",
-    profile?.notes || "",
-    "",
-    "Format-specific instructions:",
-    rule.common_instructions || "",
-    "",
-    "Image reference mode:",
-    imageRule || "",
-    "",
-    "Negative prompt handling:",
-    negativeInstruction(negativeEnabled),
-    "",
-    "Output contract:",
-    contract || "",
-    "",
-    isMiniMaxProfile(profile)
-      ? "Return plain text only. Preserve the required MiniMax section headings, one-reference-per-line definitions, and blank lines between sections. No JSON, no markdown fences, no wrapper keys, no positive/negative labels, no commentary."
-      : "Return valid JSON only. No markdown fences, no commentary.",
-  ].join("\n");
-  const values = {
-    target_label: profile?.label || "",
-    target_key: profile?.key || "",
-    prompt_format: promptFormat,
-    output_contract: contract || "",
-    negative_instruction: negativeInstruction(negativeEnabled),
-    notes: profile?.notes || "",
-  };
-  return template.replace(/\{([a-zA-Z0-9_]+)\}/g, (match, key) => values[key] ?? match);
+  if (profile.engine !== "jsonx") return "";
+  return "Use Refresh effective instructions to preview the isolated JsonX engine prompts.";
 }
 
 function normalizeIdeogramPanelHeight(value) {
@@ -1371,6 +1665,7 @@ function defaultState(node) {
   }
   const storedModels = loadStoredModelSelection();
   const storedOpenAIBaseUrl = loadStoredOpenAIBaseUrl();
+  const browserProvider = loadProviderSettings("standard");
   const generatedPositive = widgetValue(node, "generated_positive", "");
   const generatedNegative = widgetValue(node, "generated_negative", "");
   const finalPrompt = widgetValue(node, "final_prompt", "");
@@ -1379,21 +1674,19 @@ function defaultState(node) {
     : null;
 
   return {
-    backend: saved.backend || storedModels.backend || "gemini",
+    backend: browserProvider.backend || saved.backend || storedModels.backend || "gemini",
     model_settings_open: Boolean(saved.model_settings_open),
     target_model: saved.target_model || widgetValue(node, "target_model", "ideogram4"),
     prompt_format: saved.prompt_format || widgetValue(node, "prompt_format", "json"),
+    generation_type: saved.generation_type || widgetValue(node, "generation_type", "text_to_image"),
+    nsfw_enabled: saved.nsfw_enabled == null
+      ? Boolean(widgetValue(node, "nsfw_enabled", false))
+      : Boolean(saved.nsfw_enabled),
     negative_enabled: saved.negative_enabled == null
       ? Boolean(widgetValue(node, "negative_enabled", false))
       : Boolean(saved.negative_enabled),
-    idea: saved.idea || "",
-    subject: saved.subject || "",
-    style: saved.style || "",
-    lighting: saved.lighting || "",
-    composition: saved.composition || "",
-    text: saved.text || "",
+    prompt_text: saved.prompt_text || "",
     detail: saved.detail || "high",
-    image_note: saved.image_note || "",
     enable_bbox_json_input: saved.enable_bbox_json_input == null
       ? Boolean(widgetValue(node, "enable_bbox_json_input", false))
       : Boolean(saved.enable_bbox_json_input),
@@ -1412,32 +1705,37 @@ function defaultState(node) {
     ideogram_height: Number(saved.ideogram_height || 1024),
     ideogram_manual_dims: Boolean(saved.ideogram_manual_dims || false),
     ideogram_panel_height: normalizeIdeogramPanelHeight(saved.ideogram_panel_height),
-    video_duration_or_frames: saved.video_duration_or_frames || "",
-    motion_action: saved.motion_action || "",
-    temporal_beats: saved.temporal_beats || "",
-    camera_movement: saved.camera_movement || "",
-    audio_dialogue: saved.audio_dialogue || "",
-    reference_or_control_notes: saved.reference_or_control_notes || "",
-    extra_instructions: saved.extra_instructions || "",
     jsonx: saved.jsonx && typeof saved.jsonx === "object" ? saved.jsonx : { diagnostics: null },
     jsonx_provider: workflowJsonXProviderSettings(saved.jsonx_provider),
-    jsonx_profile_configs: saved.jsonx_profile_configs && typeof saved.jsonx_profile_configs === "object"
-      ? saved.jsonx_profile_configs
-      : {},
-    gemini_model: saved.gemini_model || storedModels.gemini_model || "",
-    gemini_timeout: saved.gemini_timeout || 120,
-    safety_harassment: saved.safety_harassment || "BLOCK_NONE",
-    safety_hate_speech: saved.safety_hate_speech || "BLOCK_NONE",
-    safety_sexual: saved.safety_sexual || "BLOCK_NONE",
-    safety_dangerous: saved.safety_dangerous || "BLOCK_NONE",
-    openai_base_url: saved.openai_base_url || storedOpenAIBaseUrl || DEFAULT_OPENAI_BASE_URL,
-    openai_model: saved.openai_model || storedModels.openai_model || "",
-    openai_timeout: saved.openai_timeout || 120,
-    ollama_timeout: saved.ollama_timeout || 120,
-    local_timeout: saved.local_timeout || 180,
-    ollama_host: saved.ollama_host || DEFAULT_OLLAMA_HOST,
-    ollama_model: saved.ollama_model || storedModels.ollama_model || "",
-    ollama_think: Boolean(saved.ollama_think || false),
+    jsonx_profile_configs: Object.fromEntries(Object.entries(
+      saved.jsonx_profile_configs && typeof saved.jsonx_profile_configs === "object"
+        ? saved.jsonx_profile_configs
+        : {},
+    ).map(([key, value]) => [key, jsonxBehaviorConfig(value)])),
+    gemini_model: browserProvider.gemini_model || saved.gemini_model || storedModels.gemini_model || "",
+    gemini_timeout: browserProvider.gemini_timeout || saved.gemini_timeout || 120,
+    safety_harassment: browserProvider.safety_harassment || saved.safety_harassment || "BLOCK_NONE",
+    safety_hate_speech: browserProvider.safety_hate_speech || saved.safety_hate_speech || "BLOCK_NONE",
+    safety_sexual: browserProvider.safety_sexual || saved.safety_sexual || "BLOCK_NONE",
+    safety_dangerous: browserProvider.safety_dangerous || saved.safety_dangerous || "BLOCK_NONE",
+    openai_base_url: browserProvider.openai_base_url || saved.openai_base_url || storedOpenAIBaseUrl || DEFAULT_OPENAI_BASE_URL,
+    openai_model: browserProvider.openai_model || saved.openai_model || storedModels.openai_model || "",
+    openai_timeout: browserProvider.openai_timeout || saved.openai_timeout || 120,
+    openai_server_type: normalizeOpenAIServerType(saved.openai_server_type),
+    openai_lifecycle: normalizeOpenAILifecycle(
+      saved.openai_lifecycle || (
+        Object.prototype.hasOwnProperty.call(saved, "unload_after")
+          ? (saved.unload_after ? "unload_after" : "keep_loaded")
+          : "server_managed"
+      ),
+    ),
+    openai_reasoning_effort: normalizeOpenAIReasoning(saved.openai_reasoning_effort),
+    ollama_timeout: browserProvider.ollama_timeout || saved.ollama_timeout || 120,
+    local_timeout: browserProvider.local_timeout || saved.local_timeout || 180,
+    ollama_host: browserProvider.ollama_host || saved.ollama_host || DEFAULT_OLLAMA_HOST,
+    ollama_model: browserProvider.ollama_model || saved.ollama_model || storedModels.ollama_model || "",
+    ollama_think: Boolean(browserProvider.ollama_think ?? saved.ollama_think ?? false),
+    ollama_options: { ...(browserProvider.ollama_options || {}) },
     unload_after: saved.unload_after !== false,
     refresh_vram: saved.refresh_vram == null
       ? Boolean(widgetValue(node, "refresh_vram", false))
@@ -1445,7 +1743,7 @@ function defaultState(node) {
     disable_color_palette: saved.disable_color_palette == null
       ? Boolean(widgetValue(node, "disable_color_palette", false))
       : Boolean(saved.disable_color_palette),
-    local_model: saved.local_model || storedModels.local_model || "",
+    local_model: browserProvider.local_model || saved.local_model || storedModels.local_model || "",
     local_mmproj: saved.local_mmproj || "none",
     local_system_prompt_preset: saved.local_system_prompt_preset || "none",
     max_tokens: saved.max_tokens || 768,
@@ -1461,6 +1759,10 @@ function defaultState(node) {
     speculative_mode: saved.speculative_mode || "auto",
     mtp_draft_tokens: saved.mtp_draft_tokens || 2,
     seed: saved.seed ?? -1,
+    grok: { ...(browserProvider.grok || {}) },
+    deepseek: { ...(browserProvider.deepseek || {}) },
+    lm_studio: { ...(browserProvider.lm_studio || {}) },
+    unsloth: { ...(browserProvider.unsloth || {}) },
     generated_positive: generatedPositive,
     generated_negative: generatedNegative,
     final_prompt: finalPrompt,
@@ -1495,10 +1797,21 @@ function serializableState(state) {
     openai_key,
     ...rest
   } = state;
-  return {
-    ...rest,
-    jsonx_provider: workflowJsonXProviderSettings(rest.jsonx_provider),
-  };
+  const result = { ...rest };
+  result.jsonx_profile_configs = Object.fromEntries(Object.entries(result.jsonx_profile_configs || {})
+    .map(([key, value]) => [key, jsonxBehaviorConfig(value)]));
+  for (const key of [
+    "backend", "jsonx_provider", "gemini_model", "gemini_timeout", "safety_harassment",
+    "safety_hate_speech", "safety_sexual", "safety_dangerous", "openai_base_url",
+    "openai_model", "openai_timeout", "openai_server_type", "openai_lifecycle",
+    "openai_reasoning_effort", "ollama_timeout", "ollama_host", "ollama_model",
+    "ollama_think", "ollama_options", "unload_after", "local_timeout", "local_model", "local_mmproj",
+    "local_system_prompt_preset", "max_tokens", "temperature", "top_p", "top_k",
+    "repeat_penalty", "ctx_size", "memory_mode", "n_gpu_layers", "n_cpu_moe_layers",
+    "reasoning", "speculative_mode", "mtp_draft_tokens", "seed", "grok", "deepseek", "lm_studio",
+    "unsloth",
+  ]) delete result[key];
+  return result;
 }
 
 function positiveAndNegativePrompt(positive, negative, negativeEnabled, promptFormat) {
@@ -1560,6 +1873,8 @@ function syncOutputWidgets(node, state, activeProfile) {
 
   setWidgetValue(node, "target_model", outputTarget);
   setWidgetValue(node, "prompt_format", outputFormat);
+  setWidgetValue(node, "generation_type", state.generation_type || activeProfile?.default_generation_type || "text_to_image");
+  setWidgetValue(node, "nsfw_enabled", Boolean(state.nsfw_enabled));
   setWidgetValue(node, "negative_enabled", negativeEnabled);
   setWidgetValue(node, "enable_bbox_json_input", Boolean(state.enable_bbox_json_input));
   setWidgetValue(node, "enable_text_input", Boolean(state.enable_text_input));
@@ -1581,7 +1896,7 @@ function buildDom(tag, className = "", text = "") {
 }
 
 function field(parent, label, control) {
-  const wrap = buildDom("div");
+  const wrap = buildDom("div", "workflowx-uap-field");
   const lbl = buildDom("label", "workflowx-uap-label", label);
   wrap.appendChild(lbl);
   wrap.appendChild(control);
@@ -2170,6 +2485,8 @@ function setupUnifiedAutoprompter(node) {
   for (const name of [
     "target_model",
     "prompt_format",
+    "generation_type",
+    "nsfw_enabled",
     "negative_enabled",
     "enable_bbox_json_input",
     "enable_text_input",
@@ -2212,24 +2529,14 @@ function setupUnifiedAutoprompter(node) {
   const topGrid = buildDom("div", "workflowx-uap-grid");
   const targetSelect = createSelect();
   const formatSelect = createSelect();
+  const generationTypeSelect = createSelect();
+  const providerSelect = createSelect();
+  setSelectOptions(providerSelect, PROVIDERS.map(([value, label]) => ({ value, label })), state.backend);
   field(topGrid, "Target model", targetSelect);
   field(topGrid, "Prompt format", formatSelect);
+  field(topGrid, "Generation type", generationTypeSelect);
+  field(topGrid, "Provider", providerSelect);
   wrap.appendChild(topGrid);
-
-  const backendRow = buildDom("div", "workflowx-uap-row");
-  const geminiBtn = buildDom("button", "workflowx-uap-btn", "Gemini");
-  const openaiBtn = buildDom("button", "workflowx-uap-btn", "OpenAI Compatible");
-  const ollamaBtn = buildDom("button", "workflowx-uap-btn", "Ollama");
-  const localBtn = buildDom("button", "workflowx-uap-btn", "Local GGUF");
-  geminiBtn.title = "Use Gemini for this profile";
-  openaiBtn.title = "Use an OpenAI-compatible server for this profile";
-  ollamaBtn.title = "Use the configured Ollama server for this profile";
-  localBtn.title = "Run a local GGUF model through WorkflowX";
-  for (const button of [geminiBtn, openaiBtn, ollamaBtn, localBtn]) {
-    button.type = "button";
-    backendRow.appendChild(button);
-  }
-  wrap.appendChild(backendRow);
 
   // Provider credentials and tuning are useful, but should not dominate the
   // node surface.  Keep the active provider's panel in one collapsible group.
@@ -2263,7 +2570,7 @@ function setupUnifiedAutoprompter(node) {
   }
   geminiPanel.appendChild(geminiGrid);
   const geminiModelsRow = buildDom("div", "workflowx-uap-row");
-  const fetchGeminiBtn = buildDom("button", "workflowx-uap-btn", "Fetch models");
+  const fetchGeminiBtn = buildDom("button", "workflowx-uap-btn", "Fetch Gemini models");
   fetchGeminiBtn.type = "button";
   fetchGeminiBtn.title = "Fetch the Gemini models available to this API key";
   const geminiModelSelect = createSelect();
@@ -2283,36 +2590,305 @@ function setupUnifiedAutoprompter(node) {
   openaiKeyInput.placeholder = "optional for local servers";
   openaiKeyInput.value = state.openai_key || "";
   const openaiModelInput = createInput("text");
-  openaiModelInput.placeholder = "Model ID (manual or fetched)";
+  openaiModelInput.placeholder = "Only needed when model discovery is unavailable";
   openaiModelInput.value = state.openai_model || "";
   const openaiTimeoutInput = createInput("number");
   openaiTimeoutInput.min = "5";
   openaiTimeoutInput.max = "3600";
   openaiTimeoutInput.step = "1";
   openaiTimeoutInput.value = String(state.openai_timeout || 120);
+  const openaiServerTypeSelect = createSelect();
+  setSelectOptions(openaiServerTypeSelect, [
+    { value: "generic", label: "Generic OpenAI-compatible" },
+  ], "generic");
+  const openaiLifecycleSelect = createSelect();
+  setSelectOptions(openaiLifecycleSelect, [
+    { value: "server_managed", label: "Server managed (recommended)" },
+    { value: "keep_loaded", label: "Keep loaded" },
+    { value: "unload_after", label: "Unload after generation" },
+  ], normalizeOpenAILifecycle(state.openai_lifecycle));
+  const openaiReasoningSelect = createSelect();
+  const openaiReasoningChoices = [
+    { value: "default", label: "Provider / model default" },
+    { value: "none", label: "None / Off" },
+    { value: "on", label: "On (model-defined)" },
+    { value: "minimal", label: "Minimal" },
+    { value: "low", label: "Low" },
+    { value: "medium", label: "Medium" },
+    { value: "high", label: "High" },
+    { value: "max", label: "Maximum" },
+    { value: "xhigh", label: "Extra high" },
+  ];
+  setSelectOptions(openaiReasoningSelect, openaiReasoningChoices, normalizeOpenAIReasoning(state.openai_reasoning_effort));
   field(openaiGrid, "Base URL", openaiBaseUrlInput);
   field(openaiGrid, "API key", openaiKeyInput);
-  field(openaiGrid, "Model ID", openaiModelInput);
   field(openaiGrid, "Timeout seconds", openaiTimeoutInput);
+  field(openaiGrid, "Model lifecycle", openaiLifecycleSelect);
+  field(openaiGrid, "Reasoning", openaiReasoningSelect);
+  field(openaiGrid, "Manual model ID (fallback)", openaiModelInput);
   openaiPanel.appendChild(openaiGrid);
   const openaiModelsRow = buildDom("div", "workflowx-uap-row");
-  const fetchOpenaiBtn = buildDom("button", "workflowx-uap-btn", "Fetch models");
+  const fetchOpenaiBtn = buildDom("button", "workflowx-uap-btn", "Fetch OpenAI-compatible models");
   fetchOpenaiBtn.type = "button";
   fetchOpenaiBtn.title = "Fetch models from the configured OpenAI-compatible server";
-  const openaiUnloadToggle = buildDom("label", "workflowx-uap-toggle");
-  const openaiUnloadInput = document.createElement("input");
-  openaiUnloadInput.type = "checkbox";
-  openaiUnloadInput.checked = state.unload_after !== false;
-  openaiUnloadToggle.appendChild(openaiUnloadInput);
-  openaiUnloadToggle.appendChild(document.createTextNode("unload after"));
   const openaiModelSelect = createSelect();
   openaiModelSelect.style.flex = "1";
   option(openaiModelSelect, state.openai_model || "", state.openai_model || "No model selected");
   openaiModelsRow.appendChild(fetchOpenaiBtn);
-  openaiModelsRow.appendChild(openaiUnloadToggle);
   openaiModelsRow.appendChild(openaiModelSelect);
   openaiPanel.appendChild(openaiModelsRow);
   modelSettingsBody.appendChild(openaiPanel);
+  let openaiDetectedServerType = "auto";
+  // Profile helpers depend on profilesByKey, which is initialized later in this
+  // setup function. Resolve the discovery scope lazily on the first refresh.
+  let openaiDiscoveryScope = null;
+  let openaiModelsById = new Map();
+  let openaiReasoningCapabilities = {};
+
+  function syncOpenAIReasoningOptions() {
+    const requested = normalizeOpenAIServerType(openaiServerTypeSelect.value);
+    const provider = requested === "auto" ? openaiDetectedServerType : requested;
+    const current = normalizeOpenAIReasoning(openaiReasoningSelect.value);
+    let allowed = openaiReasoningChoices.map((item) => item.value);
+    if (provider === "lm_studio") {
+      const model = openaiModelsById.get(openaiModelSelect.value);
+      const advertised = Array.isArray(model?.reasoning_options) ? model.reasoning_options : [];
+      allowed = advertised.length
+        ? ["default", ...advertised.map((value) => normalizeOpenAIReasoning(value))]
+        : ["default", "none", "on", "low", "medium", "high"];
+    } else if (provider === "unsloth") {
+      const advertised = Array.isArray(openaiReasoningCapabilities?.options)
+        ? openaiReasoningCapabilities.options
+        : [];
+      allowed = advertised.length
+        ? ["default", "none", "on", ...advertised.map((value) => normalizeOpenAIReasoning(value))]
+        : allowed;
+    } else if (provider === "generic") {
+      allowed = allowed.filter((value) => value !== "on");
+    }
+    allowed = [...new Set(allowed)];
+    const choices = openaiReasoningChoices.filter((item) => allowed.includes(item.value));
+    setSelectOptions(openaiReasoningSelect, choices, allowed.includes(current) ? current : "default");
+  }
+
+  const providerDefaultPlaceholder = "Provider Default";
+
+  const grokPanel = buildDom("div", "workflowx-uap-panel");
+  const grokGrid = buildDom("div", "workflowx-uap-grid");
+  const grokKeyInput = createInput("password");
+  const grokModelSelect = createSelect();
+  const grokModelInput = createInput("text");
+  const grokTimeoutInput = createInput("number");
+  const grokMaxTokensInput = createInput("number");
+  const grokTemperatureInput = createInput("number");
+  const grokTopPInput = createInput("number");
+  const grokReasoningSelect = createSelect();
+  const grokCacheSelect = createSelect();
+  grokKeyInput.placeholder = "xAI API key";
+  grokModelInput.placeholder = "Manual model ID when discovery is unavailable";
+  grokTimeoutInput.placeholder = "120";
+  grokMaxTokensInput.placeholder = providerDefaultPlaceholder;
+  grokTemperatureInput.placeholder = providerDefaultPlaceholder;
+  grokTopPInput.placeholder = providerDefaultPlaceholder;
+  setSelectOptions(grokReasoningSelect, [
+    { value: "default", label: "Provider Default" }, { value: "low", label: "Low" },
+    { value: "medium", label: "Medium" }, { value: "high", label: "High" },
+    { value: "xhigh", label: "Extra high" },
+  ], "default");
+  setSelectOptions(grokCacheSelect, [{ value: "auto", label: "Auto" }, { value: "off", label: "Off" }], "auto");
+  field(grokGrid, "xAI API key", grokKeyInput);
+  field(grokGrid, "Timeout seconds", grokTimeoutInput);
+  field(grokGrid, "Model", grokModelSelect);
+  field(grokGrid, "Manual model ID", grokModelInput);
+  field(grokGrid, "Maximum output tokens", grokMaxTokensInput);
+  field(grokGrid, "Temperature", grokTemperatureInput);
+  field(grokGrid, "Top P", grokTopPInput);
+  field(grokGrid, "Reasoning effort", grokReasoningSelect);
+  field(grokGrid, "Prompt caching", grokCacheSelect);
+  grokPanel.appendChild(grokGrid);
+  const fetchGrokBtn = buildDom("button", "workflowx-uap-btn", "Fetch xAI models");
+  fetchGrokBtn.type = "button";
+  grokPanel.appendChild(fetchGrokBtn);
+  const grokCapabilityInfo = buildDom("div", "workflowx-uap-status", "Model capabilities will appear after discovery.");
+  grokPanel.appendChild(grokCapabilityInfo);
+  modelSettingsBody.appendChild(grokPanel);
+  let grokModelsById = new Map();
+
+  function syncGrokReasoningOptions() {
+    const modelId = String(grokModelSelect.value || grokModelInput.value || "").toLowerCase();
+    const discovered = grokModelsById.get(grokModelSelect.value);
+    let allowed = Array.isArray(discovered?.reasoning_options)
+      ? discovered.reasoning_options.map((value) => String(value).toLowerCase())
+      : [];
+    if (!allowed.length && modelId.includes("grok-4.6")) allowed = ["default", "low", "medium", "high", "xhigh"];
+    else if (!allowed.length && (modelId.includes("grok-4.5") || modelId.includes("reasoning"))) {
+      allowed = ["default", "low", "medium", "high"];
+    } else if (!allowed.length) allowed = ["default"];
+    const current = grokReasoningSelect.value || "default";
+    const choices = [
+      { value: "default", label: "Provider Default" }, { value: "low", label: "Low" },
+      { value: "medium", label: "Medium" }, { value: "high", label: "High" },
+      { value: "xhigh", label: "Extra high" },
+    ].filter((item) => allowed.includes(item.value));
+    setSelectOptions(grokReasoningSelect, choices, allowed.includes(current) ? current : "default");
+  }
+
+  const deepseekPanel = buildDom("div", "workflowx-uap-panel");
+  const deepseekGrid = buildDom("div", "workflowx-uap-grid");
+  const deepseekKeyInput = createInput("password");
+  const deepseekModelSelect = createSelect();
+  const deepseekModelInput = createInput("text");
+  const deepseekTimeoutInput = createInput("number");
+  const deepseekMaxTokensInput = createInput("number");
+  const deepseekThinkingSelect = createSelect();
+  const deepseekReasoningSelect = createSelect();
+  const deepseekTemperatureInput = createInput("number");
+  const deepseekTopPInput = createInput("number");
+  const deepseekImageDetailSelect = createSelect();
+  deepseekKeyInput.placeholder = "DeepSeek API key";
+  deepseekModelInput.placeholder = "Manual model ID when discovery is unavailable";
+  deepseekTimeoutInput.placeholder = "120";
+  deepseekMaxTokensInput.placeholder = providerDefaultPlaceholder;
+  deepseekTemperatureInput.placeholder = "Provider Default · non-thinking only";
+  deepseekTopPInput.placeholder = "Provider Default · non-thinking only";
+  setSelectOptions(deepseekThinkingSelect, [
+    { value: "default", label: "Provider Default (thinking enabled)" },
+    { value: "enabled", label: "Enabled" },
+    { value: "disabled", label: "Disabled" },
+  ], "default");
+  setSelectOptions(deepseekReasoningSelect, [
+    { value: "default", label: "Provider Default (High)" },
+    { value: "low", label: "Low" },
+    { value: "high", label: "High" },
+    { value: "max", label: "Maximum" },
+  ], "default");
+  setSelectOptions(deepseekImageDetailSelect, [
+    { value: "default", label: "Provider Default" },
+    { value: "auto", label: "Auto" },
+    { value: "low", label: "Low (512×512)" },
+    { value: "high", label: "High" },
+    { value: "original", label: "Original" },
+  ], "default");
+  field(deepseekGrid, "DeepSeek API key", deepseekKeyInput);
+  field(deepseekGrid, "Timeout seconds", deepseekTimeoutInput);
+  field(deepseekGrid, "Model", deepseekModelSelect);
+  field(deepseekGrid, "Manual model ID", deepseekModelInput);
+  field(deepseekGrid, "Maximum output tokens", deepseekMaxTokensInput);
+  field(deepseekGrid, "Thinking mode", deepseekThinkingSelect);
+  field(deepseekGrid, "Reasoning effort", deepseekReasoningSelect);
+  field(deepseekGrid, "Temperature (non-thinking only)", deepseekTemperatureInput);
+  field(deepseekGrid, "Top P (non-thinking only)", deepseekTopPInput);
+  field(deepseekGrid, "Image detail", deepseekImageDetailSelect);
+  deepseekPanel.appendChild(deepseekGrid);
+  const fetchDeepSeekBtn = buildDom("button", "workflowx-uap-btn", "Fetch DeepSeek models");
+  fetchDeepSeekBtn.type = "button";
+  deepseekPanel.appendChild(fetchDeepSeekBtn);
+  const deepseekCapabilityInfo = buildDom(
+    "div",
+    "workflowx-uap-status",
+    "Select a DeepSeek model to see its image capability. Context caching is automatic.",
+  );
+  deepseekPanel.appendChild(deepseekCapabilityInfo);
+  modelSettingsBody.appendChild(deepseekPanel);
+  let deepseekModelsById = new Map();
+
+  function syncDeepSeekControls() {
+    const modelId = String(deepseekModelSelect.value || deepseekModelInput.value || "").toLowerCase();
+    const forcedNonThinking = modelId === "deepseek-chat";
+    const forcedThinking = modelId === "deepseek-reasoner";
+    if (forcedNonThinking) deepseekThinkingSelect.value = "disabled";
+    if (forcedThinking) deepseekThinkingSelect.value = "enabled";
+    deepseekThinkingSelect.disabled = forcedNonThinking || forcedThinking;
+    const nonThinking = deepseekThinkingSelect.value === "disabled";
+    deepseekReasoningSelect.disabled = nonThinking;
+    deepseekTemperatureInput.disabled = !nonThinking;
+    deepseekTopPInput.disabled = !nonThinking;
+    const model = deepseekModelsById.get(deepseekModelSelect.value);
+    const vision = model?.vision === true || deepseekModelSupportsVision(modelId);
+    deepseekImageDetailSelect.disabled = !vision;
+    const context = Number(model?.context_length || 0);
+    const maximum = Number(model?.max_output_tokens || 0);
+    deepseekCapabilityInfo.textContent = [
+      vision ? "text + image input" : "text input only",
+      context ? `context ${context.toLocaleString()} tokens` : "context not advertised",
+      maximum ? `maximum output ${maximum.toLocaleString()} tokens` : "output limit not advertised",
+      "automatic context caching",
+    ].join(" · ");
+  }
+
+  function createStudioPanel(kind) {
+    const panel = buildDom("div", "workflowx-uap-panel");
+    const grid = buildDom("div", "workflowx-uap-grid");
+    const baseUrl = createInput("text");
+    const key = createInput("password");
+    const model = createSelect();
+    const manualModel = createInput("text");
+    const timeout = createInput("number");
+    const lifecycle = createSelect();
+    const maxTokens = createInput("number");
+    const context = createInput("number");
+    const temperature = createInput("number");
+    const topP = createInput("number");
+    const topK = createInput("number");
+    const minP = createInput("number");
+    const repeatPenalty = createInput("number");
+    const presencePenalty = createInput("number");
+    const reasoning = createSelect();
+    const thinkingMode = createSelect();
+    const preserveThinking = document.createElement("input");
+    preserveThinking.type = "checkbox";
+    baseUrl.placeholder = kind === "lm_studio" ? "http://localhost:1234/v1" : "http://localhost:8000/v1";
+    key.placeholder = "Optional server token";
+    manualModel.placeholder = "Manual model ID when discovery is unavailable";
+    timeout.placeholder = "120";
+    for (const input of [maxTokens, context, temperature, topP, topK, minP, repeatPenalty, presencePenalty]) {
+      input.placeholder = providerDefaultPlaceholder;
+    }
+    setSelectOptions(lifecycle, [
+      { value: "server_managed", label: "Server managed" },
+      { value: "keep_loaded", label: "Keep loaded" },
+      { value: "unload_after", label: "Unload after generation" },
+    ], "server_managed");
+    setSelectOptions(reasoning, openaiReasoningChoices, "default");
+    setSelectOptions(thinkingMode, [
+      { value: "default", label: "Provider Default" },
+      { value: "on", label: "Enabled" },
+      { value: "off", label: "Disabled" },
+    ], "default");
+    field(grid, "Server URL", baseUrl);
+    field(grid, "Server token", key);
+    field(grid, "Model", model);
+    field(grid, "Manual model ID", manualModel);
+    field(grid, "Timeout seconds", timeout);
+    field(grid, "Model lifecycle", lifecycle);
+    field(grid, kind === "unsloth" ? "Maximum new tokens" : "Maximum output tokens", maxTokens);
+    if (kind === "lm_studio") field(grid, "Context length", context);
+    field(grid, "Temperature", temperature);
+    field(grid, "Top P", topP);
+    field(grid, "Top K", topK);
+    field(grid, "Min P", minP);
+    field(grid, kind === "unsloth" ? "Repetition penalty" : "Repeat penalty", repeatPenalty);
+    if (kind === "unsloth") field(grid, "Presence penalty", presencePenalty);
+    field(grid, "Reasoning", reasoning);
+    if (kind === "unsloth") {
+      field(grid, "Enable thinking", thinkingMode);
+      const preserve = buildDom("label", "workflowx-uap-toggle");
+      preserve.appendChild(preserveThinking);
+      preserve.appendChild(document.createTextNode("Preserve thinking"));
+      grid.appendChild(preserve);
+    }
+    panel.appendChild(grid);
+    const fetch = buildDom("button", "workflowx-uap-btn", `Fetch ${kind === "lm_studio" ? "LM Studio" : "Unsloth Studio"} models`);
+    fetch.type = "button";
+    panel.appendChild(fetch);
+    const capabilities = buildDom("div", "workflowx-uap-status", "Model capabilities will appear after discovery.");
+    panel.appendChild(capabilities);
+    modelSettingsBody.appendChild(panel);
+    return { panel, baseUrl, key, model, manualModel, timeout, lifecycle, maxTokens, context, temperature, topP, topK, minP, repeatPenalty, presencePenalty, reasoning, thinkingMode, preserveThinking, fetch, capabilities, modelsById: new Map(), preserveThinkingSupported: false };
+  }
+
+  const lmStudio = createStudioPanel("lm_studio");
+  const unsloth = createStudioPanel("unsloth");
 
   const ollamaPanel = buildDom("div", "workflowx-uap-panel");
   const ollamaGrid = buildDom("div", "workflowx-uap-grid");
@@ -2327,9 +2903,18 @@ function setupUnifiedAutoprompter(node) {
   field(ollamaGrid, "Ollama host", hostInput);
   field(ollamaGrid, "Ollama model", ollamaModelSelect);
   field(ollamaGrid, "Timeout seconds", ollamaTimeoutInput);
+  const ollamaOptionInputs = {};
+  for (const [key, label, integer] of [
+    ["num_predict", "Maximum output tokens", true], ["num_ctx", "Context length", true],
+    ["temperature", "Temperature", false], ["top_p", "Top P", false], ["top_k", "Top K", true],
+    ["min_p", "Min P", false], ["repeat_penalty", "Repeat penalty", false], ["seed", "Seed", true],
+  ]) {
+    const input = createInput("number"); input.placeholder = providerDefaultPlaceholder;
+    input.dataset.integer = integer ? "1" : "0"; ollamaOptionInputs[key] = input; field(ollamaGrid, label, input);
+  }
   ollamaPanel.appendChild(ollamaGrid);
   const ollamaRow = buildDom("div", "workflowx-uap-row");
-  const fetchOllamaBtn = buildDom("button", "workflowx-uap-btn", "Fetch models");
+  const fetchOllamaBtn = buildDom("button", "workflowx-uap-btn", "Fetch Ollama models");
   fetchOllamaBtn.type = "button";
   fetchOllamaBtn.title = "Fetch models from the configured Ollama server";
   const thinkToggle = buildDom("label", "workflowx-uap-toggle");
@@ -2449,48 +3034,11 @@ function setupUnifiedAutoprompter(node) {
   localPanel.appendChild(fetchLocalBtn);
   modelSettingsBody.appendChild(localPanel);
 
-  const inputGrid = buildDom("div", "workflowx-uap-grid");
-  const ideaArea = createTextarea(2);
-  const subjectArea = createTextarea(2);
-  const styleInput = createInput("text");
-  const lightingInput = createInput("text");
-  const compositionInput = createInput("text");
-  const textInput = createInput("text");
+  const promptArea = createTextarea(7);
   const detailSelect = createSelect();
   setSelectOptions(detailSelect, ["concise", "balanced", "high", "very high"], state.detail);
-  const imageNoteInput = createInput("text");
-  field(inputGrid, "Idea", ideaArea);
-  field(inputGrid, "Subject", subjectArea);
-  field(inputGrid, "Style", styleInput);
-  field(inputGrid, "Lighting", lightingInput);
-  field(inputGrid, "Camera / composition", compositionInput);
-  field(inputGrid, "Text / typography", textInput);
-  field(inputGrid, "Detail level", detailSelect);
-  field(inputGrid, "Reference image note", imageNoteInput);
-  wrap.appendChild(inputGrid);
-
-  const videoPanel = buildDom("div", "workflowx-uap-panel");
-  const videoGrid = buildDom("div", "workflowx-uap-grid");
-  const videoDurationInput = createInput("text");
-  videoDurationInput.placeholder = "5s, 121 frames, 720p/24fps, etc.";
-  const motionActionArea = createTextarea(2);
-  motionActionArea.placeholder = "Primary movement, gesture, action, or scene change";
-  const temporalBeatsArea = createTextarea(2);
-  temporalBeatsArea.placeholder = "Beat 1..., then..., final moment...";
-  const cameraMovementInput = createInput("text");
-  cameraMovementInput.placeholder = "tracking shot, handheld push-in, locked wide shot";
-  const audioDialogueArea = createTextarea(2);
-  audioDialogueArea.placeholder = "dialogue, music, ambient sound, speech sync notes";
-  const controlNotesArea = createTextarea(2);
-  controlNotesArea.placeholder = "I2V/TI2V/S2V, pose, audio, reference image, or control notes";
-  field(videoGrid, "Video duration / frames", videoDurationInput);
-  field(videoGrid, "Camera movement", cameraMovementInput);
-  field(videoGrid, "Motion / action", motionActionArea);
-  field(videoGrid, "Temporal beats", temporalBeatsArea);
-  field(videoGrid, "Audio / dialogue", audioDialogueArea);
-  field(videoGrid, "Reference / control notes", controlNotesArea);
-  videoPanel.appendChild(videoGrid);
-  wrap.appendChild(videoPanel);
+  field(wrap, "Prompt instructions", promptArea);
+  field(wrap, "Detail level", detailSelect);
 
   const ideogramPanel = buildDom("div", "workflowx-uap-panel");
   const ideogramLayoutArea = createTextarea(3);
@@ -2501,9 +3049,6 @@ function setupUnifiedAutoprompter(node) {
   field(ideogramPanel, "BBox palette hints", ideogramPaletteInput);
   ideogramPanel.classList.add("workflowx-uap-hidden");
   wrap.appendChild(ideogramPanel);
-
-  const extraArea = createTextarea(2);
-  field(wrap, "Extra instructions", extraArea);
 
   const connectedInputRow = buildDom("div", "workflowx-uap-row");
   const bboxJsonToggle = buildDom("label", "workflowx-uap-toggle");
@@ -2523,6 +3068,13 @@ function setupUnifiedAutoprompter(node) {
   wrap.appendChild(connectedInputRow);
 
   const imageRow = buildDom("div", "workflowx-uap-row");
+  const nsfwToggle = buildDom("label", "workflowx-uap-toggle");
+  const nsfwInput = document.createElement("input");
+  nsfwInput.type = "checkbox";
+  nsfwInput.checked = Boolean(state.nsfw_enabled);
+  nsfwToggle.appendChild(nsfwInput);
+  nsfwToggle.appendChild(document.createTextNode("NSFW instructions"));
+  nsfwToggle.title = "Append the selected generation path's NSFW prompt rules; provider safety controls are unchanged";
   const negativeToggle = buildDom("label", "workflowx-uap-toggle");
   const negativeInput = document.createElement("input");
   negativeInput.type = "checkbox";
@@ -2544,6 +3096,7 @@ function setupUnifiedAutoprompter(node) {
   disablePaletteToggle.appendChild(disablePaletteInput);
   disablePaletteToggle.appendChild(document.createTextNode("disable color pallet"));
   disablePaletteToggle.title = "Remove color_palette blocks from generated JSON output";
+  imageRow.appendChild(nsfwToggle);
   imageRow.appendChild(negativeToggle);
   imageRow.appendChild(refreshVramToggle);
   imageRow.appendChild(disablePaletteToggle);
@@ -2572,9 +3125,9 @@ function setupUnifiedAutoprompter(node) {
   const generateBtn = buildDom("button", "workflowx-uap-btn primary", "Generate");
   generateBtn.type = "button";
   generateBtn.title = "Generate and save the prompt using the active profile and provider";
-  const cancelJsonXBtn = buildDom("button", "workflowx-uap-btn", "Cancel JsonX");
+  const cancelJsonXBtn = buildDom("button", "workflowx-uap-btn", "Cancel");
   cancelJsonXBtn.type = "button";
-  cancelJsonXBtn.title = "Stop the active JsonX generation and keep the previous output";
+  cancelJsonXBtn.title = "Stop the active generation and keep the previous output";
   cancelJsonXBtn.classList.add("workflowx-uap-hidden");
   const status = buildDom("div", "workflowx-uap-status", "Ready.");
   generateRow.appendChild(generateBtn);
@@ -2586,22 +3139,9 @@ function setupUnifiedAutoprompter(node) {
   preview.classList.add("workflowx-uap-hidden");
   wrap.appendChild(preview);
 
-  ideaArea.value = state.idea;
-  subjectArea.value = state.subject;
-  styleInput.value = state.style;
-  lightingInput.value = state.lighting;
-  compositionInput.value = state.composition;
-  textInput.value = state.text;
-  imageNoteInput.value = state.image_note;
-  videoDurationInput.value = state.video_duration_or_frames;
-  motionActionArea.value = state.motion_action;
-  temporalBeatsArea.value = state.temporal_beats;
-  cameraMovementInput.value = state.camera_movement;
-  audioDialogueArea.value = state.audio_dialogue;
-  controlNotesArea.value = state.reference_or_control_notes;
+  promptArea.value = state.prompt_text;
   ideogramLayoutArea.value = state.ideogram_layout;
   ideogramPaletteInput.value = state.ideogram_palette;
-  extraArea.value = state.extra_instructions;
 
   let profiles = FALLBACK_PROFILES.map(ensureProfileShape);
   let profilesByKey = profileMap(profiles);
@@ -2615,20 +3155,18 @@ function setupUnifiedAutoprompter(node) {
     state.jsonx_profile_configs ||= {};
     const saved = state.jsonx_profile_configs[profile.key];
     if (!saved || typeof saved !== "object") {
-      state.jsonx_profile_configs[profile.key] = {
-        ...defaultJsonXConfig(),
-        ...(profile.jsonx_config || {}),
-      };
+      state.jsonx_profile_configs[profile.key] = jsonxBehaviorConfig(profile.jsonx_config);
+    } else {
+      state.jsonx_profile_configs[profile.key] = jsonxBehaviorConfig(saved);
     }
     return state.jsonx_profile_configs[profile.key];
   }
 
   function effectiveJsonXConfig(profile = activeProfile()) {
-    return {
-      ...defaultJsonXConfig(),
+    return jsonxBehaviorConfig({
       ...(profile?.jsonx_config || {}),
       ...(ensureJsonXConfigSnapshot(profile) || {}),
-    };
+    });
   }
 
   function setStatus(message, isError = false) {
@@ -2639,14 +3177,14 @@ function setupUnifiedAutoprompter(node) {
   function refreshBackends() {
     applyActiveProviderSettingsToControls();
     const backend = providerBackend();
-    backendRow.classList.remove("workflowx-uap-hidden");
+    providerSelect.value = backend;
     modelSettingsDetails.classList.remove("workflowx-uap-hidden");
-    geminiBtn.classList.toggle("active", backend === "gemini");
-    openaiBtn.classList.toggle("active", backend === "openai");
-    ollamaBtn.classList.toggle("active", backend === "ollama");
-    localBtn.classList.toggle("active", backend === "local");
     geminiPanel.classList.toggle("workflowx-uap-hidden", backend !== "gemini");
     openaiPanel.classList.toggle("workflowx-uap-hidden", backend !== "openai");
+    grokPanel.classList.toggle("workflowx-uap-hidden", backend !== "grok");
+    deepseekPanel.classList.toggle("workflowx-uap-hidden", backend !== "deepseek");
+    lmStudio.panel.classList.toggle("workflowx-uap-hidden", backend !== "lm_studio");
+    unsloth.panel.classList.toggle("workflowx-uap-hidden", backend !== "unsloth");
     ollamaPanel.classList.toggle("workflowx-uap-hidden", backend !== "ollama");
     localPanel.classList.toggle("workflowx-uap-hidden", backend !== "local");
     scheduleVisibleContentResize();
@@ -2667,12 +3205,23 @@ function setupUnifiedAutoprompter(node) {
     if (jsonx) ensureJsonXConfigSnapshot(profile);
     const formats = enabledProfileFormats(profile);
     if (!formats.includes(state.prompt_format)) state.prompt_format = profile.default_format || formats[0];
-    setSelectOptions(formatSelect, formats, state.prompt_format, (value) => jsonx ? (value === "json" ? "JsonX JSON" : "Natural language") : value);
+    setSelectOptions(formatSelect, formats, state.prompt_format, (value) => jsonx
+      ? (value === "json" ? "JsonX JSON" : "Natural language")
+      : value);
     state.prompt_format = formatSelect.value;
+    const generationPaths = Object.entries(profile.generation_paths || {});
+    if (!generationPaths.some(([type]) => type === state.generation_type)) {
+      state.generation_type = profile.default_generation_type || generationPaths[0]?.[0] || "text_to_image";
+    }
+    setSelectOptions(generationTypeSelect, generationPaths.map(([type, path]) => ({
+      value: type,
+      label: path?.label || GENERATION_TYPE_MAP.get(type)?.label || type,
+    })), state.generation_type);
+    state.generation_type = generationTypeSelect.value;
+    promptArea.placeholder = promptInstructionsPlaceholder(profile);
     ideogramPanel.classList.add("workflowx-uap-hidden");
     ideogramBtn.classList.toggle("workflowx-uap-hidden", !isBboxLayoutTarget(state.target_model));
     if (!isBboxLayoutTarget(state.target_model)) closeDock(node, "ideogram");
-    videoPanel.classList.toggle("workflowx-uap-hidden", jsonx || !profileIsVideo(profile));
     const negativeSupported = Boolean(profile.negative_supported);
     state.negative_enabled = negativeSupported && Boolean(state.negative_enabled);
     negativeInput.checked = state.negative_enabled;
@@ -2688,25 +3237,14 @@ function setupUnifiedAutoprompter(node) {
   }
 
   function readFieldsIntoState() {
-    state.idea = ideaArea.value;
-    state.subject = subjectArea.value;
-    state.style = styleInput.value;
-    state.lighting = lightingInput.value;
-    state.composition = compositionInput.value;
-    state.text = textInput.value;
+    state.prompt_text = promptArea.value;
     state.detail = detailSelect.value;
-    state.image_note = imageNoteInput.value;
+    state.generation_type = generationTypeSelect.value;
+    state.nsfw_enabled = nsfwInput.checked;
     state.enable_bbox_json_input = bboxJsonInput.checked;
     state.enable_text_input = rawTextInput.checked;
     state.ideogram_layout = ideogramLayoutArea.value;
     state.ideogram_palette = ideogramPaletteInput.value;
-    state.video_duration_or_frames = videoDurationInput.value;
-    state.motion_action = motionActionArea.value;
-    state.temporal_beats = temporalBeatsArea.value;
-    state.camera_movement = cameraMovementInput.value;
-    state.audio_dialogue = audioDialogueArea.value;
-    state.reference_or_control_notes = controlNotesArea.value;
-    state.extra_instructions = extraArea.value;
     state.refresh_vram = refreshVramInput.checked;
     state.disable_color_palette = disablePaletteInput.checked;
     if (isJsonXProfile()) {
@@ -2716,12 +3254,15 @@ function setupUnifiedAutoprompter(node) {
     state.gemini_timeout = Number(timeoutInput.value || 120);
     for (const [key] of GEMINI_SAFETY_FIELDS) state[key] = geminiSafetySelects[key]?.value || "BLOCK_NONE";
     state.openai_base_url = openaiBaseUrlInput.value.trim() || DEFAULT_OPENAI_BASE_URL;
-    state.openai_model = (openaiModelInput.value || openaiModelSelect.value || "").trim();
+    state.openai_model = (openaiModelSelect.value || openaiModelInput.value || "").trim();
     state.openai_timeout = Number(openaiTimeoutInput.value || 120);
+    state.openai_server_type = normalizeOpenAIServerType(openaiServerTypeSelect.value);
+    state.openai_lifecycle = normalizeOpenAILifecycle(openaiLifecycleSelect.value);
+    state.openai_reasoning_effort = normalizeOpenAIReasoning(openaiReasoningSelect.value);
     state.ollama_host = hostInput.value || DEFAULT_OLLAMA_HOST;
     state.ollama_timeout = Number(ollamaTimeoutInput.value || 120);
     state.ollama_think = thinkInput.checked;
-    state.unload_after = state.backend === "openai" ? openaiUnloadInput.checked : unloadInput.checked;
+    state.unload_after = unloadInput.checked;
     state.max_tokens = Number(maxTokensInput.value || 768);
     state.temperature = Number(tempInput.value || 0.7);
     state.top_p = Number(topPInput.value || 0.9);
@@ -2739,6 +3280,7 @@ function setupUnifiedAutoprompter(node) {
     state.local_model = localModelSelect.value || "";
     state.local_mmproj = mmprojSelect.value || "none";
     state.local_system_prompt_preset = systemPresetSelect.value || "none";
+    persistStandardProviderFromControls();
   }
 
   function syncPreview() {
@@ -2804,7 +3346,7 @@ function setupUnifiedAutoprompter(node) {
   function setBusy(isBusy) {
     generateBtn.disabled = isBusy;
     generateBtn.textContent = isBusy ? "Generating..." : "Generate";
-    cancelJsonXBtn.classList.toggle("workflowx-uap-hidden", !isBusy || !isJsonXProfile());
+    cancelJsonXBtn.classList.toggle("workflowx-uap-hidden", !isBusy);
     cancelJsonXBtn.disabled = !isBusy;
   }
 
@@ -2912,1082 +3454,1001 @@ function setupUnifiedAutoprompter(node) {
     setPreviewButtonLabels();
   }
 
-  async function openModelSettingsModal() {
-    let config;
+  async function openJsonXMarkdownProfileSettings(requestedProfileKey = "") {
+    let response;
     try {
-      config = await fetchJsonChecked(`${ROUTE}/profile_config`, {}, "Model settings");
+      response = await fetchJsonChecked(`${JSONX_ROUTE}/reference_config`, {}, "JsonX Markdown settings");
+      if (Number(response.current?.jsonx_reference_schema_version || 0) !== JSONX_REFERENCE_SCHEMA_VERSION) {
+        throw new Error(
+          `Unified JsonX reference schema mismatch (frontend ${JSONX_REFERENCE_SCHEMA_VERSION}, backend ${response.current?.jsonx_reference_schema_version || "missing"}). ` +
+          "Restart ComfyUI and hard-refresh the browser.",
+        );
+      }
     } catch (error) {
-      setStatus(`Model settings error: ${error.message}`, true);
+      setStatus(`JsonX settings error: ${error.message}`, true);
       return;
     }
 
-    let draft = JSON.parse(JSON.stringify(config.profiles || []));
-    const defaultsByKey = new Map((config.default_profiles || []).map((profile) => [profile.key, profile]));
-    const builtinKeys = new Set(config.builtin_keys || []);
-    const formats = config.formats || ["natural", "tags", "json"];
-    const mediaTypes = config.media_types || ["image", "video"];
-    let selectedKey = draft.some((profile) => profile.key === state.target_model) ? state.target_model : draft[0]?.key || "";
-    const backdrop = buildDom("div", "workflowx-uap-modal-backdrop");
-    const modal = buildDom("div", "workflowx-uap-modal");
-    const head = buildDom("div", "workflowx-uap-modal-head");
-    const title = buildDom("div", "workflowx-uap-modal-title", "Unified Autoprompter Model Settings");
-    const closeBtn = buildDom("button", "workflowx-uap-btn", "x");
-    closeBtn.type = "button";
-    closeBtn.title = "Close without saving editor changes";
-    head.appendChild(title);
-    head.appendChild(closeBtn);
-    modal.appendChild(head);
-
-    const body = buildDom("div", "workflowx-uap-settings-body");
-    const listPane = buildDom("div", "workflowx-uap-settings-list");
-    const searchInput = createInput("text");
-    searchInput.placeholder = "Search models";
-    const listActions = buildDom("div", "workflowx-uap-row");
-    const addBtn = buildDom("button", "workflowx-uap-btn", "Add");
-    const duplicateBtn = buildDom("button", "workflowx-uap-btn", "Duplicate");
-    const deleteBtn = buildDom("button", "workflowx-uap-btn", "Delete");
-    const resetOneBtn = buildDom("button", "workflowx-uap-btn", "Reset profile");
-    for (const button of [addBtn, duplicateBtn, deleteBtn, resetOneBtn]) button.type = "button";
-    addBtn.title = "Add a new custom profile";
-    duplicateBtn.title = "Duplicate the selected profile as a custom profile";
-    deleteBtn.title = "Delete the selected custom profile after Save";
-    resetOneBtn.title = "Restore the selected built-in profile defaults in this draft; click Save to apply";
-    listActions.appendChild(addBtn);
-    listActions.appendChild(duplicateBtn);
-    listActions.appendChild(deleteBtn);
-    listActions.appendChild(resetOneBtn);
-    const items = buildDom("div", "workflowx-uap-settings-items");
-    listPane.appendChild(searchInput);
-    listPane.appendChild(listActions);
-    listPane.appendChild(items);
-
-    const formPane = buildDom("div", "workflowx-uap-settings-form");
-    const formGrid = buildDom("div", "workflowx-uap-grid");
-    const keyInput = createInput("text");
-    const labelInput = createInput("text");
-    const mediaSelect = createSelect();
-    const defaultFormatSelect = createSelect();
-    field(formGrid, "Model key", keyInput);
-    field(formGrid, "Display label", labelInput);
-    field(formGrid, "Media type", mediaSelect);
-    field(formGrid, "Default format", defaultFormatSelect);
-    formPane.appendChild(formGrid);
-
-    const formatRow = buildDom("div", "workflowx-uap-row");
-    formatRow.appendChild(buildDom("span", "workflowx-uap-label", "Supported formats"));
-    const formatInputs = new Map();
-    for (const format of formats) {
-      const label = buildDom("label", "workflowx-uap-toggle");
-      const input = document.createElement("input");
-      input.type = "checkbox";
-      label.appendChild(input);
-      label.appendChild(document.createTextNode(format));
-      formatRow.appendChild(label);
-      formatInputs.set(format, input);
-    }
-    formPane.appendChild(formatRow);
-
-    const optionRow = buildDom("div", "workflowx-uap-row");
-    const negativeLabel = buildDom("label", "workflowx-uap-toggle");
-    const negativeSupportedInput = document.createElement("input");
-    negativeSupportedInput.type = "checkbox";
-    negativeLabel.appendChild(negativeSupportedInput);
-    negativeLabel.appendChild(document.createTextNode("supports negative"));
-    const jsonLabel = buildDom("label", "workflowx-uap-toggle");
-    const jsonSupportedInput = document.createElement("input");
-    jsonSupportedInput.type = "checkbox";
-    jsonLabel.appendChild(jsonSupportedInput);
-    jsonLabel.appendChild(document.createTextNode("JSON supported"));
-    optionRow.appendChild(negativeLabel);
-    optionRow.appendChild(jsonLabel);
-    formPane.appendChild(optionRow);
-
-    const notesArea = createTextarea(3);
-    field(formPane, "Model notes", notesArea);
-    const templateArea = createTextarea(10);
-    field(formPane, "System prompt template", templateArea);
-    const previewControls = buildDom("div", "workflowx-uap-row");
-    const previewFormatSelect = createSelect();
-    const previewNegativeLabel = buildDom("label", "workflowx-uap-toggle");
-    const previewNegativeInput = document.createElement("input");
-    previewNegativeInput.type = "checkbox";
-    previewNegativeLabel.appendChild(previewNegativeInput);
-    previewNegativeLabel.appendChild(document.createTextNode("negative preview"));
-    previewControls.appendChild(buildDom("span", "workflowx-uap-label", "Preview"));
-    previewControls.appendChild(previewFormatSelect);
-    previewControls.appendChild(previewNegativeLabel);
-    formPane.appendChild(previewControls);
-    const preview = buildDom("pre", "workflowx-uap-settings-preview");
-    formPane.appendChild(preview);
-    body.appendChild(listPane);
-    body.appendChild(formPane);
-    modal.appendChild(body);
-
-    const foot = buildDom("div", "workflowx-uap-modal-foot");
-    const message = buildDom("div", "workflowx-uap-modal-message", `Config file: ${config.path || ""}`);
-    const resetAllBtn = buildDom("button", "workflowx-uap-btn", "Reset all defaults");
-    const saveBtn = buildDom("button", "workflowx-uap-btn primary", "Save");
-    for (const button of [resetAllBtn, saveBtn, closeBtn]) button.type = "button";
-    resetAllBtn.title = "Immediately replace every saved profile with the packaged WorkflowX defaults";
-    saveBtn.title = "Validate and save all profile changes";
-    foot.appendChild(message);
-    foot.appendChild(resetAllBtn);
-    foot.appendChild(saveBtn);
-    modal.appendChild(foot);
-    backdrop.appendChild(modal);
-    document.body.appendChild(backdrop);
-
-    const selectedProfile = () => draft.find((profile) => profile.key === selectedKey) || draft[0] || null;
-    const showMessage = (text, isError = false) => {
-      message.textContent = text || "";
-      message.classList.toggle("error", Boolean(isError));
-    };
-    const safeKey = (value) => String(value || "").toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
-    const uniqueKey = (base) => {
-      const clean = safeKey(base) || "custom_model";
-      const keys = new Set(draft.map((profile) => profile.key));
-      if (!keys.has(clean)) return clean;
-      let index = 2;
-      while (keys.has(`${clean}_${index}`)) index += 1;
-      return `${clean}_${index}`;
-    };
-
-    function readForm() {
-      const profile = selectedProfile();
-      if (!profile) return;
-      profile.key = safeKey(keyInput.value);
-      profile.label = labelInput.value.trim();
-      profile.media_type = mediaSelect.value || "image";
-      profile.formats = formats.filter((format) => formatInputs.get(format)?.checked);
-      profile.default_format = defaultFormatSelect.value || profile.formats[0] || "natural";
-      if (profile.formats.length && !profile.formats.includes(profile.default_format)) {
-        profile.default_format = profile.formats[0];
-      }
-      profile.negative_supported = negativeSupportedInput.checked;
-      profile.json_supported = jsonSupportedInput.checked;
-      profile.notes = notesArea.value;
-      profile.system_prompt_template = templateArea.value;
-      selectedKey = profile.key;
-    }
-
-    function validateDraft() {
-      const seen = new Set();
-      for (const profile of draft) {
-        if (!/^[a-z0-9][a-z0-9_]*$/.test(profile.key || "")) throw new Error("Every model key must use lowercase letters, numbers, and underscores.");
-        if (seen.has(profile.key)) throw new Error(`Duplicate model key: ${profile.key}`);
-        seen.add(profile.key);
-        if (!profile.label?.trim()) throw new Error(`Profile ${profile.key} needs a display label.`);
-        if (!profile.formats?.length) throw new Error(`Profile ${profile.key} needs at least one format.`);
-        if (!profile.formats.includes(profile.default_format)) throw new Error(`Profile ${profile.key} default format must be selected.`);
-        if (!profile.system_prompt_template?.trim()) throw new Error(`Profile ${profile.key} needs a system prompt template.`);
-      }
-    }
-
-    function renderPreview() {
-      const profile = selectedProfile();
-      if (!profile) {
-        preview.textContent = "";
-        return;
-      }
-      const previewProfile = {
-        ...profile,
-        system_prompt_template: templateArea.value,
-        notes: notesArea.value,
-      };
-      preview.textContent = renderTemplatePreview(previewProfile, previewFormatSelect.value || profile.default_format, previewNegativeInput.checked);
-    }
-
-    function renderList() {
-      const filter = searchInput.value.trim().toLowerCase();
-      items.replaceChildren();
-      for (const profile of draft) {
-        if (filter && !`${profile.label} ${profile.key} ${profile.notes || ""}`.toLowerCase().includes(filter)) continue;
-        const item = buildDom("button", `workflowx-uap-settings-item${profile.key === selectedKey ? " active" : ""}`);
-        item.type = "button";
-        item.appendChild(buildDom("div", "", profile.label || profile.key));
-        item.appendChild(buildDom("div", "workflowx-uap-settings-key", `${profile.key}${builtinKeys.has(profile.key) ? " - built-in" : " - custom"}`));
-        item.addEventListener("click", () => {
-          readForm();
-          selectedKey = profile.key;
-          renderAll();
-        });
-        items.appendChild(item);
-      }
-    }
-
-    function renderForm() {
-      const profile = selectedProfile();
-      formPane.classList.toggle("workflowx-uap-hidden", !profile);
-      if (!profile) return;
-      keyInput.value = profile.key || "";
-      keyInput.disabled = builtinKeys.has(profile.key);
-      labelInput.value = profile.label || "";
-      setSelectOptions(mediaSelect, mediaTypes, profile.media_type || "image");
-      for (const format of formats) formatInputs.get(format).checked = (profile.formats || []).includes(format);
-      setSelectOptions(defaultFormatSelect, profile.formats?.length ? profile.formats : formats, profile.default_format || profile.formats?.[0] || "natural");
-      setSelectOptions(previewFormatSelect, profile.formats?.length ? profile.formats : formats, previewFormatSelect.value || profile.default_format || "natural");
-      negativeSupportedInput.checked = Boolean(profile.negative_supported);
-      jsonSupportedInput.checked = Boolean(profile.json_supported);
-      notesArea.value = profile.notes || "";
-      templateArea.value = profile.system_prompt_template || "";
-      deleteBtn.disabled = builtinKeys.has(profile.key);
-      resetOneBtn.disabled = !builtinKeys.has(profile.key);
-      renderPreview();
-    }
-
-    function renderAll() {
-      renderList();
-      renderForm();
-    }
-
-    function onFormInput() {
-      readForm();
-      renderList();
-      const profile = selectedProfile();
-      setSelectOptions(defaultFormatSelect, profile?.formats?.length ? profile.formats : formats, profile?.default_format || "natural");
-      setSelectOptions(previewFormatSelect, profile?.formats?.length ? profile.formats : formats, previewFormatSelect.value || profile?.default_format || "natural");
-      renderPreview();
-    }
-
-    for (const input of [keyInput, labelInput, mediaSelect, defaultFormatSelect, negativeSupportedInput, jsonSupportedInput, notesArea, templateArea]) {
-      input.addEventListener("input", onFormInput);
-      input.addEventListener("change", onFormInput);
-    }
-    for (const input of formatInputs.values()) input.addEventListener("change", onFormInput);
-    previewFormatSelect.addEventListener("change", renderPreview);
-    previewNegativeInput.addEventListener("change", renderPreview);
-    searchInput.addEventListener("input", renderList);
-
-    addBtn.addEventListener("click", () => {
-      readForm();
-      const base = defaultsByKey.get("ideogram4") || draft[0] || {};
-      const key = uniqueKey("custom_model");
-      draft.push({
-        ...JSON.parse(JSON.stringify(base)),
-        key,
-        label: "Custom Model",
-      });
-      selectedKey = key;
-      renderAll();
-    });
-    duplicateBtn.addEventListener("click", () => {
-      readForm();
-      const profile = selectedProfile();
-      if (!profile) return;
-      const key = uniqueKey(`${profile.key}_copy`);
-      draft.push({
-        ...JSON.parse(JSON.stringify(profile)),
-        key,
-        label: `${profile.label || profile.key} Copy`,
-      });
-      selectedKey = key;
-      renderAll();
-    });
-    deleteBtn.addEventListener("click", () => {
-      const profile = selectedProfile();
-      if (!profile || builtinKeys.has(profile.key)) return;
-      draft = draft.filter((item) => item !== profile);
-      selectedKey = draft[0]?.key || "";
-      renderAll();
-    });
-    resetOneBtn.addEventListener("click", () => {
-      const profile = selectedProfile();
-      if (!profile || !builtinKeys.has(profile.key)) return;
-      const restored = defaultsByKey.get(profile.key);
-      if (!restored) return;
-      const index = draft.findIndex((item) => item.key === profile.key);
-      draft[index] = JSON.parse(JSON.stringify(restored));
-      renderAll();
-    });
-    closeBtn.addEventListener("click", () => backdrop.remove());
-    backdrop.addEventListener("mousedown", (event) => {
-      if (event.target === backdrop) backdrop.remove();
-    });
-    resetAllBtn.addEventListener("click", async () => {
-      if (!window.confirm("Reset all model profiles to WorkflowX defaults?")) return;
-      try {
-        const data = await fetchJsonChecked(`${ROUTE}/profile_config/reset`, { method: "POST" }, "Reset model settings");
-        config = data;
-        draft = JSON.parse(JSON.stringify(data.profiles || []));
-        selectedKey = draft.some((profile) => profile.key === state.target_model) ? state.target_model : draft[0]?.key || "";
-        clearProfileCache();
-        profiles = await loadProfiles();
-        profilesByKey = profileMap(profiles);
-        refreshProfiles();
-        showMessage("Profiles reset to defaults.");
-        renderAll();
-      } catch (error) {
-        showMessage(error.message, true);
-      }
-    });
-    saveBtn.addEventListener("click", async () => {
-      try {
-        readForm();
-        validateDraft();
-        const data = await fetchJsonChecked(`${ROUTE}/profile_config`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ version: 1, profiles: draft }),
-        }, "Save model settings");
-        clearProfileCache();
-        profiles = await loadProfiles();
-        profilesByKey = profileMap(profiles);
-        if (profilesByKey.has(selectedKey)) state.target_model = selectedKey;
-        refreshProfiles();
-        showMessage("Profiles saved.");
-        setStatus("Model settings saved.");
-      } catch (error) {
-        showMessage(error.message, true);
-      }
-    });
-
-    renderAll();
-  }
-
-  async function openModelSettingsModalV3() {
-    let config;
-    let jsonxInstructionTemplates = null;
-    try {
-      config = await fetchJsonChecked(`${ROUTE}/profile_config`, {}, "Model settings");
-    } catch (error) {
-      setStatus(`Model settings error: ${error.message}`, true);
-      return;
-    }
-    try {
-      jsonxInstructionTemplates = await fetchJsonChecked(`${JSONX_ROUTE}/instructions`, {}, "JsonX instruction defaults");
-    } catch (error) {
-      // Standard profile editing remains available if the private JsonX route is
-      // temporarily unavailable. JsonX fields will retain their saved overrides.
-      console.warn(`[WorkflowX] Could not load Unified JsonX instruction defaults: ${error.message}`);
-    }
-
-    let draft = JSON.parse(JSON.stringify(config.profiles || [])).map(ensureProfileShape);
-    for (const profile of draft) {
-      const snapshot = state.jsonx_profile_configs?.[profile.key];
-      if (profile.engine === "jsonx" && snapshot && typeof snapshot === "object") {
-        profile.jsonx_config = { ...defaultJsonXConfig(), ...snapshot };
-      }
-    }
-    const defaultsByKey = new Map((config.default_profiles || []).map((profile) => {
-      const shaped = ensureProfileShape(profile);
-      return [shaped.key, shaped];
-    }));
-    const builtinKeys = new Set(config.builtin_keys || []);
-    const formats = config.formats || ALL_PROMPT_FORMATS;
-    const mediaTypes = config.media_types || ["image", "video"];
-    let selectedKey = draft.some((profile) => profile.key === state.target_model) ? state.target_model : draft[0]?.key || "";
-    const legacyJsonXKeys = Object.keys(defaultJsonXConfig());
-    const legacyJsonXSource = state.jsonx && typeof state.jsonx === "object" ? state.jsonx : {};
-    const legacyJsonXValues = Object.fromEntries(
-      legacyJsonXKeys.filter((key) => Object.prototype.hasOwnProperty.call(legacyJsonXSource, key)).map((key) => [key, legacyJsonXSource[key]]),
-    );
-    let migratedLegacyJsonX = false;
-    const legacyTarget = draft.find((profile) => profile.key === selectedKey && profile.engine === "jsonx");
-    if (legacyTarget && Object.keys(legacyJsonXValues).length) {
-      legacyTarget.jsonx_config = { ...defaultJsonXConfig(), ...(legacyTarget.jsonx_config || {}), ...legacyJsonXValues };
-      migratedLegacyJsonX = true;
-    }
-    let activeTab = "model";
-    let activeFormat = state.prompt_format || "natural";
-    let activeImageMode = state.connected_image_available ? "with_image" : "without_image";
+    const clone = (value) => JSON.parse(JSON.stringify(value));
+    let savedBundle = clone(response.current);
+    let draft = clone(savedBundle);
+    const originalBundle = clone(response.original);
+    let selectedKey = draft.manifest.profiles.some((profile) => profile.key === requestedProfileKey)
+      ? requestedProfileKey
+      : draft.manifest.profiles.some((profile) => profile.key === state.target_model)
+        ? state.target_model
+      : draft.manifest.profiles[0]?.key;
+    let activeTab = "overview";
+    let activeTemplate = "template_adaptive_ranked";
+    let activeContract = "contract_stage_one_json";
 
     const backdrop = buildDom("div", "workflowx-uap-modal-backdrop");
-    const modal = buildDom("div", "workflowx-uap-modal");
+    const modal = buildDom("div", "workflowx-uap-modal workflowx-uap-modal-v6");
     const head = buildDom("div", "workflowx-uap-modal-head");
-    const title = buildDom("div", "workflowx-uap-modal-title", "Unified Autoprompter Model Settings");
-    const closeBtn = buildDom("button", "workflowx-uap-btn", "x");
-    closeBtn.type = "button";
-    closeBtn.title = "Close without saving editor changes";
-    head.appendChild(title);
-    head.appendChild(closeBtn);
-    modal.appendChild(head);
+    head.appendChild(buildDom("div", "workflowx-uap-modal-title", "Unified PrompterX · JsonX Profile Settings"));
+    const close = buildDom("button", "workflowx-uap-btn", "×"); close.type = "button";
+    close.title = "Close without saving editor changes";
+    head.appendChild(close);
 
     const body = buildDom("div", "workflowx-uap-settings-body");
-    const listPane = buildDom("div", "workflowx-uap-settings-list");
-    const searchInput = createInput("text");
-    searchInput.placeholder = "Search models";
-    const listActions = buildDom("div", "workflowx-uap-row");
-    const addBtn = buildDom("button", "workflowx-uap-btn", "Add");
-    const duplicateBtn = buildDom("button", "workflowx-uap-btn", "Duplicate");
-    const deleteBtn = buildDom("button", "workflowx-uap-btn", "Delete");
-    const resetOneBtn = buildDom("button", "workflowx-uap-btn", "Reset profile");
-    for (const button of [addBtn, duplicateBtn, deleteBtn, resetOneBtn]) button.type = "button";
-    addBtn.title = "Add a new custom profile";
-    duplicateBtn.title = "Duplicate the selected profile as a custom profile";
-    deleteBtn.title = "Delete the selected custom profile after Save";
-    resetOneBtn.title = "Restore the selected built-in profile defaults in this draft; click Save to apply";
-    listActions.appendChild(addBtn);
-    listActions.appendChild(duplicateBtn);
-    listActions.appendChild(deleteBtn);
-    listActions.appendChild(resetOneBtn);
+    const side = buildDom("aside", "workflowx-uap-settings-list");
+    const search = createInput("search"); search.placeholder = "Search JsonX profiles";
+    const sideActions = buildDom("div", "workflowx-uap-row");
+    const add = buildDom("button", "workflowx-uap-btn", "Add");
+    const duplicate = buildDom("button", "workflowx-uap-btn", "Duplicate");
+    const remove = buildDom("button", "workflowx-uap-btn", "Delete");
+    const resetOne = buildDom("button", "workflowx-uap-btn", "Reset profile");
+    resetOne.title = "Immediately restore the selected built-in JsonX profile from reference/original/JsonX";
+    for (const button of [add, duplicate, remove, resetOne]) { button.type = "button"; sideActions.appendChild(button); }
     const items = buildDom("div", "workflowx-uap-settings-items");
-    listPane.appendChild(searchInput);
-    listPane.appendChild(listActions);
-    listPane.appendChild(items);
-
-    const formPane = buildDom("div", "workflowx-uap-settings-form");
+    side.appendChild(search); side.appendChild(sideActions); side.appendChild(items);
+    const main = buildDom("main", "workflowx-uap-settings-form");
     const tabs = buildDom("div", "workflowx-uap-settings-tabs");
-    const tabButtons = new Map();
-    for (const [key, label] of [["model", "Model"], ["formats", "Formats"], ["prompt", "Prompt"], ["contract", "Output Contract"], ["preview", "Preview"]]) {
-      const button = buildDom("button", "workflowx-uap-settings-tab", label);
-      button.type = "button";
-      button.title = `Edit the selected profile's ${label.toLowerCase()} settings`;
-      button.addEventListener("click", () => {
-        readCurrentView();
-        activeTab = key;
-        renderAll();
-      });
-      tabs.appendChild(button);
-      tabButtons.set(key, button);
-    }
-    const editor = buildDom("div", "workflowx-uap-settings-card");
-    formPane.appendChild(tabs);
-    formPane.appendChild(editor);
-    body.appendChild(listPane);
-    body.appendChild(formPane);
-    modal.appendChild(body);
+    const content = buildDom("div", "workflowx-uap-settings-page");
+    main.appendChild(tabs); main.appendChild(content); body.appendChild(side); body.appendChild(main);
 
-    const foot = buildDom("div", "workflowx-uap-modal-foot");
-    const message = buildDom("div", "workflowx-uap-modal-message", `Config file: ${config.path || ""}`);
+    const foot = buildDom("div", "workflowx-uap-modal-head");
+    const statusText = buildDom("div", "workflowx-uap-status", "Runtime source: reference/current_use/JsonX");
+    const revert = buildDom("button", "workflowx-uap-btn", "Revert");
     const exportBtn = buildDom("button", "workflowx-uap-btn", "Export JSON");
     const importBtn = buildDom("button", "workflowx-uap-btn", "Import JSON");
-    const resetAllBtn = buildDom("button", "workflowx-uap-btn", "Reset all defaults");
-    const saveBtn = buildDom("button", "workflowx-uap-btn primary", "Save");
+    const resetAll = buildDom("button", "workflowx-uap-btn", "Reset all defaults");
+    resetAll.title = "Immediately restore all built-in JsonX profiles while preserving custom profiles";
+    const save = buildDom("button", "workflowx-uap-btn primary", "Save");
+    const importInput = document.createElement("input"); importInput.type = "file"; importInput.accept = ".json,application/json"; importInput.hidden = true;
+    foot.appendChild(statusText);
+    for (const button of [revert, exportBtn, importBtn, resetAll, save]) { button.type = "button"; foot.appendChild(button); }
+    foot.appendChild(importInput);
+    modal.appendChild(head); modal.appendChild(body); modal.appendChild(foot); backdrop.appendChild(modal); document.body.appendChild(backdrop);
+    stopGraphEvents(modal);
+
+    const tabDefinitions = [
+      ["overview", "Overview"], ["paths", "Path Settings"], ["templates", "Templates"],
+      ["presets", "Presets"], ["contracts", "Output Contracts"], ["preview", "Preview"],
+    ];
+    const originalKeys = new Set(originalBundle.manifest.profiles.map((profile) => profile.key));
+    const currentProfile = () => draft.manifest.profiles.find((profile) => profile.key === selectedKey) || draft.manifest.profiles[0];
+    const profilePath = (profile, semanticKey) => `${profile.folder}/${draft.manifest.file_map[semanticKey]}`;
+    const getFile = (semanticKey, profile = currentProfile()) => draft.files[profilePath(profile, semanticKey)] ?? "";
+    const setFile = (semanticKey, value, profile = currentProfile()) => { draft.files[profilePath(profile, semanticKey)] = value; };
+    const setSelect = (select, entries, selected) => {
+      setSelectOptions(select, entries.map(([value, label]) => ({ value, label })), selected);
+      return select;
+    };
+    const uniqueKey = (base) => {
+      const clean = String(base || "jsonx_custom").toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "") || "jsonx_custom";
+      const used = new Set(draft.manifest.profiles.map((profile) => profile.key));
+      let value = clean; let index = 2; while (used.has(value)) value = `${clean}_${index++}`; return value;
+    };
+    const uniqueFolder = (base) => {
+      const clean = String(base || "jsonx_custom").toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "") || "jsonx_custom";
+      const used = new Set(draft.manifest.profiles.map((profile) => profile.folder));
+      let suffix = clean; let index = 2; while (used.has(`profiles/${suffix}`)) suffix = `${clean}_${index++}`; return `profiles/${suffix}`;
+    };
+    const addEditor = (label, semanticKey, rows = 20, condition = "") => {
+      const card = buildDom("section", "workflowx-uap-settings-card");
+      const cardHead = buildDom("div", "workflowx-uap-settings-card-head");
+      cardHead.appendChild(buildDom("div", "workflowx-uap-settings-card-title", label));
+      if (condition) cardHead.appendChild(buildDom("div", "workflowx-uap-condition-badge", condition));
+      const area = createTextarea(rows); area.value = getFile(semanticKey); area.spellcheck = false;
+      area.addEventListener("input", () => setFile(semanticKey, area.value));
+      card.appendChild(cardHead); card.appendChild(area); content.appendChild(card); return area;
+    };
+    const friendly = (key) => String(key).replace(/^user_|^template_|^contract_/, "").replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
+
+    function renderList() {
+      items.innerHTML = ""; const query = search.value.toLowerCase().trim();
+      for (const peer of profiles.filter((profile) => profile.engine !== "jsonx")) {
+        if (query && !`${peer.label} ${peer.key}`.toLowerCase().includes(query)) continue;
+        const item = buildDom("button", "workflowx-uap-settings-item", peer.label || peer.key);
+        item.type = "button";
+        item.addEventListener("click", async () => {
+          backdrop.remove();
+          await openMarkdownProfileSettings("standard", peer.key);
+        });
+        items.appendChild(item);
+      }
+      for (const profile of draft.manifest.profiles) {
+        if (query && !`${profile.label} ${profile.key}`.toLowerCase().includes(query)) continue;
+        const item = buildDom("button", `workflowx-uap-settings-item${profile.key === selectedKey ? " active" : ""}`, profile.label || profile.key);
+        item.type = "button"; item.addEventListener("click", () => { selectedKey = profile.key; activeTab = "overview"; renderAll(); }); items.appendChild(item);
+      }
+    }
+    function renderTabs() {
+      tabs.innerHTML = "";
+      for (const [key, label] of tabDefinitions) {
+        const button = buildDom("button", `workflowx-uap-settings-tab${activeTab === key ? " active" : ""}`, label);
+        button.type = "button"; button.addEventListener("click", () => { activeTab = key; renderAll(); }); tabs.appendChild(button);
+      }
+    }
+    function renderOverview(profile) {
+      profile.defaults ||= defaultJsonXConfig();
+      const grid = buildDom("div", "workflowx-uap-grid");
+      const setupPresets = [
+        ["adaptive_balanced", "Adaptive Balanced", { generation_profile: "adaptive", generation_mode: "fast", preset_context_mode: "optimized", template_use_presets: false, detail_level: "deep" }],
+        ["adaptive_polished", "Adaptive Polished", { generation_profile: "adaptive", generation_mode: "refined", preset_context_mode: "optimized", template_use_presets: false, detail_level: "deep" }],
+        ["adaptive_max", "Adaptive Max", { generation_profile: "adaptive", generation_mode: "refined", preset_context_mode: "full", template_use_presets: false, detail_level: "exhaustive" }],
+        ["template_flex", "Template Flex", { generation_profile: "template_fill", generation_mode: "fast", preset_context_mode: "optimized", template_use_presets: false, detail_level: "deep" }],
+        ["template_catalog", "Template Catalog", { generation_profile: "template_fill", generation_mode: "refined", preset_context_mode: "optimized", template_use_presets: true, detail_level: "deep" }],
+        ["custom", "Custom", null],
+      ];
+      const controlledSetupKeys = ["generation_profile", "generation_mode", "preset_context_mode", "template_use_presets", "detail_level"];
+      const matchingSetupPreset = () => setupPresets.find(([, , values]) => values && controlledSetupKeys.every((name) => profile.defaults[name] === values[name]))?.[0] || "custom";
+      const key = createInput("text"); key.value = profile.key; key.disabled = originalKeys.has(profile.key);
+      const label = createInput("text"); label.value = profile.label || "";
+      const setupPreset = setSelect(createSelect(), setupPresets.map(([value, text]) => [value, text]), matchingSetupPreset());
+      const format = setSelect(createSelect(), [["json", "JsonX JSON"], ["natural", "Natural language"]], profile.default_format);
+      const generationProfile = setSelect(createSelect(), [["adaptive", "Adaptive — build a relevant structure"], ["template_fill", "Template Fill — fill a fixed structure"]], profile.defaults.generation_profile);
+      const mode = setSelect(createSelect(), [["fast", "Fast — one JSON pass"], ["refined", "Refined — two JSON passes"]], profile.defaults.generation_mode);
+      const contextMode = setSelect(createSelect(), [["optimized", "Ranked presets — Recommended"], ["full", "Full preset catalog"]], profile.defaults.preset_context_mode);
+      const depth = setSelect(createSelect(), [["deep", "Deep"], ["exhaustive", "Exhaustive"]], profile.defaults.detail_level);
+      const defaultRoute = setSelect(
+        createSelect(),
+        profile.enabled_generation_types.map((route) => [route, GENERATION_TYPE_MAP.get(route)?.label || route]),
+        profile.default_generation_type,
+      );
+      const presets = document.createElement("input"); presets.type = "checkbox"; presets.checked = Boolean(profile.defaults.template_use_presets);
+      const framing = document.createElement("input"); framing.type = "checkbox"; framing.checked = Boolean(profile.defaults.enable_framing_and_placement);
+      const overviewField = (labelText, control, helpText = "") => {
+        const holder = buildDom("div", "workflowx-uap-field");
+        holder.appendChild(buildDom("label", "workflowx-uap-label", labelText));
+        holder.appendChild(control);
+        const help = buildDom("div", "workflowx-uap-field-help", helpText);
+        holder.appendChild(help); grid.appendChild(holder);
+        return { holder, help };
+      };
+      overviewField("Profile key", key, "Internal profile identifier.");
+      overviewField("Display label", label, "Name shown in the node and profile list.");
+      const setupPresetField = overviewField("JsonX setup preset", setupPreset);
+      const formatField = overviewField("Default output format", format, "JSON returns the JsonX object. Natural converts validated JsonX in a required second pass.");
+      const profileField = overviewField("JsonX construction method", generationProfile);
+      const modeField = overviewField("Output processing", mode);
+      const contextField = overviewField("Preset context", contextMode);
+      const depthField = overviewField("Hierarchy depth", depth);
+      overviewField("Default generation route", defaultRoute, "Text to Image writes from text; Image to Image can use connected references.");
+      const presetHolder = buildDom("div", "workflowx-uap-field");
+      const presetLabel = buildDom("label", "workflowx-uap-toggle"); presetLabel.appendChild(presets); presetLabel.appendChild(document.createTextNode("Include full presets in Template Fill")); presetHolder.appendChild(presetLabel);
+      const presetHelp = buildDom("div", "workflowx-uap-field-help"); presetHolder.appendChild(presetHelp); grid.appendChild(presetHolder);
+      const framingLabel = buildDom("label", "workflowx-uap-toggle"); framingLabel.appendChild(framing); framingLabel.appendChild(document.createTextNode("Framing and placement (3×3)")); grid.appendChild(framingLabel);
+      content.appendChild(grid);
+      const routeCard = buildDom("section", "workflowx-uap-settings-card"); routeCard.appendChild(buildDom("div", "workflowx-uap-settings-card-title", "Enabled generation routes"));
+      for (const [route, routeLabel] of [["text_to_image", "Text to Image"], ["image_to_image", "Image to Image"]]) {
+        const toggle = buildDom("label", "workflowx-uap-toggle"); const input = document.createElement("input"); input.type = "checkbox"; input.checked = profile.enabled_generation_types.includes(route);
+        input.addEventListener("change", () => { if (input.checked && !profile.enabled_generation_types.includes(route)) profile.enabled_generation_types.push(route); if (!input.checked && profile.enabled_generation_types.length > 1) profile.enabled_generation_types = profile.enabled_generation_types.filter((item) => item !== route); if (!profile.enabled_generation_types.includes(profile.default_generation_type)) profile.default_generation_type = profile.enabled_generation_types[0]; renderAll(); });
+        toggle.appendChild(input); toggle.appendChild(document.createTextNode(routeLabel)); routeCard.appendChild(toggle);
+      }
+      content.appendChild(routeCard);
+      key.addEventListener("change", () => {
+        const value = String(key.value || "").toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
+        if (value && !draft.manifest.profiles.some((item) => item !== profile && item.key === value)) {
+          selectedKey = profile.key = value;
+        }
+        renderAll();
+      });
+      label.addEventListener("input", () => { profile.label = label.value; renderList(); });
+      const setupPresetHelp = {
+        adaptive_balanced: "Dynamic hierarchy · ranked presets · fast JSON processing · deep detail.",
+        adaptive_polished: "Dynamic hierarchy · ranked presets · refined JSON processing · deep detail.",
+        adaptive_max: "Dynamic hierarchy · full preset catalog · refined JSON processing · exhaustive detail.",
+        template_flex: "Fixed fillable hierarchy · no preset catalog · fast JSON processing.",
+        template_catalog: "Fixed fillable hierarchy · full preset catalog · refined JSON processing.",
+        custom: "Manual combination of the settings below.",
+      };
+      const refreshSetupPresetHelp = () => {
+        const naturalNote = format.value === "natural"
+          ? " Natural output still uses its required two-pass conversion."
+          : "";
+        setupPresetField.help.textContent = `${setupPresetHelp[setupPreset.value] || setupPresetHelp.custom}${naturalNote}`;
+      };
+      const markSetupCustom = () => {
+        setupPreset.value = "custom";
+        refreshSetupPresetHelp();
+      };
+      const refreshDependencies = () => {
+        const adaptive = generationProfile.value === "adaptive";
+        const natural = format.value === "natural";
+        const templateRefinedJson = !adaptive && !natural && mode.value === "refined";
+        contextMode.disabled = !adaptive;
+        contextField.holder.classList.toggle("is-disabled", !adaptive);
+        contextField.help.textContent = adaptive
+          ? (contextMode.value === "full"
+            ? "Sends the complete preset catalog. Offers maximum coverage but uses much more context."
+            : "Sends only preset entries ranked as relevant to the prompt. Smaller, faster, and recommended.")
+          : "Only Adaptive uses preset context; Template Fill uses its fixed hierarchy and optional preset switch.";
+        presets.disabled = adaptive;
+        presetHolder.classList.toggle("is-disabled", adaptive);
+        presetLabel.classList.toggle("is-disabled", adaptive);
+        presetHelp.textContent = adaptive
+          ? "Available only for Template Fill. Adaptive uses Ranked or Full preset context above."
+          : (presets.checked
+            ? "The complete preset catalog is supplied while the fixed hierarchy is filled."
+            : "Template Fill uses the fixed blank hierarchy without the preset catalog.");
+        mode.disabled = natural;
+        modeField.holder.classList.toggle("is-disabled", natural);
+        modeField.help.textContent = natural
+          ? "Natural output always uses two passes: validated Stage 1 JSON, then prose conversion. The saved JSON mode is retained."
+          : (mode.value === "refined"
+            ? "Runs Stage 1 and a second JSON refinement pass."
+            : "Returns validated Stage 1 JSON without a normal refinement pass.");
+        depth.disabled = !adaptive && !templateRefinedJson;
+        depthField.holder.classList.toggle("is-disabled", depth.disabled);
+        depthField.help.textContent = depth.disabled
+          ? "This setting does not affect the selected Template Fill pipeline."
+          : (depth.value === "exhaustive"
+            ? "Requests the maximum useful hierarchy detail."
+            : "Requests a detailed hierarchy without forcing every possible branch.");
+        profileField.help.textContent = adaptive
+          ? "Builds a JsonX hierarchy dynamically from the request; it does not begin with every possible field."
+          : "Starts from the fixed blank JsonX hierarchy, fills applicable leaves, then removes unused null leaves.";
+        formatField.help.textContent = natural
+          ? "Produces prose from validated Stage 1 JsonX using a required second model call."
+          : "Produces the validated JsonX object. Fast or Refined processing can be selected below.";
+        refreshSetupPresetHelp();
+      };
+      format.addEventListener("change", () => { profile.default_format = format.value; refreshDependencies(); });
+      setupPreset.addEventListener("change", () => {
+        const values = setupPresets.find(([value]) => value === setupPreset.value)?.[2];
+        if (values) {
+          Object.assign(profile.defaults, values);
+          generationProfile.value = values.generation_profile;
+          mode.value = values.generation_mode;
+          contextMode.value = values.preset_context_mode;
+          presets.checked = values.template_use_presets;
+          depth.value = values.detail_level;
+        }
+        refreshDependencies();
+      });
+      generationProfile.addEventListener("change", () => { profile.defaults.generation_profile = generationProfile.value; markSetupCustom(); refreshDependencies(); });
+      mode.addEventListener("change", () => { profile.defaults.generation_mode = mode.value; markSetupCustom(); refreshDependencies(); });
+      contextMode.addEventListener("change", () => { profile.defaults.preset_context_mode = contextMode.value; markSetupCustom(); refreshDependencies(); });
+      depth.addEventListener("change", () => { profile.defaults.detail_level = depth.value; markSetupCustom(); refreshDependencies(); });
+      defaultRoute.addEventListener("change", () => { profile.default_generation_type = defaultRoute.value; });
+      presets.addEventListener("change", () => { profile.defaults.template_use_presets = presets.checked; markSetupCustom(); refreshDependencies(); });
+      framing.addEventListener("change", () => { profile.defaults.enable_framing_and_placement = framing.checked; });
+      refreshDependencies();
+    }
+    function renderPaths() {
+      const groups = [
+        ["Generation routes", ["generation_text_to_image", "generation_image_to_image"]],
+        ["Stage 1", ["stage_one_adaptive", "stage_one_template_fill"]],
+        ["Stage 2", ["stage_two_json_refinement", "stage_two_natural_conversion"]],
+        ["Repair", ["repair_json", "repair_natural"]],
+        ["Image states", ["adaptive_image_with", "adaptive_image_without", "template_image_with", "template_image_without", "refinement_image_with", "refinement_image_without", "natural_image_with", "natural_image_without"]],
+        ["Open-world and hierarchy", ["adaptive_open_world", "refinement_open_world", "depth_deep", "depth_exhaustive"]],
+        ["Framing", ["framing_json_enabled", "framing_json_disabled", "framing_natural_enabled", "framing_natural_disabled"]],
+        ["Template Fill state", ["template_presets_enabled", "template_presets_disabled", "template_refinement"]],
+        ["Reference processing", ["reference_with_supported", "reference_without_supported", "reference_without_unsupported"]],
+        ["User-message templates", ["user_stage_one", "user_json_refinement", "user_natural_conversion", "user_json_repair", "user_natural_repair"]],
+      ];
+      for (const [label, keys] of groups) {
+        const details = buildDom("details", "workflowx-uap-settings-card");
+        const summary = document.createElement("summary"); summary.textContent = label; details.appendChild(summary);
+        for (const key of keys) {
+          const holder = buildDom("div", "workflowx-uap-field"); holder.appendChild(buildDom("label", "", friendly(key)));
+          const area = createTextarea(key.startsWith("user_") ? 8 : 14); area.value = getFile(key); area.spellcheck = false; area.addEventListener("input", () => setFile(key, area.value)); holder.appendChild(area); details.appendChild(holder);
+        }
+        content.appendChild(details);
+      }
+    }
+    function renderTemplates() {
+      const options = [
+        ["template_adaptive_ranked", "Adaptive ranked context"], ["template_adaptive_full", "Adaptive full context"],
+        ["template_fill_without_framing", "Template Fill hierarchy · framing disabled"], ["template_fill_with_framing", "Template Fill hierarchy · framing enabled"],
+      ];
+      const select = setSelect(createSelect(), options, activeTemplate); field(content, "Template", select);
+      addEditor(options.find(([key]) => key === activeTemplate)?.[1] || "Template", activeTemplate, 38, "Exact editable payload carrier. Required tokens are validated on Save.");
+      select.addEventListener("change", () => { activeTemplate = select.value; renderAll(); });
+    }
+    function renderPresets() {
+      const stats = buildDom("div", "workflowx-uap-status"); content.appendChild(stats);
+      const area = addEditor("Complete JsonX preset catalog", "presets_full", 44, "Raw JSON without a Markdown fence. Adaptive Full, Adaptive Ranked, and Template Fill use this same catalog.");
+      const update = () => { try { const parsed = JSON.parse(area.value); const paths = (() => { let count = 0; const walk = (value) => { if (!value || typeof value !== "object" || Array.isArray(value)) return; const values = Object.values(value); if (values.length && values.every((item) => typeof item === "string")) { count += 1; return; } values.forEach(walk); }; walk(parsed); return count; })(); stats.textContent = `Valid JSON object · ${area.value.length.toLocaleString()} characters · ${paths.toLocaleString()} preset paths`; stats.classList.remove("error"); } catch (error) { stats.textContent = `Invalid preset JSON: ${error.message}`; stats.classList.add("error"); } };
+      area.addEventListener("input", update); update();
+    }
+    function renderContracts() {
+      const options = [
+        ["contract_stage_one_json", "Stage 1 JSON"], ["contract_stage_two_json", "Refined Stage 2 JSON"],
+        ["contract_stage_two_natural", "Natural Stage 2 prose"], ["contract_json_repair", "JSON repair"], ["contract_natural_repair", "Natural repair"],
+      ];
+      const select = setSelect(createSelect(), options, activeContract); field(content, "Stage contract", select);
+      addEditor(options.find(([key]) => key === activeContract)?.[1] || "Output contract", activeContract, 24, "Appended last to the selected stage system prompt.");
+      select.addEventListener("change", () => { activeContract = select.value; renderAll(); });
+    }
+    function renderPreview(profile) {
+      const config = profile.key === state.target_model
+        ? effectiveJsonXConfig()
+        : { ...defaultJsonXConfig(), ...(profile.defaults || {}) };
+      const controls = buildDom("div", "workflowx-uap-grid");
+      const generationProfile = setSelect(createSelect(), [["adaptive", "Adaptive"], ["template_fill", "Template Fill"]], config.generation_profile);
+      const output = setSelect(createSelect(), [["json", "JsonX JSON"], ["natural", "Natural language"]], state.prompt_format);
+      const generationType = setSelect(createSelect(), profile.enabled_generation_types.map((key) => [key, GENERATION_TYPE_MAP.get(key)?.label || key]), state.generation_type);
+      const images = createInput("number"); images.min = "0"; images.max = String(MAX_AUTHORING_IMAGES); images.value = String(connectedImages().length);
+      const nsfw = document.createElement("input"); nsfw.type = "checkbox"; nsfw.checked = Boolean(state.nsfw_enabled);
+      field(controls, "Generation profile", generationProfile); field(controls, "Output format", output); field(controls, "Generation route", generationType); field(controls, "Authoring media count", images);
+      const nsfwLabel = buildDom("label", "workflowx-uap-toggle"); nsfwLabel.appendChild(nsfw); nsfwLabel.appendChild(document.createTextNode("Include shared Image NSFW block")); controls.appendChild(nsfwLabel); content.appendChild(controls);
+      content.appendChild(buildDom("div", "workflowx-uap-status", "Preview uses the last saved current_use/JsonX files. Save draft edits before previewing them."));
+      const stageOne = createTextarea(28); stageOne.readOnly = true; const stageOneUser = createTextarea(8); stageOneUser.readOnly = true;
+      const stageTwo = createTextarea(22); stageTwo.readOnly = true; const stageTwoUser = createTextarea(8); stageTwoUser.readOnly = true;
+      const repairs = createTextarea(18); repairs.readOnly = true; const routing = createTextarea(16); routing.readOnly = true;
+      field(content, "Stage 1 · exact system text", stageOne); field(content, "Stage 1 · exact user text", stageOneUser);
+      field(content, "Applicable Stage 2 · exact system text", stageTwo); field(content, "Applicable Stage 2 · exact user text", stageTwoUser);
+      field(content, "Repair payloads", repairs); field(content, "Local routing only", routing);
+      const refresh = buildDom("button", "workflowx-uap-btn primary", "Refresh preview"); refresh.type = "button"; content.appendChild(refresh);
+      const update = async () => {
+        try {
+          const count = Math.max(0, Math.min(MAX_AUTHORING_IMAGES, Number(images.value || 0)));
+          const selectedConfig = { ...config, generation_profile: generationProfile.value };
+          const data = await fetchJsonChecked(`${JSONX_ROUTE}/instructions/preview`, {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+              ...selectedConfig, schema_version: FRONTEND_SCHEMA_VERSION, jsonx_reference_schema_version: JSONX_REFERENCE_SCHEMA_VERSION,
+              target_model: profile.key, generation_type: generationType.value, output_format: output.value, nsfw_enabled: nsfw.checked,
+              has_image: count > 0, images_b64: Array.from({ length: count }, (_value, index) => `preview-image-${index + 1}`),
+              fields: { prompt_text: promptArea.value || "Example user prompt instructions", detail: detailSelect.value },
+            }),
+          }, "JsonX payload preview");
+          stageOne.value = data.stage_one || ""; stageOneUser.value = data.user || ""; stageTwo.value = data.refinement || ""; stageTwoUser.value = data.stage_two_user || "";
+          repairs.value = `JSON repair system:\n${data.json_repair || ""}\n\nJSON repair user:\n${data.json_repair_user || ""}\n\nNatural repair system:\n${data.natural_repair || ""}\n\nNatural repair user:\n${data.natural_repair_user || ""}`;
+          routing.value = JSON.stringify({ profile: profile.key, generation_type: generationType.value, submitted_media: data.image_count, image_state: data.image_state, activated_files: data.activated_files, provider_parameters: { backend: providerBackend() }, preset_characters: data.full_preset_chars }, null, 2);
+        } catch (error) { stageOne.value = `Preview error: ${error.message}`; stageOneUser.value = ""; stageTwo.value = ""; stageTwoUser.value = ""; repairs.value = ""; routing.value = ""; }
+      };
+      refresh.addEventListener("click", update); for (const control of [generationProfile, output, generationType, images, nsfw]) control.addEventListener("change", update); update();
+    }
+    function renderAll() {
+      content.innerHTML = ""; renderList(); renderTabs(); const profile = currentProfile(); if (!profile) return;
+      remove.disabled = originalKeys.has(profile.key); resetOne.disabled = !originalKeys.has(profile.key);
+      if (activeTab === "overview") renderOverview(profile); else if (activeTab === "paths") renderPaths(); else if (activeTab === "templates") renderTemplates(); else if (activeTab === "presets") renderPresets(); else if (activeTab === "contracts") renderContracts(); else renderPreview(profile);
+    }
+
+    search.addEventListener("input", renderList);
+    add.addEventListener("click", () => {
+      const source = currentProfile() || draft.manifest.profiles[0];
+      const key = uniqueKey("jsonx_custom"); const profile = clone(source); profile.key = key; profile.label = "JsonX Custom"; profile.folder = uniqueFolder(key); profile.builtin = false;
+      const prefix = `${source.folder}/`; for (const [path, text] of Object.entries({ ...draft.files })) if (path.startsWith(prefix)) draft.files[`${profile.folder}/${path.slice(prefix.length)}`] = text;
+      draft.manifest.profiles.push(profile); selectedKey = key; activeTab = "overview"; renderAll();
+    });
+    duplicate.addEventListener("click", () => {
+      const source = currentProfile(); if (!source) return; const copy = clone(source); copy.key = uniqueKey(`${source.key}_copy`); copy.label = `${source.label} Copy`; copy.folder = uniqueFolder(copy.key); copy.builtin = false;
+      const prefix = `${source.folder}/`; for (const [path, text] of Object.entries({ ...draft.files })) if (path.startsWith(prefix)) draft.files[`${copy.folder}/${path.slice(prefix.length)}`] = text;
+      draft.manifest.profiles.push(copy); selectedKey = copy.key; activeTab = "overview"; renderAll();
+    });
+    remove.addEventListener("click", () => { const profile = currentProfile(); if (!profile || originalKeys.has(profile.key)) return; draft.manifest.profiles = draft.manifest.profiles.filter((item) => item !== profile); const prefix = `${profile.folder}/`; for (const path of Object.keys(draft.files)) if (path.startsWith(prefix)) delete draft.files[path]; selectedKey = draft.manifest.profiles[0]?.key; renderAll(); });
+    resetOne.addEventListener("click", async () => { try { const data = await fetchJsonChecked(`${JSONX_ROUTE}/reference_config/reset_profile`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ profile_key: currentProfile()?.key }) }, "Reset JsonX profile"); savedBundle = clone(data.current); draft = clone(savedBundle); statusText.textContent = "JsonX profile restored from original."; renderAll(); } catch (error) { statusText.textContent = `Reset error: ${error.message}`; } });
+    revert.addEventListener("click", async () => { try { const data = await fetchJsonChecked(`${JSONX_ROUTE}/reference_config`, {}, "Revert JsonX settings"); savedBundle = clone(data.current); draft = clone(savedBundle); statusText.textContent = "Unsaved changes discarded."; renderAll(); } catch (error) { statusText.textContent = `Revert error: ${error.message}`; } });
+    exportBtn.addEventListener("click", async () => { try { const data = await fetchJsonChecked(`${JSONX_ROUTE}/reference_config`, {}, "Export JsonX settings"); const blob = new Blob([JSON.stringify(data.current, null, 2)], { type: "application/json" }); const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = `unified-jsonx-reference-v${JSONX_REFERENCE_SCHEMA_VERSION}.json`; anchor.click(); URL.revokeObjectURL(url); statusText.textContent = "Exported the last saved JsonX bundle."; } catch (error) { statusText.textContent = `Export error: ${error.message}`; } });
+    importBtn.addEventListener("click", () => importInput.click());
+    importInput.addEventListener("change", async () => { try { const imported = JSON.parse(await importInput.files?.[0]?.text()); if (Number(imported.jsonx_reference_schema_version || 0) !== JSONX_REFERENCE_SCHEMA_VERSION) throw new Error(`Imported bundle is not JsonX reference schema ${JSONX_REFERENCE_SCHEMA_VERSION}.`); draft = clone(imported); selectedKey = draft.manifest.profiles[0]?.key; statusText.textContent = "Import loaded as an unsaved draft. Click Save to apply it."; renderAll(); } catch (error) { statusText.textContent = `Import error: ${error.message}`; } importInput.value = ""; });
+    resetAll.addEventListener("click", async () => { try { const data = await fetchJsonChecked(`${JSONX_ROUTE}/reference_config/reset_all`, { method: "POST" }, "Reset all JsonX profiles"); savedBundle = clone(data.current); draft = clone(savedBundle); statusText.textContent = "Built-in JsonX profiles restored; custom profiles preserved."; renderAll(); } catch (error) { statusText.textContent = `Reset error: ${error.message}`; } });
+    save.addEventListener("click", async () => { save.disabled = true; try { const data = await fetchJsonChecked(`${JSONX_ROUTE}/reference_config`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(draft) }, "Save JsonX Markdown profiles"); savedBundle = clone(data.current); draft = clone(savedBundle); clearProfileCache(); profiles = await loadProfiles(); profilesByKey = profileMap(profiles); if (profilesByKey.has(selectedKey)) state.target_model = selectedKey; refreshProfiles(); statusText.textContent = "Saved to reference/current_use/JsonX."; setStatus("JsonX Markdown settings saved."); renderAll(); } catch (error) { statusText.textContent = `Save error: ${error.message}`; } finally { save.disabled = false; } });
+    close.addEventListener("click", () => backdrop.remove()); backdrop.addEventListener("mousedown", (event) => { if (event.target === backdrop) backdrop.remove(); }); renderAll();
+  }
+
+  async function openMarkdownProfileSettings(forceEngine = "", requestedProfileKey = "") {
+    if (forceEngine === "jsonx" || (!forceEngine && isJsonXProfile())) {
+      await openJsonXMarkdownProfileSettings(requestedProfileKey);
+      return;
+    }
+
+    let config;
+    try {
+      config = await fetchJsonChecked(`${ROUTE}/reference_config`, {}, "Markdown profile settings");
+      if (Number(config.reference_schema_version || 0) !== REFERENCE_SCHEMA_VERSION) {
+        throw new Error(
+          `Unified reference schema mismatch (frontend ${REFERENCE_SCHEMA_VERSION}, backend ${config.reference_schema_version || "missing"}). ` +
+          "Restart ComfyUI and hard-refresh the browser.",
+        );
+      }
+    } catch (error) {
+      setStatus(`Profile settings error: ${error.message}`, true);
+      return;
+    }
+
+    const clone = (value) => JSON.parse(JSON.stringify(value));
+    let savedBundle = clone(config.current);
+    let draft = clone(savedBundle);
+    const originalBundle = clone(config.original);
+    let selectedKey = draft.manifest.profiles.some((profile) => profile.key === requestedProfileKey)
+      ? requestedProfileKey
+      : draft.manifest.profiles.some((profile) => profile.key === state.target_model)
+        ? state.target_model
+      : draft.manifest.profiles[0]?.key;
+    let editorMode = "profiles";
+    let activeTab = "overview";
+    let activePath = state.generation_type;
+    let activeFormat = state.prompt_format;
+    let activeNegative = Boolean(state.negative_enabled);
+
+    const backdrop = buildDom("div", "workflowx-uap-modal-backdrop");
+    const modal = buildDom("div", "workflowx-uap-modal workflowx-uap-modal-v6");
+    const head = buildDom("div", "workflowx-uap-modal-head");
+    const title = buildDom("div", "workflowx-uap-modal-title", "Unified PrompterX Profile Settings");
+    const modeButtons = buildDom("div", "workflowx-uap-settings-segment");
+    const profilesMode = buildDom("button", "active", "Profiles");
+    const nsfwMode = buildDom("button", "", "Global NSFW Rules");
+    const close = buildDom("button", "workflowx-uap-btn", "×");
+    close.title = "Close without saving editor changes";
+    for (const button of [profilesMode, nsfwMode, close]) button.type = "button";
+    modeButtons.appendChild(profilesMode);
+    modeButtons.appendChild(nsfwMode);
+    head.appendChild(title);
+    head.appendChild(modeButtons);
+    head.appendChild(close);
+
+    const body = buildDom("div", "workflowx-uap-settings-body");
+    const side = buildDom("aside", "workflowx-uap-settings-list");
+    const search = createInput("search");
+    search.placeholder = "Search profiles";
+    const sideActions = buildDom("div", "workflowx-uap-row");
+    const add = buildDom("button", "workflowx-uap-btn", "Add");
+    const duplicate = buildDom("button", "workflowx-uap-btn", "Duplicate");
+    const remove = buildDom("button", "workflowx-uap-btn", "Delete");
+    const resetOne = buildDom("button", "workflowx-uap-btn", "Reset profile");
+    resetOne.title = "Immediately restore the selected built-in profile from reference/original";
+    for (const button of [add, duplicate, remove, resetOne]) {
+      button.type = "button";
+      sideActions.appendChild(button);
+    }
+    const items = buildDom("div", "workflowx-uap-settings-items");
+    side.appendChild(search);
+    side.appendChild(sideActions);
+    side.appendChild(items);
+
+    const main = buildDom("main", "workflowx-uap-settings-form");
+    const tabs = buildDom("div", "workflowx-uap-settings-tabs");
+    const content = buildDom("div", "workflowx-uap-settings-page");
+    main.appendChild(tabs);
+    main.appendChild(content);
+    body.appendChild(side);
+    body.appendChild(main);
+
+    const foot = buildDom("div", "workflowx-uap-modal-head");
+    const status = buildDom("div", "workflowx-uap-status", "Runtime source: reference/current_use");
+    const revert = buildDom("button", "workflowx-uap-btn", "Revert");
+    const exportBtn = buildDom("button", "workflowx-uap-btn", "Export JSON");
+    const importBtn = buildDom("button", "workflowx-uap-btn", "Import JSON");
+    const resetAll = buildDom("button", "workflowx-uap-btn", "Reset all defaults");
+    resetAll.title = "Immediately restore all built-in profiles while preserving custom profiles";
+    const save = buildDom("button", "workflowx-uap-btn primary", "Save");
     const importInput = document.createElement("input");
     importInput.type = "file";
-    importInput.accept = "application/json,.json";
-    importInput.className = "workflowx-uap-hidden";
-    for (const button of [exportBtn, importBtn, resetAllBtn, saveBtn]) button.type = "button";
-    exportBtn.title = "Export the current editor draft without saving it";
-    importBtn.title = "Load profiles from JSON into the editor; review and Save to apply";
-    resetAllBtn.title = "Immediately replace every saved profile with the packaged WorkflowX defaults";
-    saveBtn.title = "Validate and save all profile changes";
-    foot.appendChild(message);
-    foot.appendChild(exportBtn);
-    foot.appendChild(importBtn);
-    foot.appendChild(resetAllBtn);
-    foot.appendChild(saveBtn);
+    importInput.accept = ".json,application/json";
+    importInput.hidden = true;
+    foot.appendChild(status);
+    for (const button of [revert, exportBtn, importBtn, resetAll, save]) {
+      button.type = "button";
+      foot.appendChild(button);
+    }
     foot.appendChild(importInput);
+    modal.appendChild(head);
+    modal.appendChild(body);
     modal.appendChild(foot);
     backdrop.appendChild(modal);
     document.body.appendChild(backdrop);
+    stopGraphEvents(modal);
 
-    const selectedProfile = () => draft.find((profile) => profile.key === selectedKey) || draft[0] || null;
-    const showMessage = (text, isError = false) => {
-      message.textContent = text || "";
-      message.classList.toggle("error", Boolean(isError));
+    const tabDefinitions = [
+      ["overview", "Overview"],
+      ["common", "Common Profile Rules"],
+      ["paths", "Generation Paths"],
+      ["references", "Reference Usage"],
+      ["contracts", "Output Contracts"],
+      ["preview", "Preview"],
+    ];
+    const originalKeys = new Set(originalBundle.manifest.profiles.map((profile) => profile.key));
+
+    const currentProfile = () => draft.manifest.profiles.find((profile) => profile.key === selectedKey)
+      || draft.manifest.profiles[0];
+    const generationCatalog = () => draft.manifest.generation_types || {};
+    const formatCatalog = () => draft.manifest.formats || {};
+    const profilePath = (profile, relative) => `${profile.folder}/${relative}`;
+    const getFile = (path) => Object.prototype.hasOwnProperty.call(draft.files, path) ? draft.files[path] : "";
+    const setFile = (path, value) => { draft.files[path] = value; };
+    const pathFile = (profile, type) => profilePath(profile, `split/${generationCatalog()[type]?.filename || `${type.replaceAll("_", "-")}.md`}`);
+    const contractFile = (profile, format, negative) => {
+      const prefix = formatCatalog()[format]?.contract_prefix || `${format}_output`;
+      return profilePath(profile, `Supporting/${prefix}_${negative ? "with_negative" : "without_negative"}.md`);
     };
-    const safeKey = (value) => String(value || "").toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
     const uniqueKey = (base) => {
-      const clean = safeKey(base) || "custom_model";
-      const keys = new Set(draft.map((profile) => profile.key));
-      if (!keys.has(clean)) return clean;
+      const normalized = String(base || "custom_model").toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "") || "custom_model";
+      const keys = new Set(draft.manifest.profiles.map((profile) => profile.key));
+      let value = normalized;
       let index = 2;
-      while (keys.has(`${clean}_${index}`)) index += 1;
-      return `${clean}_${index}`;
+      while (keys.has(value)) value = `${normalized}_${index++}`;
+      return value;
     };
-    const profileRule = (profile, format = activeFormat) => {
-      profile.formats ||= {};
-      profile.formats[format] = ensureRule(profile.formats[format]);
-      return profile.formats[format];
+    const uniqueFolder = (base) => {
+      const used = new Set(draft.manifest.profiles.map((profile) => profile.folder));
+      const normalized = String(base || "Custom Model").replace(/[\\/:*?"<>|]/g, " ").replace(/\s+/g, " ").trim() || "Custom Model";
+      let value = normalized;
+      let index = 2;
+      while (used.has(value)) value = `${normalized} ${index++}`;
+      return value;
     };
-    const enabledFormatsFor = (profile) => enabledProfileFormats(profile);
-    const jsonxInstructionDefault = (key) => {
-      const templateKey = {
-        stage_one_instructions: "stage_one",
-        template_fill_instructions: "template_fill",
-        refinement_instructions: "refinement",
-        natural_language_instructions: "natural_language",
-      }[key];
-      return templateKey ? String(jsonxInstructionTemplates?.[templateKey] || "") : "";
+    const addExactEditor = (label, path, rows = 24, condition = "") => {
+      const card = buildDom("section", "workflowx-uap-settings-card");
+      const cardHead = buildDom("div", "workflowx-uap-settings-card-head");
+      cardHead.appendChild(buildDom("div", "workflowx-uap-settings-card-title", label));
+      if (condition) cardHead.appendChild(buildDom("div", "workflowx-uap-condition-badge", condition));
+      const area = createTextarea(rows);
+      area.value = getFile(path);
+      area.spellcheck = false;
+      area.addEventListener("input", () => setFile(path, area.value));
+      card.appendChild(cardHead);
+      card.appendChild(area);
+      content.appendChild(card);
+      return area;
     };
-    const normalizedJsonXConfig = (value) => {
-      const normalized = { ...defaultJsonXConfig(), ...(value || {}) };
-      for (const key of [
-        "stage_one_instructions",
-        "template_fill_instructions",
-        "refinement_instructions",
-        "natural_language_instructions",
-      ]) {
-        const packaged = jsonxInstructionDefault(key).trim();
-        if (packaged && String(normalized[key] || "").trim() === packaged) normalized[key] = "";
-      }
-      return normalized;
+    const setSelect = (select, entries, selected) => {
+      setSelectOptions(select, entries.map(([value, label]) => ({ value, label })), selected);
+      return select;
     };
-    const cleanProfile = (profile) => {
-      const shaped = ensureProfileShape(profile);
-      return {
-        key: shaped.key || "",
-        label: shaped.label || shaped.key || "",
-        engine: shaped.engine || "standard",
-        jsonx_config: shaped.engine === "jsonx" ? normalizedJsonXConfig(shaped.jsonx_config) : {},
-        media_type: shaped.media_type || "image",
-        default_format: shaped.default_format || "natural",
-        negative_supported: Boolean(shaped.negative_supported),
-        json_supported: Boolean(shaped.json_supported),
-        notes: shaped.notes || "",
-        formats: Object.fromEntries(formats.map((format) => [format, ensureRule(shaped.formats?.[format])])),
-      };
+    const sanitizedParams = (generationType, mediaCount) => {
+      try {
+        const images = Array.from({ length: Math.max(0, Number(mediaCount || 0)) }, (_value, index) => `preview-media-${index + 1}`);
+        const payload = activeProviderPayload(false, images);
+        delete payload.api_key;
+        delete payload.image_b64;
+        delete payload.images_b64;
+        return payload;
+      } catch (error) {
+        return { provider: providerBackend(), configuration_warning: String(error.message || error), generation_type: generationType };
+      }
     };
-    const cleanProfiles = (profileList) => (profileList || []).map(cleanProfile);
-    const exportedFilename = () => {
-      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-      return `workflowx-unified-autoprompter-model-settings-${stamp}.json`;
-    };
-    const exportPayload = () => ({
-      export_format: "workflowx_unified_autoprompter_model_settings",
-      export_version: 1,
-      exported_at: new Date().toISOString(),
-      version: config.version || 4,
-      source: {
-        config_path: config.path || "",
-        default_path: config.default_path || "",
-      },
-      profiles: cleanProfiles(draft),
-      default_profiles: cleanProfiles(config.default_profiles || []),
-      builtin_keys: [...builtinKeys].sort(),
-      formats: [...formats],
-      media_types: [...mediaTypes],
-    });
-    const saveJsonFile = async (payload) => {
-      const text = `${JSON.stringify(payload, null, 2)}\n`;
-      const filename = exportedFilename();
-      if (window.showSaveFilePicker) {
-        const handle = await window.showSaveFilePicker({
-          suggestedName: filename,
-          types: [
-            {
-              description: "JSON file",
-              accept: { "application/json": [".json"] },
-            },
-          ],
-        });
-        const writable = await handle.createWritable();
-        await writable.write(text);
-        await writable.close();
-        return "Model settings exported.";
-      }
-
-      const blob = new Blob([text], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-      return "Model settings export downloaded.";
-    };
-    const importedProfilesFromPayload = (payload) => {
-      const profilesList = Array.isArray(payload?.profiles) ? payload.profiles : null;
-      if (!profilesList) throw new Error("Import JSON must contain a profiles array.");
-      return profilesList.map((profile) => cleanProfile(profile));
-    };
-    const normalizeActiveFormat = (profile) => {
-      const enabled = enabledFormatsFor(profile);
-      if (!enabled.includes(profile.default_format)) profile.default_format = enabled[0] || "natural";
-      if (!formats.includes(activeFormat)) activeFormat = profile.default_format || "natural";
-      if (!profile.formats?.[activeFormat]) activeFormat = profile.default_format || enabled[0] || "natural";
-    };
-
-    function bindInput(input, bind) {
-      input.dataset.bind = bind;
-      input.addEventListener("input", onFormInput);
-      input.addEventListener("change", onFormInput);
-      return input;
-    }
-
-    function readCurrentView() {
-      const profile = selectedProfile();
-      if (!profile) return;
-      for (const input of editor.querySelectorAll("[data-bind]")) {
-        const bind = input.dataset.bind;
-        if (bind === "key") {
-          profile.key = safeKey(input.value);
-          selectedKey = profile.key;
-        } else if (bind === "label") profile.label = input.value.trim();
-        else if (bind === "media_type") profile.media_type = input.value || "image";
-        else if (bind === "default_format") profile.default_format = input.value || profile.default_format;
-        else if (bind === "negative_supported") profile.negative_supported = input.checked;
-        else if (bind === "json_supported") profile.json_supported = input.checked;
-        else if (bind === "notes") profile.notes = input.value;
-        else if (bind.startsWith("jsonx_bool:")) {
-          profile.jsonx_config ||= defaultJsonXConfig();
-          profile.jsonx_config[bind.split(":")[1]] = input.checked;
-        } else if (bind.startsWith("jsonx:")) {
-          profile.jsonx_config ||= defaultJsonXConfig();
-          profile.jsonx_config[bind.split(":")[1]] = input.value;
-        }
-        else if (bind.startsWith("format_enabled:")) profileRule(profile, bind.split(":")[1]).enabled = input.checked;
-        else if (bind === "common_instructions") profileRule(profile).common_instructions = input.value;
-        else if (bind === "with_image_reference_instructions") profileRule(profile).with_image_reference_instructions = input.value;
-        else if (bind === "without_image_reference_instructions") profileRule(profile).without_image_reference_instructions = input.value;
-        else if (bind === "output_contract_negative_off") profileRule(profile).output_contract_negative_off = input.value;
-        else if (bind === "output_contract_negative_on") profileRule(profile).output_contract_negative_on = input.value;
-      }
-      normalizeActiveFormat(profile);
-    }
-
-    function validateDraft(profilesToValidate = draft) {
-      const seen = new Set();
-      for (const raw of profilesToValidate) {
-        const profile = ensureProfileShape(raw);
-        if (!/^[a-z0-9][a-z0-9_]*$/.test(profile.key || "")) throw new Error("Every model key must use lowercase letters, numbers, and underscores.");
-        if (seen.has(profile.key)) throw new Error(`Duplicate model key: ${profile.key}`);
-        seen.add(profile.key);
-        if (!profile.label?.trim()) throw new Error(`Profile ${profile.key} needs a display label.`);
-        if (!["standard", "jsonx"].includes(profile.engine || "standard")) throw new Error(`Profile ${profile.key} has an invalid engine identifier.`);
-        if (profile.engine === "jsonx") {
-          const jsonx = { ...defaultJsonXConfig(), ...(profile.jsonx_config || {}) };
-          if (!["adaptive", "template_fill"].includes(jsonx.generation_profile)) throw new Error(`${profile.key} has an invalid JsonX generation profile.`);
-          if (!["fast", "refined"].includes(jsonx.generation_mode)) throw new Error(`${profile.key} has an invalid JsonX generation mode.`);
-          if (!["optimized", "full"].includes(jsonx.preset_context_mode)) throw new Error(`${profile.key} has an invalid JsonX preset mode.`);
-          if (!["deep", "exhaustive"].includes(jsonx.detail_level)) throw new Error(`${profile.key} has an invalid JsonX hierarchy depth.`);
-        }
-        const enabled = enabledFormatsFor(profile);
-        if (!enabled.length) throw new Error(`Profile ${profile.key} needs at least one enabled format.`);
-        if (!enabled.includes(profile.default_format)) throw new Error(`Profile ${profile.key} default format must be enabled.`);
-        for (const format of enabled) {
-          const rule = profile.formats[format];
-          if (!rule.common_instructions?.trim()) throw new Error(`${profile.key} ${format} needs common instructions.`);
-          if (!rule.with_image_reference_instructions?.trim()) throw new Error(`${profile.key} ${format} needs with-image instructions.`);
-          if (!rule.without_image_reference_instructions?.trim()) throw new Error(`${profile.key} ${format} needs without-image instructions.`);
-          if (!rule.output_contract_negative_off?.trim()) throw new Error(`${profile.key} ${format} needs a negative-off output contract.`);
-          if (!rule.output_contract_negative_on?.trim()) throw new Error(`${profile.key} ${format} needs a negative-on output contract.`);
-        }
-      }
-    }
-
-    function formatSegment(profile) {
-      const row = buildDom("div", "workflowx-uap-settings-segment");
-      for (const format of formats) {
-        const button = buildDom("button", "", `${format}${profile.formats[format]?.enabled ? "" : " off"}`);
-        button.type = "button";
-        button.classList.toggle("active", format === activeFormat);
-        button.addEventListener("click", () => {
-          readCurrentView();
-          activeFormat = format;
-          renderAll();
-        });
-        row.appendChild(button);
-      }
-      return row;
-    }
-
-    function imageModeSegment() {
-      const row = buildDom("div", "workflowx-uap-settings-segment");
-      for (const [mode, label] of [["with_image", "With image"], ["without_image", "Without image"]]) {
-        const button = buildDom("button", "", label);
-        button.type = "button";
-        button.classList.toggle("active", mode === activeImageMode);
-        button.addEventListener("click", () => {
-          readCurrentView();
-          activeImageMode = mode;
-          renderAll();
-        });
-        row.appendChild(button);
-      }
-      return row;
-    }
-
-    function renderModelTab(profile) {
-      if (profile.engine === "jsonx") {
-        const config = profile.jsonx_config ||= defaultJsonXConfig();
-        const identity = buildDom("div", "workflowx-uap-grid");
-        const keyInput = bindInput(createInput("text"), "key");
-        keyInput.value = profile.key || "";
-        keyInput.disabled = builtinKeys.has(profile.key);
-        const labelInput = bindInput(createInput("text"), "label");
-        labelInput.value = profile.label || "";
-        const defaultFormat = bindInput(createSelect(), "default_format");
-        setSelectOptions(defaultFormat, [{ value: "json", label: "JsonX JSON" }, { value: "natural", label: "Natural language" }], profile.default_format || "json");
-        field(identity, "Profile key", keyInput);
-        field(identity, "Display label", labelInput);
-        field(identity, "Default output format", defaultFormat);
-        editor.appendChild(identity);
-
-        const settings = buildDom("div", "workflowx-uap-grid");
-        const generationProfile = bindInput(createSelect(), "jsonx:generation_profile");
-        setSelectOptions(generationProfile, [{ value: "adaptive", label: "Adaptive" }, { value: "template_fill", label: "Template Fill" }], config.generation_profile);
-        const generationMode = bindInput(createSelect(), "jsonx:generation_mode");
-        setSelectOptions(generationMode, [{ value: "fast", label: "Fast" }, { value: "refined", label: "Refined" }], config.generation_mode);
-        const presetMode = bindInput(createSelect(), "jsonx:preset_context_mode");
-        setSelectOptions(presetMode, [{ value: "optimized", label: "Optimized Presets" }, { value: "full", label: "Full Presets" }], config.preset_context_mode);
-        const detailLevel = bindInput(createSelect(), "jsonx:detail_level");
-        setSelectOptions(detailLevel, [{ value: "deep", label: "Deep" }, { value: "exhaustive", label: "Exhaustive" }], config.detail_level);
-        field(settings, "Generation profile", generationProfile);
-        field(settings, "Generation mode", generationMode);
-        field(settings, "Adaptive preset context", presetMode);
-        field(settings, "Hierarchy depth", detailLevel);
-        editor.appendChild(settings);
-
-        const options = buildDom("div", "workflowx-uap-row");
-        for (const [key, labelText] of [["template_use_presets", "Template Fill: Use Presets"], ["enable_framing_and_placement", "Framing & placement (3x3)"]]) {
-          const label = buildDom("label", "workflowx-uap-toggle");
-          const input = bindInput(document.createElement("input"), `jsonx_bool:${key}`);
-          input.type = "checkbox";
-          input.checked = Boolean(config[key]);
-          label.append(input, document.createTextNode(labelText));
-          options.appendChild(label);
-        }
-        editor.appendChild(options);
-        return;
-      }
-      const grid = buildDom("div", "workflowx-uap-grid");
-      const keyInput = bindInput(createInput("text"), "key");
-      keyInput.value = profile.key || "";
-      keyInput.disabled = builtinKeys.has(profile.key);
-      const labelInput = bindInput(createInput("text"), "label");
-      labelInput.value = profile.label || "";
-      const mediaSelect = bindInput(createSelect(), "media_type");
-      setSelectOptions(mediaSelect, mediaTypes, profile.media_type || "image");
-      const defaultFormatSelect = bindInput(createSelect(), "default_format");
-      setSelectOptions(defaultFormatSelect, enabledFormatsFor(profile), profile.default_format || enabledFormatsFor(profile)[0] || "natural");
-      field(grid, "Model key", keyInput);
-      field(grid, "Display label", labelInput);
-      field(grid, "Media type", mediaSelect);
-      field(grid, "Default format", defaultFormatSelect);
-      editor.appendChild(grid);
-      const optionRow = buildDom("div", "workflowx-uap-row");
-      for (const [bind, labelText] of [["negative_supported", "supports negative"], ["json_supported", "JSON supported"]]) {
-        const label = buildDom("label", "workflowx-uap-toggle");
-        const input = bindInput(document.createElement("input"), bind);
-        input.type = "checkbox";
-        input.checked = Boolean(profile[bind]);
-        label.appendChild(input);
-        label.appendChild(document.createTextNode(labelText));
-        optionRow.appendChild(label);
-      }
-      editor.appendChild(optionRow);
-      const notes = bindInput(createTextarea(6), "notes");
-      notes.value = profile.notes || "";
-      field(editor, "Model notes", notes);
-    }
-
-    function renderFormatsTab(profile) {
-      editor.appendChild(buildDom("div", "workflowx-uap-label", "Enable formats"));
-      for (const format of formats) {
-        const label = buildDom("label", "workflowx-uap-toggle");
-        const input = bindInput(document.createElement("input"), `format_enabled:${format}`);
-        input.type = "checkbox";
-        input.checked = Boolean(profile.formats[format]?.enabled);
-        label.appendChild(input);
-        label.appendChild(document.createTextNode(format));
-        editor.appendChild(label);
-      }
-      const defaultSelect = bindInput(createSelect(), "default_format");
-      setSelectOptions(defaultSelect, enabledFormatsFor(profile), profile.default_format || enabledFormatsFor(profile)[0] || "natural");
-      field(editor, "Default format", defaultSelect);
-    }
-
-    function renderPromptTab(profile) {
-      if (profile.engine === "jsonx") {
-        const config = profile.jsonx_config ||= defaultJsonXConfig();
-        const help = buildDom(
-          "div",
-          "workflowx-uap-modal-message",
-          "Showing the effective packaged JsonX instructions. Edit any field to create a profile override; unchanged defaults remain linked to the packaged engine instructions.",
-        );
-        editor.appendChild(help);
-        for (const [label, key] of [
-          ["Adaptive Stage 1 instructions", "stage_one_instructions"],
-          ["Template Fill instructions", "template_fill_instructions"],
-          ["JSON refinement instructions", "refinement_instructions"],
-          ["Natural Language Stage 2 instructions", "natural_language_instructions"],
-        ]) {
-          const area = bindInput(createTextarea(8), `jsonx:${key}`);
-          area.classList.add("workflowx-uap-settings-large");
-          area.value = config[key] || jsonxInstructionDefault(key);
-          area.placeholder = jsonxInstructionTemplates
-            ? "Packaged JsonX default instruction."
-            : "Packaged defaults could not be loaded; a blank value still uses the backend default.";
-          field(editor, label, area);
-        }
-        return;
-      }
-      editor.appendChild(formatSegment(profile));
-      editor.appendChild(imageModeSegment());
-      const rule = profileRule(profile);
-      const common = bindInput(createTextarea(9), "common_instructions");
-      common.classList.add("workflowx-uap-settings-large");
-      common.value = rule.common_instructions || "";
-      field(editor, `${activeFormat} common instructions`, common);
-      const modeKey = activeImageMode === "with_image" ? "with_image_reference_instructions" : "without_image_reference_instructions";
-      const modeArea = bindInput(createTextarea(8), modeKey);
-      modeArea.classList.add("workflowx-uap-settings-large");
-      modeArea.value = rule[modeKey] || "";
-      field(editor, activeImageMode === "with_image" ? "With image reference instructions" : "Without image reference instructions", modeArea);
-    }
-
-    function renderContractTab(profile) {
-      if (profile.engine === "jsonx") {
-        const config = profile.jsonx_config ||= defaultJsonXConfig();
-        editor.appendChild(imageModeSegment());
-        const key = activeImageMode === "with_image" ? "with_image_instructions" : "without_image_instructions";
-        const area = bindInput(createTextarea(12), `jsonx:${key}`);
-        area.classList.add("workflowx-uap-settings-large");
-        area.value = config[key] || "";
-        area.placeholder = activeImageMode === "with_image"
-          ? "Additional instructions applied when one or more images are connected."
-          : "Additional instructions applied when generation is text-only.";
-        field(editor, activeImageMode === "with_image" ? "With image instructions" : "Without image instructions", area);
-        return;
-      }
-      editor.appendChild(formatSegment(profile));
-      const rule = profileRule(profile);
-      const off = bindInput(createTextarea(6), "output_contract_negative_off");
-      off.classList.add("workflowx-uap-settings-contract");
-      off.value = rule.output_contract_negative_off || "";
-      const on = bindInput(createTextarea(6), "output_contract_negative_on");
-      on.classList.add("workflowx-uap-settings-contract");
-      on.value = rule.output_contract_negative_on || "";
-      field(editor, `${activeFormat} contract when negative is off`, off);
-      field(editor, `${activeFormat} contract when negative is on`, on);
-    }
-
-    function renderPreviewTab(profile) {
-      if (profile.engine === "jsonx") {
-        const controls = buildDom("div", "workflowx-uap-row");
-        const format = createSelect();
-        setSelectOptions(format, [{ value: "json", label: "JsonX JSON" }, { value: "natural", label: "Natural language" }], activeFormat === "natural" ? "natural" : "json");
-        format.addEventListener("change", () => { activeFormat = format.value; renderAll(); });
-        controls.append(format, imageModeSegment());
-        const refresh = buildDom("button", "workflowx-uap-btn", "Refresh effective instructions");
-        refresh.type = "button";
-        controls.appendChild(refresh);
-        editor.appendChild(controls);
-        const preview = buildDom("pre", "workflowx-uap-settings-preview", "Select Refresh effective instructions to render the exact JsonX prompts.");
-        editor.appendChild(preview);
-        const diagnostics = buildDom("pre", "workflowx-uap-settings-preview");
-        diagnostics.textContent = state.jsonx?.diagnostics ? JSON.stringify(state.jsonx.diagnostics, null, 2) : "No diagnostics for this node.";
-        field(editor, "Latest sanitized diagnostics for this node", diagnostics);
-        refresh.addEventListener("click", async () => {
-          try {
-            readCurrentView();
-            const jsonx = { ...defaultJsonXConfig(), ...(profile.jsonx_config || {}) };
-            const data = await fetchJsonChecked(`${JSONX_ROUTE}/instructions/preview`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                ...jsonx,
-                fields: {
-                  idea: state.idea, subject: state.subject, style: state.style, lighting: state.lighting,
-                  composition: state.composition, text: state.text, detail: state.detail,
-                  image_note: state.image_note, raw_prompt_text: state.enable_text_input ? state.connected_raw_prompt_text : "",
-                  extra_instructions: state.extra_instructions,
-                },
-                has_image: activeImageMode === "with_image",
-                output_format: activeFormat === "natural" ? "natural" : "json",
-              }),
-            }, "JsonX instruction preview");
-            preview.textContent = `Stage 1\n${data.stage_one}\n\nStage 2\n${data.refinement}`;
-          } catch (error) {
-            preview.textContent = `Preview error: ${error.message}`;
-          }
-        });
-        return;
-      }
-      const controls = buildDom("div", "workflowx-uap-row");
-      controls.appendChild(formatSegment(profile));
-      controls.appendChild(imageModeSegment());
-      const negativeLabel = buildDom("label", "workflowx-uap-toggle");
-      const negativePreviewInput = document.createElement("input");
-      negativePreviewInput.type = "checkbox";
-      negativePreviewInput.checked = Boolean(profile.__preview_negative);
-      negativePreviewInput.addEventListener("change", () => {
-        profile.__preview_negative = negativePreviewInput.checked;
-        renderAll();
-      });
-      negativeLabel.appendChild(negativePreviewInput);
-      negativeLabel.appendChild(document.createTextNode("negative preview"));
-      controls.appendChild(negativeLabel);
-      editor.appendChild(controls);
-      const preview = buildDom("pre", "workflowx-uap-settings-preview");
-      preview.textContent = renderTemplatePreview(profile, activeFormat, Boolean(profile.__preview_negative), activeImageMode === "with_image");
-      editor.appendChild(preview);
-    }
 
     function renderList() {
-      const filter = searchInput.value.trim().toLowerCase();
-      items.replaceChildren();
-      for (const profile of draft) {
-        if (filter && !`${profile.label} ${profile.key} ${profile.notes || ""}`.toLowerCase().includes(filter)) continue;
+      items.innerHTML = "";
+      const query = search.value.toLowerCase().trim();
+      for (const profile of draft.manifest.profiles) {
+        if (query && !`${profile.label} ${profile.key}`.toLowerCase().includes(query)) continue;
         const item = buildDom("button", `workflowx-uap-settings-item${profile.key === selectedKey ? " active" : ""}`);
         item.type = "button";
-        item.appendChild(buildDom("div", "", profile.label || profile.key));
-        item.appendChild(buildDom("div", "workflowx-uap-settings-key", `${profile.key}${builtinKeys.has(profile.key) ? " - built-in" : " - custom"}`));
+        item.textContent = profile.label || profile.key;
         item.addEventListener("click", () => {
-          readCurrentView();
           selectedKey = profile.key;
-          activeFormat = profile.default_format || activeFormat;
+          activePath = profile.default_generation_type;
+          activeFormat = profile.default_format;
           renderAll();
+        });
+        items.appendChild(item);
+      }
+      for (const peer of profiles.filter((profile) => profile.engine === "jsonx")) {
+        if (query && !`${peer.label} ${peer.key}`.toLowerCase().includes(query)) continue;
+        const item = buildDom("button", "workflowx-uap-settings-item", peer.label || peer.key);
+        item.type = "button";
+        item.addEventListener("click", async () => {
+          backdrop.remove();
+          await openMarkdownProfileSettings("jsonx", peer.key);
         });
         items.appendChild(item);
       }
     }
 
-    function renderForm() {
-      const profile = selectedProfile();
-      formPane.classList.toggle("workflowx-uap-hidden", !profile);
-      if (!profile) return;
-      Object.assign(profile, ensureProfileShape(profile));
-      normalizeActiveFormat(profile);
-      if (profile.engine === "jsonx" && activeTab === "formats") activeTab = "model";
-      const jsonxLabels = { model: "JsonX", prompt: "Instructions", contract: "Image Mode", preview: "Preview" };
-      for (const [key, button] of tabButtons) {
-        button.classList.toggle("workflowx-uap-hidden", profile.engine === "jsonx" && key === "formats");
-        button.textContent = profile.engine === "jsonx" ? (jsonxLabels[key] || button.textContent) : ({ model: "Model", formats: "Formats", prompt: "Prompt", contract: "Output Contract", preview: "Preview" }[key]);
+    function renderTabs() {
+      tabs.innerHTML = "";
+      for (const [key, label] of tabDefinitions) {
+        const button = buildDom("button", `workflowx-uap-settings-tab${activeTab === key ? " active" : ""}`, label);
+        button.type = "button";
+        button.addEventListener("click", () => { activeTab = key; renderAll(); });
+        tabs.appendChild(button);
       }
-      for (const [key, button] of tabButtons) button.classList.toggle("active", key === activeTab);
-      editor.replaceChildren();
-      deleteBtn.disabled = builtinKeys.has(profile.key);
-      resetOneBtn.disabled = !builtinKeys.has(profile.key);
-      if (activeTab === "model") renderModelTab(profile);
-      else if (activeTab === "formats") renderFormatsTab(profile);
-      else if (activeTab === "prompt") renderPromptTab(profile);
-      else if (activeTab === "contract") renderContractTab(profile);
-      else renderPreviewTab(profile);
+    }
+
+    function renderOverview(profile) {
+      const grid = buildDom("div", "workflowx-uap-grid");
+      const key = createInput("text"); key.value = profile.key; key.disabled = originalKeys.has(profile.key);
+      const label = createInput("text"); label.value = profile.label || "";
+      const media = setSelect(createSelect(), [["image", "Image"], ["video", "Video"]], profile.media_type);
+      const negative = document.createElement("input"); negative.type = "checkbox"; negative.checked = Boolean(profile.negative_supported);
+      const defaultFormat = setSelect(
+        createSelect(),
+        profile.enabled_formats.map((format) => [format, formatCatalog()[format]?.label || format]),
+        profile.default_format,
+      );
+      const defaultPath = setSelect(
+        createSelect(),
+        profile.enabled_generation_types.map((type) => [type, generationCatalog()[type]?.label || type]),
+        profile.default_generation_type,
+      );
+      field(grid, "Profile key", key);
+      field(grid, "Display label", label);
+      field(grid, "Output medium", media);
+      field(grid, "Default output format", defaultFormat);
+      field(grid, "Default generation type", defaultPath);
+      const negativeLabel = buildDom("label", "workflowx-uap-toggle");
+      negativeLabel.appendChild(negative);
+      negativeLabel.appendChild(document.createTextNode("Supports separate negative output"));
+      grid.appendChild(negativeLabel);
+      content.appendChild(grid);
+
+      const formatRow = buildDom("div", "workflowx-uap-row");
+      formatRow.appendChild(buildDom("strong", "", "Enabled output formats"));
+      for (const [format, metadata] of Object.entries(formatCatalog())) {
+        const toggle = buildDom("label", "workflowx-uap-toggle");
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.checked = profile.enabled_formats.includes(format);
+        input.addEventListener("change", () => {
+          if (input.checked && !profile.enabled_formats.includes(format)) profile.enabled_formats.push(format);
+          if (!input.checked && profile.enabled_formats.length > 1) profile.enabled_formats = profile.enabled_formats.filter((item) => item !== format);
+          if (!profile.enabled_formats.includes(profile.default_format)) profile.default_format = profile.enabled_formats[0];
+          renderAll();
+        });
+        toggle.appendChild(input);
+        toggle.appendChild(document.createTextNode(metadata.label || format));
+        formatRow.appendChild(toggle);
+      }
+      content.appendChild(formatRow);
+
+      const pathRow = buildDom("div", "workflowx-uap-row");
+      pathRow.appendChild(buildDom("strong", "", "Enabled generation types"));
+      for (const [type, metadata] of Object.entries(generationCatalog())) {
+        const toggle = buildDom("label", "workflowx-uap-toggle");
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.checked = profile.enabled_generation_types.includes(type);
+        input.addEventListener("change", () => {
+          if (input.checked && !profile.enabled_generation_types.includes(type)) profile.enabled_generation_types.push(type);
+          if (!input.checked && profile.enabled_generation_types.length > 1) profile.enabled_generation_types = profile.enabled_generation_types.filter((item) => item !== type);
+          if (!profile.enabled_generation_types.includes(profile.default_generation_type)) profile.default_generation_type = profile.enabled_generation_types[0];
+          renderAll();
+        });
+        toggle.appendChild(input);
+        toggle.appendChild(document.createTextNode(metadata.label || type));
+        pathRow.appendChild(toggle);
+      }
+      content.appendChild(pathRow);
+
+      key.addEventListener("change", () => {
+        const value = key.value.toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
+        if (value && !draft.manifest.profiles.some((item) => item !== profile && item.key === value)) {
+          selectedKey = profile.key = value;
+          renderAll();
+        }
+      });
+      label.addEventListener("input", () => { profile.label = label.value; renderList(); });
+      media.addEventListener("change", () => { profile.media_type = media.value; });
+      negative.addEventListener("change", () => { profile.negative_supported = negative.checked; });
+      defaultFormat.addEventListener("change", () => { profile.default_format = defaultFormat.value; activeFormat = defaultFormat.value; });
+      defaultPath.addEventListener("change", () => { profile.default_generation_type = defaultPath.value; activePath = defaultPath.value; });
+    }
+
+    function renderCommon(profile) {
+      addExactEditor(
+        "Common profile rules",
+        profilePath(profile, "split/common.md"),
+        32,
+        "Included for every request using this profile.",
+      );
+    }
+
+    function renderPaths(profile) {
+      if (!profile.enabled_generation_types.includes(activePath)) activePath = profile.default_generation_type;
+      const select = setSelect(
+        createSelect(),
+        profile.enabled_generation_types.map((type) => [type, generationCatalog()[type]?.label || type]),
+        activePath,
+      );
+      field(content, "Generation type", select);
+      addExactEditor(
+        "Generation-type rules",
+        pathFile(profile, activePath),
+        32,
+        "Included only when this generation type is selected. Missing packaged files intentionally open blank.",
+      );
+      select.addEventListener("change", () => { activePath = select.value; renderAll(); });
+    }
+
+    function renderReferences(profile) {
+      const definitions = [
+        ["with_reference_supported.md", "Reference supported · media connected", "Selected when the downstream type supports references and authoring media is connected."],
+        ["without_reference_supported.md", "Reference supported · no media connected", "Selected when the downstream type supports references and no authoring media is connected."],
+        ["without_reference_unsupported.md", "Reference unsupported downstream", "Selected for a downstream type that does not consume references, with or without authoring media."],
+      ];
+      for (const [filename, label, condition] of definitions) {
+        addExactEditor(label, profilePath(profile, `Supporting/${filename}`), 16, condition);
+      }
+    }
+
+    function renderContracts(profile) {
+      if (!profile.enabled_formats.includes(activeFormat)) activeFormat = profile.default_format;
+      if (!profile.negative_supported) activeNegative = false;
+      const controls = buildDom("div", "workflowx-uap-grid");
+      const format = setSelect(
+        createSelect(),
+        profile.enabled_formats.map((item) => [item, formatCatalog()[item]?.label || item]),
+        activeFormat,
+      );
+      const negative = setSelect(createSelect(), [
+        ["without", "Negative disabled"],
+        ["with", "Negative enabled"],
+      ], activeNegative ? "with" : "without");
+      negative.disabled = !profile.negative_supported;
+      field(controls, "Output format", format);
+      field(controls, "Negative state", negative);
+      content.appendChild(controls);
+      addExactEditor(
+        "Exact output contract",
+        contractFile(profile, activeFormat, activeNegative && profile.negative_supported),
+        28,
+        "Exactly one profile-wide output contract is appended to the system message.",
+      );
+      format.addEventListener("change", () => { activeFormat = format.value; renderAll(); });
+      negative.addEventListener("change", () => { activeNegative = negative.value === "with"; renderAll(); });
+    }
+
+    function renderGlobalNsfw() {
+      content.appendChild(buildDom("div", "workflowx-uap-status", "These two Markdown files are shared by all standard profiles. Exactly one is selected from the generation type's output medium when NSFW instructions are enabled."));
+      addExactEditor("Image NSFW rules", "nsfw-image.md", 26, "Included for image-output generation types only when NSFW is enabled.");
+      addExactEditor("Video NSFW rules", "nsfw-video.md", 26, "Included for video-output generation types only when NSFW is enabled.");
+    }
+
+    function renderPreview(profile) {
+      const controls = buildDom("div", "workflowx-uap-grid");
+      if (!profile.enabled_generation_types.includes(activePath)) activePath = profile.default_generation_type;
+      if (!profile.enabled_formats.includes(activeFormat)) activeFormat = profile.default_format;
+      const path = setSelect(createSelect(), profile.enabled_generation_types.map((item) => [item, generationCatalog()[item]?.label || item]), activePath);
+      const format = setSelect(createSelect(), profile.enabled_formats.map((item) => [item, formatCatalog()[item]?.label || item]), activeFormat);
+      const imageCount = createInput("number"); imageCount.min = "0"; imageCount.max = String(MAX_AUTHORING_IMAGES); imageCount.value = String(connectedImages().length);
+      const nsfw = document.createElement("input"); nsfw.type = "checkbox"; nsfw.checked = Boolean(state.nsfw_enabled);
+      const negative = document.createElement("input"); negative.type = "checkbox"; negative.checked = Boolean(state.negative_enabled && profile.negative_supported); negative.disabled = !profile.negative_supported;
+      field(controls, "Generation type", path);
+      field(controls, "Output format", format);
+      field(controls, "Authoring media count", imageCount);
+      const nsfwLabel = buildDom("label", "workflowx-uap-toggle"); nsfwLabel.appendChild(nsfw); nsfwLabel.appendChild(document.createTextNode("Include NSFW block")); controls.appendChild(nsfwLabel);
+      const negativeLabel = buildDom("label", "workflowx-uap-toggle"); negativeLabel.appendChild(negative); negativeLabel.appendChild(document.createTextNode("Generate negative")); controls.appendChild(negativeLabel);
+      content.appendChild(controls);
+      content.appendChild(buildDom("div", "workflowx-uap-status", "Preview uses the last saved current_use files—the same backend builder used by generation. Save draft edits before previewing them."));
+      const system = createTextarea(28); system.readOnly = true;
+      const user = createTextarea(8); user.readOnly = true;
+      const media = createTextarea(4); media.readOnly = true;
+      const routing = createTextarea(16); routing.readOnly = true;
+      field(content, "Exact system text", system);
+      field(content, "Exact user text", user);
+      field(content, "Submitted authoring media", media);
+      field(content, "Local routing only", routing);
+      const refresh = buildDom("button", "workflowx-uap-btn primary", "Refresh preview"); refresh.type = "button"; content.appendChild(refresh);
+      const update = async () => {
+        try {
+          const count = Math.max(0, Math.min(MAX_AUTHORING_IMAGES, Number(imageCount.value || 0)));
+          const data = await fetchJsonChecked(`${ROUTE}/preview`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              schema_version: FRONTEND_SCHEMA_VERSION,
+              reference_schema_version: REFERENCE_SCHEMA_VERSION,
+              target_model: profile.key,
+              prompt_format: format.value,
+              generation_type: path.value,
+              nsfw_enabled: nsfw.checked,
+              negative_enabled: negative.checked,
+              image_count: count,
+              fields: { prompt_text: promptArea.value || "Example user prompt instructions", detail: detailSelect.value },
+            }),
+          }, "Markdown payload preview");
+          system.value = data.system || "";
+          user.value = data.user || "";
+          media.value = data.image_count
+            ? `${data.image_count} authoring media item${data.image_count === 1 ? "" : "s"} submitted separately.`
+            : "No authoring media submitted.";
+          routing.value = JSON.stringify({
+            profile: profile.key,
+            generation_type: data.generation_type,
+            activated_files: data.activated_blocks || [],
+            connected_media: data.connected_image_count,
+            submitted_media: data.image_count,
+            generation_parameters: sanitizedParams(path.value, count),
+          }, null, 2);
+        } catch (error) {
+          system.value = `Preview error: ${error.message}`;
+          user.value = "";
+          media.value = "";
+          routing.value = "";
+        }
+      };
+      refresh.addEventListener("click", update);
+      for (const control of [path, format, imageCount, nsfw, negative]) control.addEventListener("change", update);
+      update();
+    }
+
+    function renderContent(profile) {
+      content.innerHTML = "";
+      if (activeTab === "overview") renderOverview(profile);
+      else if (activeTab === "common") renderCommon(profile);
+      else if (activeTab === "paths") renderPaths(profile);
+      else if (activeTab === "references") renderReferences(profile);
+      else if (activeTab === "contracts") renderContracts(profile);
+      else renderPreview(profile);
     }
 
     function renderAll() {
-      renderList();
-      renderForm();
-    }
-
-    function onFormInput() {
-      readCurrentView();
-      renderList();
-    }
-
-    searchInput.addEventListener("input", renderList);
-    addBtn.addEventListener("click", () => {
-      readCurrentView();
-      const base = JSON.parse(JSON.stringify(defaultsByKey.get("ideogram4") || draft[0] || {}));
-      const key = uniqueKey("custom_model");
-      draft.push(ensureProfileShape({ ...base, key, label: "Custom Model" }));
-      selectedKey = key;
-      activeTab = "model";
-      renderAll();
-    });
-    duplicateBtn.addEventListener("click", () => {
-      readCurrentView();
-      const profile = selectedProfile();
+      const globalMode = editorMode === "global";
+      profilesMode.classList.toggle("active", !globalMode);
+      nsfwMode.classList.toggle("active", globalMode);
+      side.style.display = globalMode ? "none" : "flex";
+      tabs.style.display = globalMode ? "none" : "flex";
+      body.classList.toggle("global-rules-mode", globalMode);
+      title.textContent = globalMode ? "Unified PrompterX Global NSFW Rules" : "Unified PrompterX Profile Settings";
+      content.innerHTML = "";
+      if (globalMode) {
+        renderGlobalNsfw();
+        return;
+      }
+      const profile = currentProfile();
       if (!profile) return;
-      const key = uniqueKey(`${profile.key}_copy`);
-      draft.push(ensureProfileShape({ ...JSON.parse(JSON.stringify(profile)), key, label: `${profile.label || profile.key} Copy` }));
+      if (!profile.enabled_generation_types.includes(activePath)) activePath = profile.default_generation_type;
+      if (!profile.enabled_formats.includes(activeFormat)) activeFormat = profile.default_format;
+      renderList();
+      renderTabs();
+      renderContent(profile);
+      remove.disabled = originalKeys.has(profile.key);
+      resetOne.disabled = !originalKeys.has(profile.key);
+    }
+
+    profilesMode.addEventListener("click", () => { editorMode = "profiles"; renderAll(); });
+    nsfwMode.addEventListener("click", () => { editorMode = "global"; renderAll(); });
+    search.addEventListener("input", renderList);
+    add.addEventListener("click", () => {
+      const key = uniqueKey("custom_model");
+      const folder = uniqueFolder("Custom Model");
+      const profile = {
+        key,
+        label: "Custom Model",
+        folder,
+        media_type: "image",
+        enabled_formats: ["natural"],
+        default_format: "natural",
+        enabled_generation_types: ["text_to_image"],
+        default_generation_type: "text_to_image",
+        negative_supported: true,
+        builtin: false,
+      };
+      draft.manifest.profiles.push(profile);
+      for (const relative of [
+        "split/common.md",
+        `split/${generationCatalog().text_to_image.filename}`,
+        "Supporting/with_reference_supported.md",
+        "Supporting/without_reference_supported.md",
+        "Supporting/without_reference_unsupported.md",
+        "Supporting/natural_output_without_negative.md",
+        "Supporting/natural_output_with_negative.md",
+        "Supporting/json_output_without_negative.md",
+        "Supporting/json_output_with_negative.md",
+      ]) setFile(`${folder}/${relative}`, "");
       selectedKey = key;
-      activeTab = "model";
+      activeTab = "overview";
+      activePath = "text_to_image";
+      activeFormat = "natural";
       renderAll();
     });
-    deleteBtn.addEventListener("click", () => {
-      const profile = selectedProfile();
-      if (!profile || builtinKeys.has(profile.key)) return;
-      draft = draft.filter((item) => item !== profile);
-      selectedKey = draft[0]?.key || "";
+    duplicate.addEventListener("click", () => {
+      const source = currentProfile();
+      if (!source) return;
+      const copy = clone(source);
+      copy.key = uniqueKey(`${source.key}_copy`);
+      copy.label = `${source.label} Copy`;
+      copy.folder = uniqueFolder(`${source.folder} Copy`);
+      copy.builtin = false;
+      const prefix = `${source.folder}/`;
+      for (const [path, text] of Object.entries({ ...draft.files })) {
+        if (path.startsWith(prefix)) setFile(`${copy.folder}/${path.slice(prefix.length)}`, text);
+      }
+      draft.manifest.profiles.push(copy);
+      selectedKey = copy.key;
+      activeTab = "overview";
       renderAll();
     });
-    resetOneBtn.addEventListener("click", () => {
-      const profile = selectedProfile();
-      if (!profile || !builtinKeys.has(profile.key)) return;
-      const restored = defaultsByKey.get(profile.key);
-      if (!restored) return;
-      const index = draft.findIndex((item) => item.key === profile.key);
-      draft[index] = JSON.parse(JSON.stringify(restored));
+    remove.addEventListener("click", () => {
+      const profile = currentProfile();
+      if (!profile || originalKeys.has(profile.key)) return;
+      draft.manifest.profiles = draft.manifest.profiles.filter((item) => item !== profile);
+      const prefix = `${profile.folder}/`;
+      for (const path of Object.keys(draft.files)) if (path.startsWith(prefix)) delete draft.files[path];
+      selectedKey = draft.manifest.profiles[0]?.key;
       renderAll();
     });
-    closeBtn.addEventListener("click", () => backdrop.remove());
-    backdrop.addEventListener("mousedown", (event) => {
-      if (event.target === backdrop) backdrop.remove();
+    resetOne.addEventListener("click", async () => {
+      const profile = currentProfile();
+      if (!profile || !originalKeys.has(profile.key)) return;
+      try {
+        const data = await fetchJsonChecked(`${ROUTE}/reference_config/reset_profile`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ profile_key: profile.key }),
+        }, "Reset profile");
+        savedBundle = clone(data.current);
+        draft = clone(savedBundle);
+        status.textContent = `${profile.label} restored from original.`;
+        renderAll();
+      } catch (error) { status.textContent = `Reset error: ${error.message}`; }
+    });
+    revert.addEventListener("click", async () => {
+      try {
+        const data = await fetchJsonChecked(`${ROUTE}/reference_config`, {}, "Revert profiles");
+        savedBundle = clone(data.current);
+        draft = clone(savedBundle);
+        if (!draft.manifest.profiles.some((profile) => profile.key === selectedKey)) selectedKey = draft.manifest.profiles[0]?.key;
+        status.textContent = "Unsaved changes discarded.";
+        renderAll();
+      } catch (error) { status.textContent = `Revert error: ${error.message}`; }
     });
     exportBtn.addEventListener("click", async () => {
       try {
-        readCurrentView();
-        draft = cleanProfiles(draft);
-        validateDraft(draft);
-        const messageText = await saveJsonFile(exportPayload());
-        showMessage(messageText);
+        const data = await fetchJsonChecked(`${ROUTE}/reference_config`, {}, "Export profiles");
+        savedBundle = clone(data.current);
+        const blob = new Blob([JSON.stringify(savedBundle, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = `unified-prompterx-reference-v${REFERENCE_SCHEMA_VERSION}.json`;
+        anchor.click();
+        URL.revokeObjectURL(url);
+        status.textContent = "Exported the last saved current_use bundle. Unsaved modal edits were not included.";
       } catch (error) {
-        if (error?.name === "AbortError") {
-          showMessage("Export cancelled.");
-        } else {
-          showMessage(error.message, true);
-        }
+        status.textContent = `Export error: ${error.message}`;
       }
     });
-    importBtn.addEventListener("click", () => {
-      importInput.value = "";
-      importInput.click();
-    });
+    importBtn.addEventListener("click", () => importInput.click());
     importInput.addEventListener("change", async () => {
-      const file = importInput.files?.[0];
-      if (!file) return;
       try {
-        const payload = JSON.parse(await file.text());
-        const importedProfiles = importedProfilesFromPayload(payload);
-        validateDraft(importedProfiles);
-        readCurrentView();
-        draft = importedProfiles;
-        selectedKey = draft.some((profile) => profile.key === selectedKey) ? selectedKey : draft[0]?.key || "";
-        const selected = selectedProfile();
-        activeFormat = selected?.default_format || activeFormat;
-        searchInput.value = "";
-        showMessage(`Imported ${draft.length} profiles from ${file.name}. Review and Save to apply.`);
+        const imported = JSON.parse(await importInput.files?.[0]?.text());
+        if (Number(imported.reference_schema_version || 0) !== REFERENCE_SCHEMA_VERSION) throw new Error(`Imported bundle is not reference schema ${REFERENCE_SCHEMA_VERSION}.`);
+        draft = clone(imported);
+        selectedKey = draft.manifest.profiles[0]?.key;
+        status.textContent = "Import loaded as an unsaved draft. Click Save to apply it.";
         renderAll();
-      } catch (error) {
-        showMessage(`Import failed: ${error.message}`, true);
-      }
+      } catch (error) { status.textContent = `Import error: ${error.message}`; }
+      importInput.value = "";
     });
-    resetAllBtn.addEventListener("click", async () => {
-      if (!window.confirm("Reset all model profiles to WorkflowX defaults?")) return;
+    resetAll.addEventListener("click", async () => {
       try {
-        const data = await fetchJsonChecked(`${ROUTE}/profile_config/reset`, { method: "POST" }, "Reset model settings");
-        config = data;
-        draft = JSON.parse(JSON.stringify(data.profiles || [])).map(ensureProfileShape);
-        selectedKey = draft.some((profile) => profile.key === state.target_model) ? state.target_model : draft[0]?.key || "";
-        const resetProfile = draft.find((profile) => profile.key === selectedKey);
-        if (resetProfile?.engine === "jsonx") {
-          state.jsonx_profile_configs ||= {};
-          state.jsonx_profile_configs[selectedKey] = { ...defaultJsonXConfig(), ...(resetProfile.jsonx_config || {}) };
-        }
-        clearProfileCache();
-        profiles = await loadProfiles();
-        profilesByKey = profileMap(profiles);
-        refreshProfiles();
-        showMessage("Profiles reset to defaults.");
+        const data = await fetchJsonChecked(`${ROUTE}/reference_config/reset_all`, { method: "POST" }, "Reset all profiles");
+        savedBundle = clone(data.current);
+        draft = clone(savedBundle);
+        if (!draft.manifest.profiles.some((profile) => profile.key === selectedKey)) selectedKey = draft.manifest.profiles[0]?.key;
+        status.textContent = "Built-in profiles and global NSFW files restored; custom profiles preserved.";
         renderAll();
-      } catch (error) {
-        showMessage(error.message, true);
-      }
+      } catch (error) { status.textContent = `Reset error: ${error.message}`; }
     });
-    saveBtn.addEventListener("click", async () => {
+    save.addEventListener("click", async () => {
+      save.disabled = true;
       try {
-        readCurrentView();
-        draft = cleanProfiles(draft);
-        validateDraft();
-        const data = await fetchJsonChecked(`${ROUTE}/profile_config`, {
+        const data = await fetchJsonChecked(`${ROUTE}/reference_config`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ version: 4, profiles: draft }),
-        }, "Save model settings");
+          body: JSON.stringify({ bundle: draft }),
+        }, "Save Markdown profiles");
+        savedBundle = clone(data.current);
+        draft = clone(savedBundle);
         clearProfileCache();
         profiles = await loadProfiles();
         profilesByKey = profileMap(profiles);
         if (profilesByKey.has(selectedKey)) state.target_model = selectedKey;
-        const savedProfile = draft.find((profile) => profile.key === selectedKey);
-        if (savedProfile?.engine === "jsonx") {
-          state.jsonx_profile_configs ||= {};
-          state.jsonx_profile_configs[selectedKey] = { ...defaultJsonXConfig(), ...(savedProfile.jsonx_config || {}) };
-        }
-        if (migratedLegacyJsonX) state.jsonx = { diagnostics: state.jsonx?.diagnostics || null };
         refreshProfiles();
-        showMessage("Profiles saved.");
-        setStatus("Model settings saved.");
-      } catch (error) {
-        showMessage(error.message, true);
-      }
+        status.textContent = "Saved to reference/current_use.";
+        setStatus("Markdown profile settings saved.");
+        renderAll();
+      } catch (error) { status.textContent = `Save error: ${error.message}`; }
+      finally { save.disabled = false; }
     });
-
+    close.addEventListener("click", () => backdrop.remove());
+    backdrop.addEventListener("mousedown", (event) => { if (event.target === backdrop) backdrop.remove(); });
     renderAll();
   }
 
@@ -4076,8 +4537,8 @@ function setupUnifiedAutoprompter(node) {
     let layerMenu = null;
     let layerDismiss = null;
     let toolbarMenuDismiss = null;
-    let highLevelDescription = parsed.high_level_description || state.subject || state.idea || "";
-    let backgroundDescription = decomp.background || state.idea || "";
+    let highLevelDescription = parsed.high_level_description || state.prompt_text || "";
+    let backgroundDescription = decomp.background || state.prompt_text || "";
     let stylePalette = String(state.ideogram_palette || "")
       .split(",")
       .map((item) => item.trim())
@@ -4327,15 +4788,15 @@ function setupUnifiedAutoprompter(node) {
         return element;
       });
       return {
-        high_level_description: highLevelDescription || state.subject || state.idea || "",
+        high_level_description: highLevelDescription || state.prompt_text || "",
         style_description: stylePalette.length ? {
-          aesthetics: state.style || "",
-          lighting: state.lighting || "",
+          aesthetics: "",
+          lighting: "",
           medium: state.detail || "",
           color_palette: stylePalette.map((color) => String(color).toUpperCase()),
         } : undefined,
         compositional_deconstruction: {
-          background: backgroundDescription || state.idea || "",
+          background: backgroundDescription || state.prompt_text || "",
           elements,
         },
       };
@@ -5453,21 +5914,137 @@ function setupUnifiedAutoprompter(node) {
           base_url: baseUrl,
           api_key: apiKey,
           timeout: Number(openaiTimeoutInput.value || 120),
+          server_type: normalizeOpenAIServerType(openaiServerTypeSelect.value),
         }),
       }, "Fetch OpenAI-compatible models");
+      openaiDetectedServerType = normalizeOpenAIServerType(data.server_type || "generic");
+      openaiModelsById = new Map((data.models || []).map((model) => [String(model.id || model.name || model), model]));
+      openaiReasoningCapabilities = data.reasoning && typeof data.reasoning === "object" ? data.reasoning : {};
       const selected = jsonx ? jsonxProviderSettings().openai_model : state.openai_model;
       fillModelSelect(openaiModelSelect, data.models, selected);
       if (!openaiModelSelect.value && openaiModelSelect.options.length) openaiModelSelect.selectedIndex = 0;
-      openaiModelInput.value = openaiModelSelect.value || openaiModelInput.value;
+      if (openaiModelSelect.value) openaiModelInput.value = "";
+      syncOpenAIReasoningOptions();
       if (jsonx) persistJsonXProviderFromControls();
-      else state.openai_model = openaiModelInput.value;
+      else state.openai_model = openaiModelSelect.value || openaiModelInput.value;
       persistModelSelection();
       syncPreview();
-      setStatus(`${data.models.length} OpenAI-compatible models loaded.`);
+      const detectedLabel = {
+        generic: "Generic OpenAI-compatible",
+        lm_studio: "LM Studio",
+        unsloth: "Unsloth Studio",
+      }[openaiDetectedServerType] || "OpenAI-compatible";
+      setStatus(`${data.models.length} models loaded · ${detectedLabel}.`);
     } catch (error) {
       setStatus(`Error: ${error.message}`, true);
     } finally {
       fetchOpenaiBtn.disabled = false;
+      scheduleVisibleContentResize();
+    }
+  }
+
+  async function fetchGrokModels() {
+    const jsonx = isJsonXProfile();
+    const apiKey = grokKeyInput.value.trim();
+    if (!apiKey) {
+      setStatus("Enter an xAI API key first.", true);
+      return;
+    }
+    fetchGrokBtn.disabled = true;
+    setStatus("Fetching xAI models...");
+    try {
+      const data = await fetchJsonChecked(`${jsonx ? JSONX_ROUTE : ROUTE}/grok/models`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ api_key: apiKey, timeout: Number(grokTimeoutInput.value || 120) }),
+      }, "Fetch xAI models");
+      const previous = grokModelSelect.value || grokModelInput.value.trim();
+      grokModelsById = new Map((data.models || []).map((item) => [String(item.id || item.name || item), item]));
+      fillModelSelect(grokModelSelect, data.models || [], previous);
+      const model = grokModelsById.get(grokModelSelect.value);
+      grokCapabilityInfo.textContent = model
+        ? `${model.vision ? "Vision input" : "Text input only"}${model.context_length ? ` · context ${model.context_length.toLocaleString()} tokens` : ""}`
+        : "No language model selected.";
+      syncGrokReasoningOptions();
+      if (jsonx) persistJsonXProviderFromControls(); else persistStandardProviderFromControls();
+      setStatus(`${(data.models || []).length} xAI models loaded.`);
+    } catch (error) {
+      setStatus(`Error: ${error.message}`, true);
+    } finally {
+      fetchGrokBtn.disabled = false;
+      scheduleVisibleContentResize();
+    }
+  }
+
+  async function fetchDeepSeekModels() {
+    const jsonx = isJsonXProfile();
+    const apiKey = deepseekKeyInput.value.trim();
+    if (!apiKey) {
+      setStatus("Enter a DeepSeek API key first.", true);
+      return;
+    }
+    fetchDeepSeekBtn.disabled = true;
+    setStatus("Fetching DeepSeek models...");
+    try {
+      const data = await fetchJsonChecked(`${jsonx ? JSONX_ROUTE : ROUTE}/deepseek/models`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ api_key: apiKey, timeout: Number(deepseekTimeoutInput.value || 120) }),
+      }, "Fetch DeepSeek models");
+      const previous = deepseekModelSelect.value || deepseekModelInput.value.trim();
+      deepseekModelsById = new Map((data.models || []).map((item) => [String(item.id || item.name || item), item]));
+      fillModelSelect(deepseekModelSelect, data.models || [], previous);
+      if (deepseekModelSelect.value) deepseekModelInput.value = "";
+      syncDeepSeekControls();
+      if (jsonx) persistJsonXProviderFromControls(); else persistStandardProviderFromControls();
+      setStatus(`${(data.models || []).length} DeepSeek models loaded.`);
+    } catch (error) {
+      setStatus(`Error: ${error.message}`, true);
+    } finally {
+      fetchDeepSeekBtn.disabled = false;
+      scheduleVisibleContentResize();
+    }
+  }
+
+  async function fetchStudioModels(kind, controls) {
+    const jsonx = isJsonXProfile();
+    const label = kind === "lm_studio" ? "LM Studio" : "Unsloth Studio";
+    controls.fetch.disabled = true;
+    setStatus(`Fetching ${label} models...`);
+    try {
+      const data = await fetchJsonChecked(`${jsonx ? JSONX_ROUTE : ROUTE}/${kind}/models`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          base_url: controls.baseUrl.value.trim(),
+          api_key: controls.key.value,
+          timeout: Number(controls.timeout.value || 120),
+        }),
+      }, `Fetch ${label} models`);
+      const previous = controls.model.value || controls.manualModel.value.trim();
+      controls.modelsById = new Map((data.models || []).map((model) => {
+        const augmented = kind === "unsloth" ? { ...(data.reasoning || {}), ...model } : model;
+        return [String(model.id || model.name || model), augmented];
+      }));
+      fillModelSelect(controls.model, data.models || [], previous);
+      const model = controls.modelsById.get(controls.model.value);
+      const context = model?.active_context_length || model?.native_context_length || model?.max_context_length || model?.context_length;
+      controls.capabilities.textContent = model
+        ? `${model.vision === false ? "Text input only" : "Vision capability detected/unknown"}${context ? ` · active/native context ${Number(context).toLocaleString()} tokens` : ""}`
+        : "No model selected.";
+      const options = Array.isArray(model?.reasoning_options)
+        ? model.reasoning_options
+        : Array.isArray(data.reasoning?.options) ? data.reasoning.options : [];
+      const reasoningChoices = openaiReasoningChoices.filter((item) => item.value === "default" || !options.length || options.includes(item.value));
+      setSelectOptions(controls.reasoning, reasoningChoices, controls.reasoning.value || "default");
+      controls.preserveThinkingSupported = Boolean(model?.preserve_thinking_supported ?? data.reasoning?.preserve_thinking_supported ?? false);
+      if (kind === "unsloth") controls.preserveThinking.disabled = !controls.preserveThinkingSupported;
+      if (jsonx) persistJsonXProviderFromControls(); else persistStandardProviderFromControls();
+      setStatus(`${(data.models || []).length} ${label} models loaded.`);
+    } catch (error) {
+      setStatus(`Error: ${error.message}`, true);
+    } finally {
+      controls.fetch.disabled = false;
       scheduleVisibleContentResize();
     }
   }
@@ -5538,15 +6115,16 @@ function setupUnifiedAutoprompter(node) {
     }
   }
 
-  let jsonxGenerationId = "";
+  let activeGenerationId = "";
 
   function jsonxProviderSettings() {
     try {
-      const saved = JSON.parse(localStorage.getItem(JSONX_SETTINGS_KEY) || "{}");
-      const browserSource = saved && typeof saved === "object" ? saved : {};
-      const workflowSource = state.jsonx_provider && typeof state.jsonx_provider === "object"
-        ? state.jsonx_provider
-        : {};
+      const legacy = JSON.parse(localStorage.getItem(JSONX_SETTINGS_KEY) || "{}");
+      const browserSource = {
+        ...(legacy && typeof legacy === "object" ? legacy : {}),
+        ...loadProviderSettings("jsonx"),
+      };
+      const workflowSource = {};
       const source = {
         ...browserSource,
         ...workflowSource,
@@ -5559,7 +6137,7 @@ function setupUnifiedAutoprompter(node) {
           ...(workflowSource.gemini_safety && typeof workflowSource.gemini_safety === "object" ? workflowSource.gemini_safety : {}),
         },
       };
-      const backend = ["gemini", "openai", "ollama", "local"].includes(source.backend) ? source.backend : "gemini";
+      const backend = PROVIDERS.some(([value]) => value === source.backend) ? source.backend : "gemini";
       const legacyModel = String(source.model || "");
       return {
         backend,
@@ -5568,10 +6146,20 @@ function setupUnifiedAutoprompter(node) {
         openai_base_url: source.openai_base_url || DEFAULT_OPENAI_BASE_URL,
         openai_model: source.openai_model || (backend === "openai" ? legacyModel : ""),
         openai_timeout: Number(source.openai_timeout || source.timeout || 180),
+        openai_server_type: normalizeOpenAIServerType(source.openai_server_type),
+        openai_lifecycle: normalizeOpenAILifecycle(
+          source.openai_lifecycle || (source.unload_after === true ? "unload_after" : "server_managed"),
+        ),
+        openai_reasoning_effort: normalizeOpenAIReasoning(source.openai_reasoning_effort),
+        grok: { ...(source.grok || {}) },
+        deepseek: { ...(source.deepseek || {}) },
+        lm_studio: { ...(source.lm_studio || {}) },
+        unsloth: { ...(source.unsloth || {}) },
         ollama_host: source.ollama_host || DEFAULT_OLLAMA_HOST,
         ollama_model: source.ollama_model || (backend === "ollama" ? legacyModel : ""),
         ollama_timeout: Number(source.ollama_timeout || source.timeout || 180),
         ollama_think: Boolean(source.ollama_think ?? source.think ?? false),
+        ollama_options: { ...(source.ollama_options || {}) },
         unload_after: source.unload_after !== false,
         local_model: source.local_model || (backend === "local" ? legacyModel : ""),
         local_timeout: Number(source.local_timeout || source.timeout || 180),
@@ -5594,11 +6182,7 @@ function setupUnifiedAutoprompter(node) {
   }
 
   function saveJsonXProviderSettings(settings) {
-    const clean = { ...settings };
-    delete clean.api_key;
-    delete clean.gemini_key;
-    delete clean.openai_key;
-    localStorage.setItem(JSONX_SETTINGS_KEY, JSON.stringify(clean));
+    saveProviderSettings("jsonx", { ...settings });
   }
 
   function isJsonXProfile(profile = activeProfile()) { return profile?.engine === "jsonx"; }
@@ -5614,6 +6198,13 @@ function setupUnifiedAutoprompter(node) {
   }
 
   function applyActiveProviderSettingsToControls() {
+    const discoveryScope = isJsonXProfile() ? "jsonx" : "standard";
+    if (discoveryScope !== openaiDiscoveryScope) {
+      openaiDiscoveryScope = discoveryScope;
+      openaiDetectedServerType = "auto";
+      openaiModelsById = new Map();
+      openaiReasoningCapabilities = {};
+    }
     if (!isJsonXProfile()) {
       keyInput.value = state.gemini_key || "";
       timeoutInput.value = String(state.gemini_timeout || 120);
@@ -5624,12 +6215,15 @@ function setupUnifiedAutoprompter(node) {
       openaiTimeoutInput.value = String(state.openai_timeout || 120);
       openaiModelInput.value = state.openai_model || "";
       ensureSelectValue(openaiModelSelect, state.openai_model);
-      openaiUnloadInput.checked = state.unload_after !== false;
+      openaiServerTypeSelect.value = "generic";
+      openaiLifecycleSelect.value = normalizeOpenAILifecycle(state.openai_lifecycle);
+      setSelectOptions(openaiReasoningSelect, openaiReasoningChoices, normalizeOpenAIReasoning(state.openai_reasoning_effort));
       hostInput.value = state.ollama_host || DEFAULT_OLLAMA_HOST;
       ollamaTimeoutInput.value = String(state.ollama_timeout || 120);
       ensureSelectValue(ollamaModelSelect, state.ollama_model);
       thinkInput.checked = Boolean(state.ollama_think);
       unloadInput.checked = state.unload_after !== false;
+      for (const [key, input] of Object.entries(ollamaOptionInputs)) input.value = state.ollama_options?.[key] ?? "";
       localAdditionalPathsInput.value = loadStoredAdditionalLocalModelPaths();
       ensureSelectValue(localModelSelect, state.local_model);
       ensureSelectValue(mmprojSelect, state.local_mmproj || "none");
@@ -5648,6 +6242,7 @@ function setupUnifiedAutoprompter(node) {
       gpuLayersInput.value = String(state.n_gpu_layers ?? 99);
       cpuMoeLayersInput.value = String(state.n_cpu_moe_layers ?? 0);
       seedInput.value = String(state.seed ?? -1);
+      applyExtendedProviderControls(state);
       syncMemoryControls();
       return;
     }
@@ -5661,12 +6256,15 @@ function setupUnifiedAutoprompter(node) {
     openaiTimeoutInput.value = String(provider.openai_timeout || 180);
     openaiModelInput.value = provider.openai_model || "";
     ensureSelectValue(openaiModelSelect, provider.openai_model);
-    openaiUnloadInput.checked = provider.unload_after !== false;
+    openaiServerTypeSelect.value = "generic";
+    openaiLifecycleSelect.value = normalizeOpenAILifecycle(provider.openai_lifecycle);
+    setSelectOptions(openaiReasoningSelect, openaiReasoningChoices, normalizeOpenAIReasoning(provider.openai_reasoning_effort));
     hostInput.value = provider.ollama_host || DEFAULT_OLLAMA_HOST;
     ollamaTimeoutInput.value = String(provider.ollama_timeout || 180);
     ensureSelectValue(ollamaModelSelect, provider.ollama_model);
     thinkInput.checked = Boolean(provider.ollama_think);
     unloadInput.checked = provider.unload_after !== false;
+    for (const [key, input] of Object.entries(ollamaOptionInputs)) input.value = provider.ollama_options?.[key] ?? "";
     localAdditionalPathsInput.value = provider.additional_model_paths || "";
     ensureSelectValue(localModelSelect, provider.local_model);
     ensureSelectValue(mmprojSelect, provider.local_mmproj || "none");
@@ -5686,7 +6284,104 @@ function setupUnifiedAutoprompter(node) {
     gpuLayersInput.value = String(local.n_gpu_layers ?? 99);
     cpuMoeLayersInput.value = String(local.n_cpu_moe_layers ?? 0);
     seedInput.value = String(local.seed ?? -1);
+    applyExtendedProviderControls(provider);
     syncMemoryControls();
+  }
+
+  function applyExtendedProviderControls(source) {
+    const grok = source?.grok || {};
+    grokKeyInput.value = grok.api_key || "";
+    ensureSelectValue(grokModelSelect, grok.model || "");
+    grokModelInput.value = grok.manual_model || "";
+    grokTimeoutInput.value = String(grok.timeout || 120);
+    grokMaxTokensInput.value = grok.max_output_tokens ?? "";
+    grokTemperatureInput.value = grok.temperature ?? "";
+    grokTopPInput.value = grok.top_p ?? "";
+    grokReasoningSelect.value = grok.reasoning_effort || "default";
+    grokCacheSelect.value = grok.prompt_cache || "auto";
+    const deepseek = source?.deepseek || {};
+    deepseekKeyInput.value = deepseek.api_key || "";
+    ensureSelectValue(deepseekModelSelect, deepseek.model || "");
+    deepseekModelInput.value = deepseek.manual_model || "";
+    deepseekTimeoutInput.value = String(deepseek.timeout || 120);
+    deepseekMaxTokensInput.value = deepseek.max_tokens ?? "";
+    deepseekThinkingSelect.value = deepseek.thinking || "default";
+    deepseekReasoningSelect.value = deepseek.reasoning_effort || "default";
+    deepseekTemperatureInput.value = deepseek.temperature ?? "";
+    deepseekTopPInput.value = deepseek.top_p ?? "";
+    deepseekImageDetailSelect.value = deepseek.image_detail || "default";
+    syncDeepSeekControls();
+    const applyStudio = (controls, values, fallbackUrl) => {
+      values ||= {};
+      controls.baseUrl.value = values.base_url || fallbackUrl;
+      controls.key.value = values.api_key || "";
+      ensureSelectValue(controls.model, values.model || "");
+      controls.manualModel.value = values.manual_model || "";
+      controls.timeout.value = String(values.timeout || 120);
+      controls.lifecycle.value = values.lifecycle || "server_managed";
+      controls.maxTokens.value = values.max_tokens ?? "";
+      controls.context.value = values.context_length ?? "";
+      controls.temperature.value = values.temperature ?? "";
+      controls.topP.value = values.top_p ?? "";
+      controls.topK.value = values.top_k ?? "";
+      controls.minP.value = values.min_p ?? "";
+      controls.repeatPenalty.value = values.repeat_penalty ?? "";
+      controls.presencePenalty.value = values.presence_penalty ?? "";
+      controls.reasoning.value = values.reasoning_effort || "default";
+      controls.thinkingMode.value = values.thinking_mode || "default";
+      controls.preserveThinking.checked = Boolean(values.preserve_thinking);
+    };
+    applyStudio(lmStudio, source?.lm_studio, "http://localhost:1234/v1");
+    applyStudio(unsloth, source?.unsloth, "http://localhost:8000/v1");
+  }
+
+  function extendedProviderSettingsFromControls() {
+    const studio = (controls) => ({
+      base_url: controls.baseUrl.value.trim(),
+      api_key: controls.key.value,
+      model: controls.model.value || controls.manualModel.value.trim(),
+      manual_model: controls.manualModel.value.trim(),
+      timeout: Number(controls.timeout.value || 120),
+      lifecycle: controls.lifecycle.value,
+      max_tokens: optionalNumber(controls.maxTokens.value, true),
+      context_length: optionalNumber(controls.context.value, true),
+      temperature: optionalNumber(controls.temperature.value),
+      top_p: optionalNumber(controls.topP.value),
+      top_k: optionalNumber(controls.topK.value, true),
+      min_p: optionalNumber(controls.minP.value),
+      repeat_penalty: optionalNumber(controls.repeatPenalty.value),
+      presence_penalty: optionalNumber(controls.presencePenalty.value),
+      reasoning_effort: controls.reasoning.value || "default",
+      thinking_mode: controls.thinkingMode.value || "default",
+      preserve_thinking: controls.preserveThinking.checked,
+    });
+    return {
+      grok: {
+        api_key: grokKeyInput.value,
+        model: grokModelSelect.value || grokModelInput.value.trim(),
+        manual_model: grokModelInput.value.trim(),
+        timeout: Number(grokTimeoutInput.value || 120),
+        max_output_tokens: optionalNumber(grokMaxTokensInput.value, true),
+        temperature: optionalNumber(grokTemperatureInput.value),
+        top_p: optionalNumber(grokTopPInput.value),
+        reasoning_effort: grokReasoningSelect.value || "default",
+        prompt_cache: grokCacheSelect.value || "auto",
+      },
+      deepseek: {
+        api_key: deepseekKeyInput.value,
+        model: deepseekModelSelect.value || deepseekModelInput.value.trim(),
+        manual_model: deepseekModelInput.value.trim(),
+        timeout: Number(deepseekTimeoutInput.value || 120),
+        max_tokens: optionalNumber(deepseekMaxTokensInput.value, true),
+        thinking: deepseekThinkingSelect.value || "default",
+        reasoning_effort: deepseekReasoningSelect.value || "default",
+        temperature: optionalNumber(deepseekTemperatureInput.value),
+        top_p: optionalNumber(deepseekTopPInput.value),
+        image_detail: deepseekImageDetailSelect.value || "default",
+      },
+      lm_studio: studio(lmStudio),
+      unsloth: studio(unsloth),
+    };
   }
 
   function persistJsonXProviderFromControls(overrides = {}) {
@@ -5694,18 +6389,23 @@ function setupUnifiedAutoprompter(node) {
     const backend = overrides.backend || previous.backend || "gemini";
     const provider = {
       ...previous,
+      ...extendedProviderSettingsFromControls(),
       backend,
       gemini_model: geminiModelSelect.value || previous.gemini_model || "",
       gemini_timeout: Number(timeoutInput.value || 180),
       gemini_safety: Object.fromEntries(GEMINI_SAFETY_FIELDS.map(([key]) => [key, geminiSafetySelects[key].value || "BLOCK_NONE"])),
       openai_base_url: openaiBaseUrlInput.value.trim() || DEFAULT_OPENAI_BASE_URL,
-      openai_model: (openaiModelInput.value || openaiModelSelect.value || previous.openai_model || "").trim(),
+      openai_model: (openaiModelSelect.value || openaiModelInput.value || previous.openai_model || "").trim(),
       openai_timeout: Number(openaiTimeoutInput.value || 180),
+      openai_server_type: normalizeOpenAIServerType(openaiServerTypeSelect.value),
+      openai_lifecycle: normalizeOpenAILifecycle(openaiLifecycleSelect.value),
+      openai_reasoning_effort: normalizeOpenAIReasoning(openaiReasoningSelect.value),
       ollama_host: hostInput.value.trim() || DEFAULT_OLLAMA_HOST,
       ollama_model: ollamaModelSelect.value || previous.ollama_model || "",
       ollama_timeout: Number(ollamaTimeoutInput.value || 180),
       ollama_think: thinkInput.checked,
-      unload_after: backend === "openai" ? openaiUnloadInput.checked : unloadInput.checked,
+      ollama_options: Object.fromEntries(Object.entries(ollamaOptionInputs).map(([key, input]) => [key, optionalNumber(input.value, input.dataset.integer === "1")])),
+      unload_after: unloadInput.checked,
       local_model: localModelSelect.value || previous.local_model || "",
       local_timeout: Number(localTimeoutInput.value || 180),
       additional_model_paths: localAdditionalPathsInput.value.trim(),
@@ -5722,7 +6422,6 @@ function setupUnifiedAutoprompter(node) {
       },
     };
     saveJsonXProviderSettings(provider);
-    state.jsonx_provider = workflowJsonXProviderSettings(provider);
     const geminiKey = keyInput.value.trim();
     const openaiKey = openaiKeyInput.value.trim();
     if (geminiKey) localStorage.setItem(JSONX_GEMINI_KEY, geminiKey); else localStorage.removeItem(JSONX_GEMINI_KEY);
@@ -5730,162 +6429,295 @@ function setupUnifiedAutoprompter(node) {
     return provider;
   }
 
+  function persistStandardProviderFromControls(overrides = {}) {
+    const extended = extendedProviderSettingsFromControls();
+    state.backend = overrides.backend || state.backend || "gemini";
+    state.grok = extended.grok;
+    state.deepseek = extended.deepseek;
+    state.lm_studio = extended.lm_studio;
+    state.unsloth = extended.unsloth;
+    const saved = {
+      backend: state.backend,
+      gemini_model: geminiModelSelect.value || state.gemini_model || "",
+      gemini_timeout: Number(timeoutInput.value || 120),
+      safety_harassment: geminiSafetySelects.safety_harassment.value,
+      safety_hate_speech: geminiSafetySelects.safety_hate_speech.value,
+      safety_sexual: geminiSafetySelects.safety_sexual.value,
+      safety_dangerous: geminiSafetySelects.safety_dangerous.value,
+      openai_base_url: openaiBaseUrlInput.value.trim() || DEFAULT_OPENAI_BASE_URL,
+      openai_model: openaiModelSelect.value || openaiModelInput.value.trim(),
+      openai_timeout: Number(openaiTimeoutInput.value || 120),
+      openai_lifecycle: openaiLifecycleSelect.value,
+      openai_reasoning_effort: openaiReasoningSelect.value,
+      ollama_host: hostInput.value.trim() || DEFAULT_OLLAMA_HOST,
+      ollama_model: ollamaModelSelect.value || "",
+      ollama_timeout: Number(ollamaTimeoutInput.value || 120),
+      ollama_think: thinkInput.checked,
+      ollama_options: Object.fromEntries(Object.entries(ollamaOptionInputs).map(([key, input]) => [key, optionalNumber(input.value, input.dataset.integer === "1")])),
+      unload_after: unloadInput.checked,
+      local_model: localModelSelect.value || "",
+      local_timeout: Number(localTimeoutInput.value || 180),
+      ...extended,
+    };
+    saveProviderSettings("standard", saved);
+    return saved;
+  }
+
+  function connectedImages() {
+    return Array.isArray(state.connected_images_b64)
+      ? state.connected_images_b64.filter(Boolean)
+      : (state.connected_image_b64 ? [state.connected_image_b64] : []);
+  }
+
+  function effectiveGenerationImages(generationType = state.generation_type, sourceImages = connectedImages()) {
+    const connected = Array.isArray(sourceImages) ? sourceImages.filter(Boolean) : [];
+    const rule = GENERATION_TYPE_MAP.get(generationType);
+    const submitted = connected;
+    return {
+      connected,
+      submitted,
+      ignoredCount: 0,
+      imageState: rule?.supportsImages
+        ? (submitted.length ? "supported_with_image" : "supported_without_image")
+        : (submitted.length ? "unsupported_with_image_guidance" : null),
+      rule,
+    };
+  }
+
+  function ignoredImageNotice(resolution) {
+    if (!resolution?.ignoredCount) return "";
+    const label = resolution.rule?.label || state.generation_type;
+    return `${resolution.ignoredCount} connected image${resolution.ignoredCount === 1 ? "" : "s"} ignored for ${label}.`;
+  }
+
+  function validateSelectedGeneration(resolution = effectiveGenerationImages()) {
+    const path = activeProfile()?.generation_paths?.[state.generation_type];
+    if (!path) throw new Error("Select a supported generation type for the active profile.");
+    const rule = resolution.rule || GENERATION_TYPE_MAP.get(state.generation_type);
+    if (!rule) throw new Error(`Unknown generation type: ${state.generation_type}.`);
+    const count = resolution.submitted.length;
+    if (count > MAX_AUTHORING_IMAGES) {
+      throw new Error(`Unified PrompterX accepts at most ${MAX_AUTHORING_IMAGES} authoring images; received ${count}.`);
+    }
+  }
+
+  function activeProviderPayload(jsonx, images = effectiveGenerationImages().submitted) {
+    const provider = jsonx ? persistJsonXProviderFromControls() : persistStandardProviderFromControls();
+    const backend = provider.backend || state.backend;
+    const payload = { backend };
+    if (backend === "gemini") {
+      payload.api_key = keyInput.value.trim();
+      payload.model = geminiModelSelect.value;
+      payload.timeout = Number(timeoutInput.value || 120);
+      payload.gemini_safety = Object.fromEntries(GEMINI_SAFETY_FIELDS.map(([key]) => [key, geminiSafetySelects[key].value || "BLOCK_NONE"]));
+      if (!payload.api_key || !payload.model) throw new Error("Set a Gemini API key and model first.");
+    } else if (backend === "grok") {
+      const settings = provider.grok || state.grok || extendedProviderSettingsFromControls().grok;
+      payload.api_key = settings.api_key || "";
+      payload.model = settings.model || settings.manual_model || "";
+      payload.timeout = Number(settings.timeout || 120);
+      payload.grok_max_output_tokens = settings.max_output_tokens;
+      payload.grok_temperature = settings.temperature;
+      payload.grok_top_p = settings.top_p;
+      payload.grok_reasoning_effort = settings.reasoning_effort || "default";
+      payload.grok_prompt_cache = settings.prompt_cache || "auto";
+      payload.model_capabilities = grokModelsById.get(payload.model) || {};
+      if (!payload.api_key || !payload.model) throw new Error("Set an xAI API key and Grok language model first.");
+      if (images.length && payload.model_capabilities.vision === false) throw new Error("The selected Grok model does not accept image input.");
+    } else if (backend === "deepseek") {
+      const settings = provider.deepseek || state.deepseek || extendedProviderSettingsFromControls().deepseek;
+      payload.api_key = settings.api_key || "";
+      payload.model = settings.model || settings.manual_model || "";
+      payload.timeout = Number(settings.timeout || 120);
+      payload.deepseek_max_tokens = settings.max_tokens;
+      payload.deepseek_thinking = settings.thinking || "default";
+      payload.deepseek_reasoning_effort = settings.reasoning_effort || "default";
+      payload.deepseek_temperature = settings.temperature;
+      payload.deepseek_top_p = settings.top_p;
+      payload.deepseek_image_detail = settings.image_detail || "default";
+      payload.model_capabilities = deepseekModelsById.get(payload.model) || {
+        vision: deepseekModelSupportsVision(payload.model),
+      };
+      if (!payload.api_key || !payload.model) throw new Error("Set a DeepSeek API key and model first.");
+      if (images.length && payload.model_capabilities.vision !== true) {
+        throw new Error(`The selected DeepSeek model '${payload.model}' does not accept image input.`);
+      }
+    } else if (["openai", "lm_studio", "unsloth"].includes(backend)) {
+      if (backend === "openai") {
+        payload.base_url = openaiBaseUrlInput.value.trim() || DEFAULT_OPENAI_BASE_URL;
+        payload.api_key = openaiKeyInput.value.trim();
+        payload.model = openaiModelSelect.value || openaiModelInput.value.trim();
+        payload.timeout = Number(openaiTimeoutInput.value || 120);
+        payload.openai_lifecycle = openaiLifecycleSelect.value;
+        payload.openai_reasoning_effort = openaiReasoningSelect.value || "default";
+      } else {
+        const controls = backend === "lm_studio" ? lmStudio : unsloth;
+        const settings = provider[backend] || extendedProviderSettingsFromControls()[backend];
+        payload.base_url = settings.base_url;
+        payload.api_key = settings.api_key || "";
+        payload.model = settings.model || settings.manual_model || "";
+        payload.timeout = Number(settings.timeout || 120);
+        payload.openai_lifecycle = settings.lifecycle || "server_managed";
+        payload.openai_reasoning_effort = settings.thinking_mode === "off"
+          ? "none"
+          : settings.thinking_mode === "on" && (settings.reasoning_effort || "default") === "default"
+            ? "on"
+            : settings.reasoning_effort || "default";
+        payload.model_capabilities = controls.modelsById.get(payload.model) || {};
+        if (images.length && payload.model_capabilities.vision === false) {
+          throw new Error(`The selected ${backend === "lm_studio" ? "LM Studio" : "Unsloth Studio"} model does not accept image input.`);
+        }
+        payload.provider_options = backend === "lm_studio" ? {
+          max_output_tokens: settings.max_tokens,
+          context_length: settings.context_length,
+          temperature: settings.temperature,
+          top_p: settings.top_p,
+          top_k: settings.top_k,
+          min_p: settings.min_p,
+          repeat_penalty: settings.repeat_penalty,
+        } : {
+          max_new_tokens: settings.max_tokens,
+          temperature: settings.temperature,
+          top_p: settings.top_p,
+          top_k: settings.top_k,
+          min_p: settings.min_p,
+          repetition_penalty: settings.repeat_penalty,
+          presence_penalty: settings.presence_penalty,
+          preserve_thinking: controls.preserveThinkingSupported ? settings.preserve_thinking : undefined,
+        };
+      }
+      if (!payload.model) throw new Error(`Set a ${PROVIDERS.find(([key]) => key === backend)?.[1] || backend} model first.`);
+    } else if (backend === "ollama") {
+      payload.host = hostInput.value.trim() || DEFAULT_OLLAMA_HOST;
+      payload.model = ollamaModelSelect.value;
+      payload.timeout = Number(ollamaTimeoutInput.value || 120);
+      payload.think = thinkInput.checked;
+      payload.unload_after = unloadInput.checked;
+      payload.ollama_options = Object.fromEntries(Object.entries(ollamaOptionInputs).map(([key, input]) => [key, optionalNumber(input.value, input.dataset.integer === "1")]));
+      if (!payload.model) throw new Error("Fetch and select an Ollama model first.");
+    } else if (backend === "local") {
+      payload.model = localModelSelect.value;
+      payload.timeout = Number(localTimeoutInput.value || 180);
+      payload.mmproj = mmprojSelect.value || "none";
+      payload.system_prompt_preset = systemPresetSelect.value || "none";
+      payload.additional_model_paths = additionalLocalModelPaths(localAdditionalPathsInput.value);
+      payload.local_options = {
+        max_tokens: Number(maxTokensInput.value || 768), temperature: Number(tempInput.value || 0.7),
+        top_p: Number(topPInput.value || 0.9), top_k: Number(topKInput.value || 40),
+        repeat_penalty: Number(repeatPenaltyInput.value || 1.05), ctx_size: Number(ctxInput.value || 8192),
+        memory_mode: memorySelect.value, n_gpu_layers: Number(gpuLayersInput.value || 99),
+        n_cpu_moe_layers: Number(cpuMoeLayersInput.value || 0), reasoning: reasoningSelect.value,
+        speculative_mode: speculativeSelect.value, mtp_draft_tokens: Number(mtpDraftTokensInput.value || 2),
+        seed: Number(seedInput.value ?? -1), timeout: Number(localTimeoutInput.value || 180),
+      };
+      if (!payload.model) throw new Error("Refresh and select a local GGUF model first.");
+      if (images.length && (!payload.mmproj || payload.mmproj === "none")) {
+        throw new Error("Connected authoring images require a compatible vision mmproj for the selected local GGUF model.");
+      }
+    }
+    return payload;
+  }
+
 
   async function generateJsonXPrompt() {
-    const provider = persistJsonXProviderFromControls();
     const jsonx = effectiveJsonXConfig();
-    const model = provider[`${provider.backend}_model`] || "";
-    if(!model){setStatus("Select a model in Model settings first.",true);return;}
-    const apiKey = provider.backend === "openai"
-      ? (localStorage.getItem(JSONX_OPENAI_KEY) || "")
-      : provider.backend === "gemini"
-        ? (localStorage.getItem(JSONX_GEMINI_KEY) || "")
-        : "";
-    if (provider.backend === "gemini" && !apiKey) {
-      setStatus("Enter a Gemini API key in Model settings first.", true);
+    const rawPromptText = state.enable_text_input && state.connected_raw_prompt_text_available
+      ? String(state.connected_raw_prompt_text || "").trim()
+      : "";
+    const textInputLinked = inputIsLinked(node, "raw_prompt_text");
+    const textInputWarning = state.enable_text_input && (!textInputLinked || !rawPromptText)
+      ? "Connected raw_prompt_text is enabled but missing or unreadable; using Prompt instructions."
+      : "";
+    const imageResolution = effectiveGenerationImages();
+    const images = imageResolution.submitted;
+    const ignoredNotice = ignoredImageNotice(imageResolution);
+    if (!rawPromptText && !String(state.prompt_text || "").trim() && !images.length) {
+      setStatus(textInputWarning || `${ignoredNotice ? `${ignoredNotice} ` : ""}Enter Prompt instructions or select an image-assisted generation type.`, true);
       return;
     }
-    jsonxGenerationId=`uap-jsonx-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const fields={idea:state.idea,subject:state.subject,style:state.style,lighting:state.lighting,composition:state.composition,text:state.text,detail:state.detail,image_note:state.image_note,raw_prompt_text:state.enable_text_input?state.connected_raw_prompt_text:"",extra_instructions:state.extra_instructions};
+    if (profileLoadError || backendSchemaVersion !== FRONTEND_SCHEMA_VERSION || backendJsonXReferenceSchemaVersion !== JSONX_REFERENCE_SCHEMA_VERSION) {
+      setStatus(profileLoadError || "Unified schema mismatch. Restart ComfyUI and hard-refresh the browser.", true);
+      return;
+    }
+    try { validateSelectedGeneration(imageResolution); } catch (error) { setStatus(error.message, true); return; }
+    let providerPayload;
+    try { providerPayload = activeProviderPayload(true, images); } catch (error) { setStatus(error.message, true); return; }
+    activeGenerationId=`uap-jsonx-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const fields={prompt_text:state.prompt_text,detail:state.detail,raw_prompt_text:rawPromptText};
     const generationMode=state.prompt_format==="natural"?"refined":(jsonx.generation_mode||"fast");
-    const payload={...jsonx,...provider,generation_id:jsonxGenerationId,api_key:apiKey,model,timeout:provider[`${provider.backend}_timeout`]||180,base_url:provider.openai_base_url,host:provider.ollama_host,think:provider.ollama_think,mmproj:provider.local_mmproj,system_prompt_preset:provider.local_system_prompt_preset,additional_model_paths:provider.additional_model_paths,fields,image_b64:state.connected_image_b64||"",images_b64:state.connected_images_b64||[],output_format:state.prompt_format,generation_mode:generationMode,refresh_vram:Boolean(state.refresh_vram)};
-    setBusy(true);setStatus("Generating Unified JsonX...");
-    try{const response=await fetch(`${JSONX_ROUTE}/generate`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});const data=await response.json();if(!response.ok||data.error)throw Object.assign(new Error(data.error||`HTTP ${response.status}`),{data});state.generated_positive=data.positive||data.prompt||"";state.generated_negative=data.negative||"";state.final_prompt=data.prompt||"";state.negative_enabled=Boolean(state.generated_negative);state.jsonx={diagnostics:data.diagnostics||null};state.last_generation={prompt:state.final_prompt,positive:state.generated_positive,negative:state.generated_negative,target_model:state.target_model,prompt_format:state.prompt_format,negative_enabled:state.negative_enabled,generated_at:new Date().toISOString()};syncPreview();setStatus(`Unified JsonX generated · ${data.output_format||state.prompt_format} · ${data.generation_profile||"adaptive"}${data.natural_fallback?" · used canonical JsonX prose fallback.":"."}`);}catch(error){const diagnostics=error.data?.diagnostics||{error:error.message};state.jsonx={diagnostics};syncPreview();const reasons=[diagnostics.initial_error&&`Initial: ${diagnostics.initial_error}`,diagnostics.repair_error&&`Repair: ${diagnostics.repair_error}`].filter(Boolean).join(" · ");setStatus(`Error: ${error.message}${reasons?` ${reasons}`:""}. Previous output kept.`,true);}finally{jsonxGenerationId="";setBusy(false);}
+    const payload={...jsonx,...providerPayload,schema_version:FRONTEND_SCHEMA_VERSION,jsonx_reference_schema_version:JSONX_REFERENCE_SCHEMA_VERSION,target_model:state.target_model,generation_type:state.generation_type,nsfw_enabled:Boolean(state.nsfw_enabled),generation_id:activeGenerationId,fields,image_b64:images[0]||"",images_b64:images,output_format:state.prompt_format,generation_mode:generationMode,refresh_vram:Boolean(state.refresh_vram)};
+    setBusy(true);setStatus([textInputWarning, ignoredNotice, "Generating Unified JsonX..."].filter(Boolean).join(" "), Boolean(textInputWarning));
+    try{const response=await fetch(`${JSONX_ROUTE}/generate`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});const data=await response.json();if(!response.ok||data.error)throw Object.assign(new Error(data.error||`HTTP ${response.status}`),{data});state.generated_positive=data.positive||data.prompt||"";state.generated_negative=data.negative||"";state.final_prompt=data.prompt||"";state.negative_enabled=Boolean(state.generated_negative);state.jsonx={diagnostics:data.diagnostics||null};state.last_generation={prompt:state.final_prompt,positive:state.generated_positive,negative:state.generated_negative,target_model:state.target_model,prompt_format:state.prompt_format,negative_enabled:state.negative_enabled,generated_at:new Date().toISOString()};syncPreview();setStatus(`${ignoredNotice ? `${ignoredNotice} ` : ""}Unified JsonX generated · ${data.output_format||state.prompt_format} · ${data.generation_profile||"adaptive"}${data.natural_fallback?" · used canonical JsonX prose fallback.":"."}`);}catch(error){const diagnostics=error.data?.diagnostics||{error:error.message};state.jsonx={diagnostics};syncPreview();const reasons=[diagnostics.initial_error&&`Initial: ${diagnostics.initial_error}`,diagnostics.repair_error&&`Repair: ${diagnostics.repair_error}`].filter(Boolean).join(" · ");setStatus(`Error: ${error.message}${reasons?` ${reasons}`:""}. Previous output kept.`,true);}finally{activeGenerationId="";setBusy(false);}
   }
 
   async function generatePrompt() {
     if (isJsonXProfile()) { readFieldsIntoState(); return generateJsonXPrompt(); }
     readFieldsIntoState();
-    const rawPromptText = state.enable_text_input ? String(state.connected_raw_prompt_text || "").trim() : "";
+    const rawPromptText = state.enable_text_input && state.connected_raw_prompt_text_available
+      ? String(state.connected_raw_prompt_text || "").trim()
+      : "";
     const textInputLinked = inputIsLinked(node, "raw_prompt_text");
     const textInputWarning = state.enable_text_input && (!textInputLinked || !state.connected_raw_prompt_text_available || !rawPromptText)
-      ? "Connected raw_prompt_text is enabled but missing or unreadable; using form fields."
+      ? "Connected raw_prompt_text is enabled but missing or unreadable; using Prompt instructions."
       : "";
-    const connectedImages = Array.isArray(state.connected_images_b64)
-      ? state.connected_images_b64.filter(Boolean)
-      : (state.connected_image_b64 ? [state.connected_image_b64] : []);
+    const imageResolution = effectiveGenerationImages();
+    const images = imageResolution.submitted;
+    const ignoredNotice = ignoredImageNotice(imageResolution);
     const linkedImageCount = linkedReferenceImageInputNames(node).length;
-    const hasTextSeed = Boolean(rawPromptText || state.idea.trim() || state.subject.trim());
-    const hasConnectedImage = connectedImages.length > 0;
+    const hasTextSeed = Boolean(rawPromptText || String(state.prompt_text || "").trim());
+    const hasConnectedImage = images.length > 0;
     const hasUnresolvedConnectedImage = Boolean(
-      linkedImageCount > connectedImages.length
+      linkedImageCount > imageResolution.connected.length
     );
     if (!hasTextSeed && !hasConnectedImage) {
       setStatus(
         textInputWarning
-          ? `${textInputWarning} Enter form text or connect a readable raw_prompt_text input.`
+          ? `${textInputWarning} Enter Prompt instructions or connect a readable raw_prompt_text input.`
+          : ignoredNotice
+          ? `${ignoredNotice} Enter Prompt instructions or select an image-assisted generation type.`
           : hasUnresolvedConnectedImage
           ? "Connected image has no preview yet. Run or refresh the upstream image node first."
-          : "Enter an idea, subject, or connect an image.",
+          : "Enter Prompt instructions or connect an image.",
         true,
       );
       return;
     }
 
+    if (profileLoadError || backendSchemaVersion !== FRONTEND_SCHEMA_VERSION || backendReferenceSchemaVersion !== REFERENCE_SCHEMA_VERSION) {
+      setStatus(profileLoadError || "Unified schema mismatch. Restart ComfyUI and hard-refresh the browser.", true);
+      return;
+    }
+    try { validateSelectedGeneration(imageResolution); } catch (error) { setStatus(error.message, true); return; }
+    let providerPayload;
+    try { providerPayload = activeProviderPayload(false, images); } catch (error) { setStatus(error.message, true); return; }
+    activeGenerationId = `uap-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
     const payload = {
-      backend: state.backend,
+      ...providerPayload,
+      schema_version: FRONTEND_SCHEMA_VERSION,
+      reference_schema_version: REFERENCE_SCHEMA_VERSION,
+      generation_id: activeGenerationId,
       target_model: state.target_model,
       prompt_format: state.prompt_format,
+      generation_type: state.generation_type,
+      nsfw_enabled: Boolean(state.nsfw_enabled),
       negative_enabled: state.negative_enabled,
       refresh_vram: state.refresh_vram,
-      image_b64: connectedImages[0] || "",
-      images_b64: connectedImages,
+      image_b64: images[0] || "",
+      images_b64: images,
       fields: {
-        idea: state.idea,
-        subject: state.subject,
-        style: state.style,
-        lighting: state.lighting,
-        composition: state.composition,
-        text: state.text,
+        prompt_text: state.prompt_text,
         detail: state.detail,
-        image_note: state.image_note,
         raw_prompt_text: rawPromptText,
         bbox_layout: isBboxLayoutTarget(state.target_model) ? state.ideogram_layout : "",
         ideogram_layout: isBboxLayoutTarget(state.target_model) ? state.ideogram_layout : "",
         ideogram_palette: isBboxLayoutTarget(state.target_model) ? state.ideogram_palette : "",
-        video_duration_or_frames: profileIsVideo(activeProfile()) ? state.video_duration_or_frames : "",
-        motion_action: profileIsVideo(activeProfile()) ? state.motion_action : "",
-        temporal_beats: profileIsVideo(activeProfile()) ? state.temporal_beats : "",
-        camera_movement: profileIsVideo(activeProfile()) ? state.camera_movement : "",
-        audio_dialogue: profileIsVideo(activeProfile()) ? state.audio_dialogue : "",
-        reference_or_control_notes: profileIsVideo(activeProfile()) ? state.reference_or_control_notes : "",
-        extra_instructions: state.extra_instructions,
       },
-      timeout: state.backend === "openai"
-        ? state.openai_timeout
-        : state.backend === "ollama"
-          ? state.ollama_timeout
-          : state.backend === "local"
-            ? state.local_timeout
-            : state.gemini_timeout,
     };
-
-    if (state.backend === "gemini") {
-      state.gemini_key = keyInput.value.trim();
-      storeGeminiKey(state.gemini_key);
-      if (!state.gemini_key || !geminiModelSelect.value) {
-        setStatus("Set a Gemini key and model first.", true);
-        return;
-      }
-      payload.api_key = state.gemini_key;
-      payload.model = geminiModelSelect.value;
-      payload.gemini_safety = {};
-      for (const [key] of GEMINI_SAFETY_FIELDS) payload.gemini_safety[key] = state[key] || "BLOCK_NONE";
-      state.gemini_model = geminiModelSelect.value;
-    } else if (state.backend === "openai") {
-      state.openai_base_url = openaiBaseUrlInput.value.trim() || DEFAULT_OPENAI_BASE_URL;
-      state.openai_key = openaiKeyInput.value.trim();
-      state.openai_model = (openaiModelInput.value || openaiModelSelect.value || "").trim();
-      storeOpenAIBaseUrl(state.openai_base_url);
-      storeOpenAIKey(state.openai_key);
-      if (!state.openai_model) {
-        setStatus("Set an OpenAI-compatible model ID first.", true);
-        return;
-      }
-      payload.base_url = state.openai_base_url;
-      payload.api_key = state.openai_key;
-      payload.model = state.openai_model;
-      payload.unload_after = state.unload_after;
-    } else if (state.backend === "ollama") {
-      if (!ollamaModelSelect.value) {
-        setStatus("Fetch and select an Ollama model first.", true);
-        return;
-      }
-      payload.host = state.ollama_host || DEFAULT_OLLAMA_HOST;
-      payload.model = ollamaModelSelect.value;
-      payload.think = state.ollama_think;
-      payload.unload_after = state.unload_after;
-      state.ollama_model = ollamaModelSelect.value;
-    } else {
-      if (!localModelSelect.value) {
-        setStatus("Refresh and select a local GGUF model first.", true);
-        return;
-      }
-      payload.model = localModelSelect.value;
-      payload.mmproj = mmprojSelect.value || "none";
-      payload.system_prompt_preset = systemPresetSelect.value || "none";
-      payload.additional_model_paths = additionalLocalModelPaths(localAdditionalPathsInput.value);
-      payload.local_options = {
-        max_tokens: state.max_tokens,
-        temperature: state.temperature,
-        top_p: state.top_p,
-        top_k: state.top_k,
-        repeat_penalty: state.repeat_penalty,
-        ctx_size: state.ctx_size,
-        memory_mode: state.memory_mode,
-        n_gpu_layers: state.n_gpu_layers,
-        n_cpu_moe_layers: state.n_cpu_moe_layers,
-        reasoning: state.reasoning,
-        speculative_mode: state.speculative_mode,
-        mtp_draft_tokens: state.mtp_draft_tokens,
-        seed: state.seed,
-        timeout: state.local_timeout,
-      };
-    }
 
     persistModelSelection();
     setBusy(true);
-    setStatus(textInputWarning ? `${textInputWarning} Generating...` : "Generating...", Boolean(textInputWarning));
+    setStatus([textInputWarning, ignoredNotice, "Generating..."].filter(Boolean).join(" "), Boolean(textInputWarning));
     try {
       const response = await fetch(`${ROUTE}/generate`, {
         method: "POST",
@@ -5909,11 +6741,12 @@ function setupUnifiedAutoprompter(node) {
         generated_at: new Date().toISOString(),
       };
       syncPreview();
-      setStatus("Prompt generated.");
+      setStatus(`${ignoredNotice ? `${ignoredNotice} ` : ""}Prompt generated.`);
     } catch (error) {
       syncPreview();
       setStatus(`Error: ${error.message}. Previous output kept.`, true);
     } finally {
+      activeGenerationId = "";
       setBusy(false);
     }
   }
@@ -5921,23 +6754,12 @@ function setupUnifiedAutoprompter(node) {
   const stateInputs = [
     targetSelect,
     formatSelect,
-    ideaArea,
-    subjectArea,
-    styleInput,
-    lightingInput,
-    compositionInput,
-    textInput,
+    generationTypeSelect,
+    providerSelect,
+    promptArea,
     detailSelect,
-    imageNoteInput,
-    videoDurationInput,
-    motionActionArea,
-    temporalBeatsArea,
-    cameraMovementInput,
-    audioDialogueArea,
-    controlNotesArea,
     ideogramLayoutArea,
     ideogramPaletteInput,
-    extraArea,
     bboxJsonInput,
     rawTextInput,
     timeoutInput,
@@ -5945,11 +6767,14 @@ function setupUnifiedAutoprompter(node) {
     openaiBaseUrlInput,
     openaiModelInput,
     openaiTimeoutInput,
-    openaiUnloadInput,
+    openaiServerTypeSelect,
+    openaiLifecycleSelect,
+    openaiReasoningSelect,
     hostInput,
     ollamaTimeoutInput,
     thinkInput,
     unloadInput,
+    ...Object.values(ollamaOptionInputs),
     localModelSelect,
     mmprojSelect,
     systemPresetSelect,
@@ -5971,6 +6796,17 @@ function setupUnifiedAutoprompter(node) {
     negativeInput,
     refreshVramInput,
     disablePaletteInput,
+    nsfwInput,
+  grokKeyInput, grokModelSelect, grokModelInput, grokTimeoutInput, grokMaxTokensInput,
+    grokTemperatureInput, grokTopPInput, grokReasoningSelect, grokCacheSelect,
+    deepseekKeyInput, deepseekModelSelect, deepseekModelInput, deepseekTimeoutInput,
+    deepseekMaxTokensInput, deepseekThinkingSelect, deepseekReasoningSelect,
+    deepseekTemperatureInput, deepseekTopPInput, deepseekImageDetailSelect,
+    ...[lmStudio, unsloth].flatMap((item) => [
+      item.baseUrl, item.key, item.model, item.manualModel, item.timeout, item.lifecycle,
+      item.maxTokens, item.context, item.temperature, item.topP, item.topK, item.minP,
+      item.repeatPenalty, item.presencePenalty, item.reasoning, item.thinkingMode, item.preserveThinking,
+    ]),
   ];
   for (const input of stateInputs) {
     input.addEventListener("input", syncPreview);
@@ -5985,6 +6821,14 @@ function setupUnifiedAutoprompter(node) {
   formatSelect.addEventListener("change", () => {
     state.prompt_format = formatSelect.value;
     state.final_prompt = "";
+    syncPreview();
+  });
+  generationTypeSelect.addEventListener("change", () => {
+    state.generation_type = generationTypeSelect.value;
+    syncPreview();
+  });
+  nsfwInput.addEventListener("change", () => {
+    state.nsfw_enabled = nsfwInput.checked;
     syncPreview();
   });
   negativeInput.addEventListener("change", () => {
@@ -6008,16 +6852,37 @@ function setupUnifiedAutoprompter(node) {
   const selectBackend = (backend) => {
     if (isJsonXProfile()) persistJsonXProviderFromControls({ backend });
     else {
-      state.backend = backend;
+      persistStandardProviderFromControls({ backend });
       persistModelSelection();
     }
     refreshBackends();
     syncPreview();
   };
-  geminiBtn.addEventListener("click", () => selectBackend("gemini"));
-  openaiBtn.addEventListener("click", () => selectBackend("openai"));
-  ollamaBtn.addEventListener("click", () => selectBackend("ollama"));
-  localBtn.addEventListener("click", () => selectBackend("local"));
+  providerSelect.addEventListener("change", () => selectBackend(providerSelect.value));
+  grokModelSelect.addEventListener("change", () => {
+    if (grokModelSelect.value) grokModelInput.value = "";
+    syncGrokReasoningOptions();
+    syncPreview();
+  });
+  grokModelInput.addEventListener("input", () => {
+    if (grokModelInput.value.trim()) grokModelSelect.value = "";
+    syncGrokReasoningOptions();
+    syncPreview();
+  });
+  deepseekModelSelect.addEventListener("change", () => {
+    if (deepseekModelSelect.value) deepseekModelInput.value = "";
+    syncDeepSeekControls();
+    syncPreview();
+  });
+  deepseekModelInput.addEventListener("input", () => {
+    if (deepseekModelInput.value.trim()) deepseekModelSelect.value = "";
+    syncDeepSeekControls();
+    syncPreview();
+  });
+  deepseekThinkingSelect.addEventListener("change", () => {
+    syncDeepSeekControls();
+    syncPreview();
+  });
   keyInput.addEventListener("input", () => {
     if (isJsonXProfile()) persistJsonXProviderFromControls();
     else {
@@ -6033,6 +6898,9 @@ function setupUnifiedAutoprompter(node) {
     }
   });
   openaiBaseUrlInput.addEventListener("input", () => {
+    openaiDetectedServerType = "auto";
+    openaiModelsById = new Map();
+    openaiReasoningCapabilities = {};
     if (isJsonXProfile()) persistJsonXProviderFromControls();
     else {
       state.openai_base_url = openaiBaseUrlInput.value.trim() || DEFAULT_OPENAI_BASE_URL;
@@ -6045,22 +6913,37 @@ function setupUnifiedAutoprompter(node) {
     syncPreview();
   });
   openaiModelSelect.addEventListener("change", () => {
-    openaiModelInput.value = openaiModelSelect.value;
-    if (!isJsonXProfile()) state.openai_model = openaiModelInput.value;
+    if (openaiModelSelect.value) openaiModelInput.value = "";
+    syncOpenAIReasoningOptions();
+    if (isJsonXProfile()) persistJsonXProviderFromControls();
+    else state.openai_model = openaiModelSelect.value;
     persistModelSelection();
     syncPreview();
   });
   openaiModelInput.addEventListener("input", () => {
-    if (!isJsonXProfile()) state.openai_model = openaiModelInput.value.trim();
+    if (openaiModelInput.value.trim()) openaiModelSelect.value = "";
+    if (isJsonXProfile()) persistJsonXProviderFromControls();
+    else state.openai_model = openaiModelInput.value.trim();
     persistModelSelection();
     syncPreview();
   });
-  openaiUnloadInput.addEventListener("change", () => {
+  openaiServerTypeSelect.addEventListener("change", () => {
+    openaiDetectedServerType = normalizeOpenAIServerType(openaiServerTypeSelect.value);
+    openaiModelsById = new Map();
+    openaiReasoningCapabilities = {};
+    syncOpenAIReasoningOptions();
     if (isJsonXProfile()) persistJsonXProviderFromControls();
-    else {
-      state.unload_after = openaiUnloadInput.checked;
-      unloadInput.checked = state.unload_after;
-    }
+    else state.openai_server_type = normalizeOpenAIServerType(openaiServerTypeSelect.value);
+    syncPreview();
+  });
+  openaiLifecycleSelect.addEventListener("change", () => {
+    if (isJsonXProfile()) persistJsonXProviderFromControls();
+    else state.openai_lifecycle = normalizeOpenAILifecycle(openaiLifecycleSelect.value);
+    syncPreview();
+  });
+  openaiReasoningSelect.addEventListener("change", () => {
+    if (isJsonXProfile()) persistJsonXProviderFromControls();
+    else state.openai_reasoning_effort = normalizeOpenAIReasoning(openaiReasoningSelect.value);
     syncPreview();
   });
   ollamaModelSelect.addEventListener("change", () => {
@@ -6079,32 +6962,33 @@ function setupUnifiedAutoprompter(node) {
   });
   unloadInput.addEventListener("change", () => {
     if (isJsonXProfile()) persistJsonXProviderFromControls();
-    else {
-      state.unload_after = unloadInput.checked;
-      openaiUnloadInput.checked = state.unload_after;
-    }
+    else state.unload_after = unloadInput.checked;
     syncPreview();
   });
   memorySelect.addEventListener("change", syncMemoryControls);
   fetchGeminiBtn.addEventListener("click", fetchGeminiModels);
   fetchOpenaiBtn.addEventListener("click", fetchOpenaiModels);
+  fetchGrokBtn.addEventListener("click", fetchGrokModels);
+  fetchDeepSeekBtn.addEventListener("click", fetchDeepSeekModels);
+  lmStudio.fetch.addEventListener("click", () => fetchStudioModels("lm_studio", lmStudio));
+  unsloth.fetch.addEventListener("click", () => fetchStudioModels("unsloth", unsloth));
   fetchOllamaBtn.addEventListener("click", fetchOllamaModels);
   fetchLocalBtn.addEventListener("click", fetchLocalModels);
   positivePreviewBtn.addEventListener("click", () => toggleOutputPreview("positive"));
   negativePreviewBtn.addEventListener("click", () => toggleOutputPreview("negative"));
   ideogramBtn.addEventListener("click", toggleIdeogramLayoutEditor);
-  modelSettingsBtn.addEventListener("click", openModelSettingsModalV3);
+  modelSettingsBtn.addEventListener("click", openMarkdownProfileSettings);
   cancelJsonXBtn.addEventListener("click", async () => {
-    if (!jsonxGenerationId) return;
+    if (!activeGenerationId) return;
     cancelJsonXBtn.disabled = true;
     cancelJsonXBtn.textContent = "Cancelling...";
     try {
-      await fetch(`${JSONX_ROUTE}/cancel`, {
+      await fetch(`${isJsonXProfile() ? JSONX_ROUTE : ROUTE}/cancel`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ generation_id: jsonxGenerationId }),
+        body: JSON.stringify({ generation_id: activeGenerationId }),
       });
     } finally {
-      cancelJsonXBtn.textContent = "Cancel JsonX";
+      cancelJsonXBtn.textContent = "Cancel";
     }
   });
   generateBtn.addEventListener("click", generatePrompt);
@@ -6215,7 +7099,7 @@ function setupUnifiedAutoprompter(node) {
     state.connected_raw_prompt_text = source?.value || "";
     state.connected_raw_prompt_text_available = Boolean(source?.available);
     if (state.enable_text_input && source?.connected && !source.available) {
-      setStatus("Connected raw_prompt_text input could not be read; generation will use form fields.", true);
+      setStatus("Connected raw_prompt_text input could not be read; generation will use Prompt instructions.", true);
     }
     syncPreview();
   });
@@ -6243,7 +7127,8 @@ function setupUnifiedAutoprompter(node) {
     refreshProfiles();
     refreshBackends();
     syncPreview();
-    setTimeout(fetchLocalModels, 0);
+    if (profileLoadError) setStatus(profileLoadError, true);
+    else if (providerBackend() === "local") setTimeout(fetchLocalModels, 0);
     requestAnimationFrame(resizeNodeToVisibleContent);
   });
 }

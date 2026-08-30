@@ -567,11 +567,11 @@ def build_remote_apis() -> Workflow:
 
 
 def build_jsonx() -> Workflow:
-    w = Workflow("jsonx-prompt-toolchain", "JsonX prompt toolchain", "Configure an LLM profile only if you want to regenerate the first lane.", "Builder/importer/randomizer are local; LLM generation is profile-dependent.")
+    w = Workflow("jsonx-prompt-toolchain", "JsonX prompt toolchain", "Select the JsonX profile in Unified Autoprompter X to regenerate the first lane.", "Builder/importer/randomizer are local; Unified generation is provider-dependent.")
     llm = w.node(
-        "LLMToJsonX", 40, 120, size=(380, 320),
-        inputs=[socket("user_instructions", "STRING", widget=True), socket("generation_mode", "COMBO", widget=True), socket("preset_context_mode", "COMBO", widget=True), socket("generated_prompt_json", "STRING", widget=True), socket("image", "IMAGE"), socket("ui_state", "STRING", widget=True), socket("enable_framing_and_placement", "BOOLEAN", widget=True), socket("output_format", "COMBO", widget=True), socket("generation_profile", "COMBO", widget=True), socket("template_use_presets", "BOOLEAN", widget=True), socket("detail_level", "COMBO", widget=True)],
-        outputs=[port("prompt", "STRING")], widgets=["Create a neutral structured scene.", "fast", "optimized", '{"scene":"neutral documentation example"}', "{}", True, "json", "adaptive", True, "deep"],
+        "UnifiedAutoprompterX", 40, 120, size=(430, 420),
+        inputs=[socket("target_model", "COMBO", widget=True), socket("prompt_format", "COMBO", widget=True), socket("negative_enabled", "BOOLEAN", widget=True), socket("generation_type", "COMBO", widget=True), socket("nsfw_enabled", "BOOLEAN", widget=True), socket("enable_bbox_json_input", "BOOLEAN", widget=True), socket("enable_text_input", "BOOLEAN", widget=True), socket("refresh_vram", "BOOLEAN", widget=True), socket("disable_color_palette", "BOOLEAN", widget=True), socket("generated_positive", "STRING", widget=True), socket("generated_negative", "STRING", widget=True), socket("final_prompt", "STRING", widget=True), socket("image", "IMAGE"), socket("bbox_json", "STRING"), socket("raw_prompt_text", "STRING"), socket("ui_state", "STRING", widget=True)],
+        outputs=[port("prompt", "STRING"), port("positive", "STRING"), port("negative", "STRING")], widgets=["jsonx", "json", False, "text_to_image", False, False, False, False, False, '{"scene":"neutral documentation example"}', "", '{"scene":"neutral documentation example"}', "{}"],
     )
     builder = w.node("FluxVisualJsonBuilder", 500, 150, size=(330, 180), inputs=[socket("prompt_json", "STRING")], outputs=[port("prompt_json", "STRING")])
     importer = w.node("AFJPromptTemplateImporter", 920, 120, size=(360, 260), inputs=[socket("template_name", "STRING", widget=True), socket("source_prompt_json", "STRING"), socket("import_report", "STRING", widget=True)], outputs=[port("template_payload_json", "STRING")], widgets=["documentation-template", ""])
@@ -580,8 +580,8 @@ def build_jsonx() -> Workflow:
     w.connect(llm, 0, builder, 0)
     w.connect(builder, 0, importer, 1)
     w.connect(randomizer, 0, randomized_builder, 0)
-    w.group("Generate, inspect, and import", 10, 60, 1320, 440, "#355c7d")
-    w.group("Seeded template randomization", 10, 590, 900, 400, "#2f6f62")
+    w.group("Generate, inspect, and import", 10, 60, 1370, 540, "#355c7d")
+    w.group("Seeded template randomization", 10, 620, 900, 400, "#2f6f62")
     return w
 
 

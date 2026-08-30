@@ -20,7 +20,6 @@ Screenshots use the current dark ComfyUI theme, default browser zoom, neutral wo
 | `workflowx-kie-atlas-api.png` | Kie and Atlas provider controls with blank credentials | Node reference |
 | `workflowx-image-api-nodes.png` | Shared Kie/Atlas overview alias | Compatibility for older links |
 | `workflowx-unified-autoprompter-x.png` | Unified Autoprompter inputs, target/profile controls, and outputs | Node reference |
-| `workflowx-jsonx-llm-to-jsonx-node.png` | Current LLM to JsonX generation-profile controls | Node reference, JsonX guide |
 | `workflowx-jsonx-visual-builder-node.png` | Visual JsonX Builder node | Node reference, JsonX guide |
 | `workflowx-jsonx-visual-builder-ui.png` | Visual JsonX Builder editor | Node reference, JsonX guide |
 | `workflowx-jsonx-template-importer-node.png` | JsonX Template Importer node | JsonX guide |
@@ -43,7 +42,6 @@ Screenshots use the current dark ComfyUI theme, default browser zoom, neutral wo
 | `workflowx-example-03-image-tools.png` | Working image loader, mask, processor, and comparison example loaded in ComfyUI | Root README |
 | `workflowx-example-04-anything-swap.png` | Working Anything Swap and NanoBanana example loaded in ComfyUI | Root README |
 | `workflowx-example-05-remote-apis.png` | Kie and Atlas provider branches loaded in ComfyUI without execution | Root README |
-| `workflowx-example-06-jsonx.png` | Connected JsonX toolchain loaded in ComfyUI | Root README |
 | `workflowx-example-07-production.png` | Sanitized production-scale configured workflow loaded in ComfyUI | Root README |
 | `workflowx-context-menu-utilities.png` | Node context menu with both WorkflowX utilities | Root README |
 | `workflowx-add-to-group-result.png` | Native group created around the selected node | Root README |

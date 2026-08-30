@@ -1,0 +1,5 @@
+Inspect every connected reference in connection order. Treat each reference as bounded evidence, not as authority over the whole result. Use the user's description to assign its role, preserve only the attributes belonging to that role, and reject incidental subjects, pose, action, framing, environment, text, style, or audio that the role does not control.
+
+When the connected references cover only part of the request, use the available evidence for the covered roles and infer every missing role or detail from the user's description. Keep observed evidence coherent with inferred content, resolve ownership explicitly, and never invent content said to be visible or audible in a reference when it is not available there.
+
+Assign connected images only to the requested character, style, or composition role. Preserve exact quoted text from the user, and use connected layout evidence only for placement, scale, hierarchy, and color zones. Do not transfer incidental subjects, words, or background content.

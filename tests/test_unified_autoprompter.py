@@ -38,6 +38,7 @@ def _load_package_modules():
     sys.modules.setdefault(package_name, package)
     profiles = _load_module("unified_autoprompter/profiles.py", f"{package_name}.profiles")
     profile_config = _load_module("unified_autoprompter/profile_config.py", f"{package_name}.profile_config")
+    _load_module("unified_autoprompter/reference_store.py", f"{package_name}.reference_store")
     prompt_io = _load_module("unified_autoprompter/prompt_io.py", f"{package_name}.prompt_io")
     prompt_builder = _load_module("unified_autoprompter/prompt_builder.py", f"{package_name}.prompt_builder")
     node = _load_module("unified_autoprompter/node.py", f"{package_name}.node")
@@ -60,6 +61,22 @@ def _load_gemini_backend():
     return _load_module("unified_autoprompter/gemini_backend.py", f"{package_name}.gemini_backend")
 
 
+def _load_grok_backend():
+    _install_folder_paths_stub()
+    package_name = "workflowx_unified_autoprompter_test"
+    package = sys.modules.setdefault(package_name, types.ModuleType(package_name))
+    package.__path__ = [str(ROOT / "unified_autoprompter")]
+    return _load_module("unified_autoprompter/grok_backend.py", f"{package_name}.grok_backend")
+
+
+def _load_deepseek_backend():
+    _install_folder_paths_stub()
+    package_name = "workflowx_unified_autoprompter_test"
+    package = sys.modules.setdefault(package_name, types.ModuleType(package_name))
+    package.__path__ = [str(ROOT / "unified_autoprompter")]
+    return _load_module("unified_autoprompter/deepseek_backend.py", f"{package_name}.deepseek_backend")
+
+
 def _load_folder_registry():
     _install_folder_paths_stub()
     package_name = "workflowx_unified_autoprompter_test"
@@ -70,20 +87,17 @@ def _load_folder_registry():
 
 def _load_routes_module():
     _load_package_modules()
-    aiohttp = sys.modules.setdefault("aiohttp", types.ModuleType("aiohttp"))
-    web = types.ModuleType("aiohttp.web")
-    web.json_response = lambda data, status=200: {"data": data, "status": status}
-    aiohttp.web = web
-    sys.modules.setdefault("aiohttp.web", web)
+    import aiohttp.web  # noqa: F401 - use the real package to avoid leaking a process-global test stub
     package_name = "workflowx_unified_autoprompter_test"
     return _load_module("unified_autoprompter/routes.py", f"{package_name}.routes")
 
 
 class _FakeResponse:
-    def __init__(self, payload, status_code=200, text=""):
+    def __init__(self, payload, status_code=200, text="", headers=None):
         self._payload = payload
         self.status_code = status_code
         self.text = text
+        self.headers = headers or {}
 
     def json(self):
         return self._payload
@@ -132,109 +146,24 @@ def test_prompt_profiles_capture_allowed_formats_and_negative_rules():
 
 def test_granular_defaults_cover_enabled_formats_and_image_modes():
     profiles, _prompt_io, _prompt_builder, _node, _profile_config = _load_package_modules()
+    store = importlib.import_module("workflowx_unified_autoprompter_test.reference_store")
+    bundle = store.current_bundle()
+    assert len(bundle["manifest"]["profiles"]) == 12
+    assert "video_to_video" in bundle["manifest"]["generation_types"]
+    for metadata in bundle["manifest"]["profiles"]:
+        folder = metadata["folder"]
+        assert bundle["files"][f"{folder}/split/common.md"].strip()
+        for filename in store.SUPPORTING_FILENAMES.values():
+            assert bundle["files"][f"{folder}/Supporting/{filename}"].strip()
+        for generation_type in metadata["enabled_generation_types"]:
+            assert generation_type in bundle["manifest"]["generation_types"]
+        for prompt_format in metadata["enabled_formats"]:
+            prefix = bundle["manifest"]["formats"][prompt_format]["contract_prefix"]
+            assert bundle["files"][f"{folder}/Supporting/{prefix}_without_negative.md"].strip()
     all_profiles = profiles.all_profiles()
-
-    for profile in all_profiles.values():
-        enabled = profiles.enabled_formats(profile)
-        assert enabled
-        for prompt_format in enabled:
-            rule = profile.formats[prompt_format]
-            assert rule.common_instructions
-            assert rule.with_image_reference_instructions
-            assert rule.without_image_reference_instructions
-            assert rule.output_contract_negative_off
-            assert rule.output_contract_negative_on
-
-    assert all_profiles["ideogram4"].formats["json"].with_image_reference_instructions != all_profiles["ideogram4"].formats["json"].without_image_reference_instructions
-    assert all_profiles["sdxl"].formats["tags"].common_instructions != all_profiles["sdxl"].formats["natural"].common_instructions
-    assert all_profiles["flux2_dev"].formats["json"].common_instructions != all_profiles["flux2_dev"].formats["natural"].common_instructions
-    assert all_profiles["krea2"].json_supported is True
-    assert all_profiles["minimax_h3_official"].media_type == "video"
-    assert all_profiles["minimax_h3_alternate"].media_type == "video"
+    assert set(all_profiles["jsonx"].generation_paths) == {"text_to_image", "image_to_image"}
     assert all_profiles["minimax_h3_official"].negative_supported is False
-    assert all_profiles["minimax_h3_alternate"].negative_supported is False
-    assert all_profiles["minimax_h3_official"].formats["natural"].enabled is True
-    assert all_profiles["minimax_h3_alternate"].formats["natural"].enabled is True
-    minimax_official_rule = all_profiles["minimax_h3_official"].formats["natural"]
-    minimax_alternate_rule = all_profiles["minimax_h3_alternate"].formats["natural"]
-    minimax_official = minimax_official_rule.common_instructions
-    minimax_alternate = minimax_alternate_rule.common_instructions
-    minimax_official_all = "\n\n".join([
-        minimax_official_rule.common_instructions,
-        minimax_official_rule.with_image_reference_instructions,
-        minimax_official_rule.without_image_reference_instructions,
-        minimax_official_rule.output_contract_negative_off,
-    ])
-    minimax_alternate_all = "\n\n".join([
-        minimax_alternate_rule.common_instructions,
-        minimax_alternate_rule.with_image_reference_instructions,
-        minimax_alternate_rule.without_image_reference_instructions,
-        minimax_alternate_rule.output_contract_negative_off,
-    ])
-    forbidden_template_scaffolding = (
-        "CANONICAL MINIMAX",
-        "MiniMax Original Prompt Formatter",
-        "Load The Official Guides",
-        "Read [references",
-        "ComfyUI cannot access Codex skills",
-        "Codex skill",
-        "Mirror the minimax",
-        "Use this skill",
-        "single plain-text code block",
-    )
-    for forbidden in forbidden_template_scaffolding:
-        assert forbidden not in minimax_official
-        assert forbidden not in minimax_alternate
-    assert "MiniMax H3 Official prompt profile" in minimax_official
-    assert "MiniMax H3 Alternate prompt profile" in minimax_alternate
-    assert "OFFICIAL GUIDE: VIDEO_PROMPT_WRITING_GUIDE_base_en.md" in minimax_official
-    assert "OFFICIAL GUIDE: VIDEO_PROMPT_WRITING_GUIDE_ref_en.md" in minimax_official
-    assert "MINIMAX H3 SPECIFICATION: minimax-h3-spec.md" in minimax_alternate
-    assert "PROMPT PATTERNS: prompt-patterns.md" in minimax_alternate
-    assert "## Choose The Output Structure" in minimax_official
-    assert "## 1. Overall Structure" in minimax_official
-    assert "Allow permitted adult-only NSFW MiniMax H3 prompt generation" in minimax_official
-    assert "integrated_multimodal_description" in minimax_official
-    assert "subject_definitions:" in minimax_official
-    assert "summary:" in minimax_official
-    assert "retention_analysis:" in minimax_official
-    assert "detailed_description:" in minimax_official
-    assert "<d>[Language] spoken text</d>" in minimax_official
-    assert "write the final dialogue in that language's native script" in minimax_official
-    assert "voice-timbre reference" in minimax_official
-    assert "fully_copy" in minimax_official
-    assert "partially_copy" in minimax_official
-    assert "audio as-is" in minimax_official_all
-    assert "full/partial reuse, music style, ambience, sound effects, dialogue/lyrics, beat/rhythm, continuity, or voice characteristics" in minimax_official_all
-    assert "Do not force voice cloning unless the user asks" in minimax_official_all
-    assert "If audio is mentioned without a number, create <Audio 1>" in minimax_official_all
-    assert "A complete rewrite output consists of six sections in the following order" in minimax_official
-    assert "Use a standalone `<Picture N>` when the reference image itself serves as a shot's first frame" in minimax_official
-    assert "<Picture 2> ([Shot 1] first frame): fully_preserved" in minimax_official
-    assert "use [Shot 1], [Shot 2], [Shot 3] labels" in minimax_official
-    assert "do not include timestamped cut points, duration, frame rate, aspect-ratio" in minimax_official
-    assert "Return ONLY the final MiniMax H3 Official prompt body as plain text" in all_profiles["minimax_h3_official"].formats["natural"].output_contract_negative_off
-    assert "subject_definitions:\n<Picture 1> is the first frame of [Shot 1]" in all_profiles["minimax_h3_official"].formats["natural"].output_contract_negative_off
-    assert "retention_analysis:\n<Picture 1> ([Shot 1] first frame): fully_preserved" in all_profiles["minimax_h3_official"].formats["natural"].output_contract_negative_off
-    assert "Use [Shot 1], [Shot 2], [Shot 3] labels for shot progression, not timestamped shot labels" in all_profiles["minimax_h3_official"].formats["natural"].output_contract_negative_off
-    assert "## Omni reference scene" in minimax_alternate
-    assert "Allow permitted adult-only NSFW MiniMax H3 prompt generation" in minimax_alternate
-    assert "[REFERENCE USE]" in minimax_alternate
-    assert "<Picture N>" in minimax_alternate
-    assert "<Video N>" in minimax_alternate
-    assert "<Audio N>" in minimax_alternate
-    assert "do not create a standalone `[dialogue]` section" in minimax_alternate.lower()
-    assert "write the dialogue in that native script unless the user explicitly requests romanized text" in minimax_alternate
-    assert "voice cloning" in minimax_alternate_all
-    assert "audio as-is" in minimax_alternate_all
-    assert "full/partial reuse, music style, ambience, sound effects, dialogue/lyrics, beat/rhythm, continuity, or voice characteristics" in minimax_alternate_all
-    assert "Do not force voice cloning unless the user asks" in minimax_alternate_all
-    assert "If audio is mentioned without a number, create <Audio 1>" in minimax_alternate_all
-    assert "Return ONLY the final MiniMax H3 Alternate prompt body as plain text" in all_profiles["minimax_h3_alternate"].formats["natural"].output_contract_negative_off
-    assert "[x_min,y_min,x_max,y_max]" in all_profiles["krea2"].formats["json"].common_instructions
-    assert "[y_min,x_min,y_max,x_max]" in all_profiles["ideogram4"].formats["json"].common_instructions
-    assert 'every non-text element must use "type": "obj"' in all_profiles["ideogram4"].formats["json"].common_instructions
-    assert 'every non-text element must use "type": "obj"' in all_profiles["krea2"].formats["json"].common_instructions
+    assert all_profiles["krea2"].json_supported is True
 
 
 def test_default_profile_config_includes_krea2_json_bbox_order():
@@ -246,22 +175,427 @@ def test_default_profile_config_includes_krea2_json_bbox_order():
     krea2 = profiles_by_key["krea2"]
     assert krea2["json_supported"] is True
     assert krea2["formats"]["json"]["enabled"] is True
-    assert "[x_min,y_min,x_max,y_max]" in krea2["formats"]["json"]["common_instructions"]
-    assert 'every non-text element must use "type": "obj"' in krea2["formats"]["json"]["common_instructions"]
+    common = "\n\n".join((
+        krea2["formats"]["json"]["common_rules"]["text"],
+        krea2["formats"]["json"]["common_guide"]["text"],
+    ))
+    assert "[x_min,y_min,x_max,y_max]" in common
+    assert 'every non-text element must use "type": "obj"' in common
+
+
+def test_default_minimax_profiles_include_timing_context_and_reference_boundaries():
+    _profiles, _prompt_io, _prompt_builder, _node, profile_config = _load_package_modules()
+    defaults = profile_config.default_config()
+    profiles_by_key = {profile["key"]: profile for profile in defaults["profiles"]}
+
+    official = profiles_by_key["minimax_h3_official"]
+    alternate = profiles_by_key["minimax_h3_alternate"]
+    for profile in (official, alternate):
+        common = "\n\n".join((
+            profile["formats"]["natural"]["common_rules"]["text"],
+            profile["formats"]["natural"]["common_guide"]["text"],
+        ))
+        assert "visible and audible" in common or "camera-visible and microphone-audible facts" in common
+        assert "5.00-second" in common
+        assert "same-camera action change" in common
+        assert "Context Loop" in common
+    first_contract = official["generation_paths"]["first_frame_to_video"]["output_contracts"]["natural"]["negative_off"]
+    reference_path = official["generation_paths"]["reference_to_video"]
+    assert "For the target video, at 0.00 seconds" in first_contract
+    reference_guide = reference_path["path_guide"]["text"]
+    alternate_guide = alternate["generation_paths"]["reference_to_video"]["path_guide"]["text"]
+    assert "bounded role" in reference_guide
+    assert "explicitly exclude incidental" in alternate_guide
 
 
 def test_system_prompt_uses_format_contract_and_image_mode():
     _profiles, _prompt_io, prompt_builder, _node, _profile_config = _load_package_modules()
 
-    with_image = prompt_builder.build_system_prompt("ideogram4", "json", False, has_image=True)
-    without_image = prompt_builder.build_system_prompt("ideogram4", "json", False, has_image=False)
-    negative = prompt_builder.build_system_prompt("sdxl", "tags", True, has_image=False)
+    with_image = prompt_builder.build_system_prompt(
+        "ideogram4", "json", False, has_image=True, generation_type="image_to_image",
+    )
+    without_image = prompt_builder.build_system_prompt(
+        "ideogram4", "json", False, has_image=False, generation_type="text_to_image",
+    )
+    negative = prompt_builder.build_system_prompt(
+        "sdxl", "tags", True, has_image=False, generation_type="text_to_image",
+    )
 
-    assert "connected image reference is available" in with_image.lower()
-    assert "no image reference is available" in without_image.lower()
+    assert "connected reference" in with_image.lower()
+    assert "references actually supplied" not in without_image.lower()
     assert "prompt_json" in with_image
     assert "comma-separated SDXL negative tags" in negative
-    assert "Output contract:" in negative
+    assert "Unified Autoprompter" not in negative
+    assert "Target key" not in negative
+
+
+def test_v7_system_prompt_has_exact_selected_block_order_and_optional_nsfw():
+    _profiles, _prompt_io, prompt_builder, _node, _profile_config = _load_package_modules()
+    store = importlib.import_module("workflowx_unified_autoprompter_test.reference_store")
+    bundle = store.current_bundle()
+    profile = next(item for item in bundle["manifest"]["profiles"] if item["key"] == "wan2_2")
+    generation_type = "first_frame_to_video"
+    folder = profile["folder"]
+    common = bundle["files"][f"{folder}/split/common.md"]
+    path = bundle["files"][f"{folder}/split/first-frame-to-video.md"]
+    reference = bundle["files"][f"{folder}/Supporting/without_reference_supported.md"]
+    contract = bundle["files"][f"{folder}/Supporting/natural_output_without_negative.md"]
+    nsfw = bundle["files"]["nsfw-video.md"]
+    expected_without_nsfw = "\n\n".join([
+        common, path, reference,
+        contract,
+    ])
+    expected_with_nsfw = "\n\n".join([
+        common, path, nsfw, reference,
+        contract,
+    ])
+
+    assert prompt_builder.build_system_prompt(
+        "wan2_2", "natural", False, generation_type=generation_type,
+    ) == expected_without_nsfw
+    assert prompt_builder.build_system_prompt(
+        "wan2_2", "natural", False, generation_type=generation_type, nsfw_enabled=True,
+    ) == expected_with_nsfw
+    for noise in (
+        "Unified Autoprompter", "Target model:", "Target key:", "Model notes:",
+        "Format-specific instructions:", "Text to Image", "Reference to Video",
+    ):
+        assert noise not in expected_with_nsfw
+
+
+def test_generation_image_validation_only_enforces_authoring_media_ceiling():
+    profiles, _prompt_io, _prompt_builder, _node, _profile_config = _load_package_modules()
+    for generation_type in profiles.ALL_GENERATION_TYPES:
+        for count in (0, 1, 2, profiles.MAX_AUTHORING_IMAGES):
+            profiles.validate_generation_image_count(generation_type, count)
+        try:
+            profiles.validate_generation_image_count(generation_type, profiles.MAX_AUTHORING_IMAGES + 1)
+        except ValueError as error:
+            assert "at most" in str(error)
+        else:
+            raise AssertionError(f"Expected {generation_type} above the authoring limit to fail.")
+
+
+def test_four_state_image_routing_keeps_connected_authoring_evidence():
+    profiles, _prompt_io, _prompt_builder, _node, _profile_config = _load_package_modules()
+
+    for generation_type in ("text_to_image", "text_to_video"):
+        submitted, ignored = profiles.effective_generation_images(
+            generation_type, ["image-1", "image-2"]
+        )
+        submitted_count, ignored_count = profiles.effective_generation_image_count(
+            generation_type, 2
+        )
+        assert submitted == ["image-1", "image-2"]
+        assert ignored == 0
+        assert (submitted_count, ignored_count) == (2, 0)
+        assert profiles.resolve_image_state(generation_type, 2) == profiles.IMAGE_STATE_UNSUPPORTED_WITH_IMAGE_GUIDANCE
+        assert profiles.resolve_image_state(generation_type, 0) is None
+        profiles.validate_generation_image_count(generation_type, len(submitted))
+
+    submitted, ignored = profiles.effective_generation_images(
+        "reference_to_video", ["image-1", "image-2"]
+    )
+    assert submitted == ["image-1", "image-2"]
+    assert ignored == 0
+    assert profiles.resolve_image_state("reference_to_video", 2) == profiles.IMAGE_STATE_SUPPORTED_WITH_IMAGE
+    assert profiles.resolve_image_state("reference_to_video", 0) == profiles.IMAGE_STATE_SUPPORTED_WITHOUT_IMAGE
+    profiles.validate_generation_image_count("reference_to_video", len(submitted))
+
+
+def test_ui_only_block_metadata_never_reaches_model_prompt():
+    _profiles, _prompt_io, prompt_builder, _node, profile_config = _load_package_modules()
+    with _with_temp_profile_paths(profile_config):
+        config = profile_config.default_config()
+        profile = next(item for item in config["profiles"] if item["key"] == "ideogram4")
+        profile["formats"]["natural"]["common_rules"]["title"] = "UI TITLE SENTINEL"
+        profile["formats"]["natural"]["common_rules"]["source"] = "UI SOURCE SENTINEL"
+        path = profile["generation_paths"]["text_to_image"]
+        path["path_rules"]["title"] = "PATH TITLE SENTINEL"
+        path["path_rules"]["source"] = "PATH SOURCE SENTINEL"
+        profile_config.save_config(config)
+
+        system = prompt_builder.build_system_prompt(
+            "ideogram4", "natural", False, generation_type="text_to_image"
+        )
+        for sentinel in (
+            "UI TITLE SENTINEL", "UI SOURCE SENTINEL",
+            "PATH TITLE SENTINEL", "PATH SOURCE SENTINEL",
+        ):
+            assert sentinel not in system
+
+
+def test_live_and_default_profile_catalogs_are_byte_identical():
+    original = ROOT / "unified_autoprompter" / "reference" / "original"
+    current = ROOT / "unified_autoprompter" / "reference" / "current_use"
+    original_files = {
+        path.relative_to(original): path.read_bytes()
+        for path in original.rglob("*") if path.is_file()
+    }
+    current_files = {
+        path.relative_to(current): path.read_bytes()
+        for path in current.rglob("*") if path.is_file()
+    }
+    assert current_files == original_files
+
+
+def test_v7_canonical_contracts_are_path_specific_and_fully_visible():
+    catalog_text = (ROOT / "unified_autoprompter" / "model_prompt_profiles.defaults.json").read_text(encoding="utf-8")
+    current = json.loads(catalog_text)
+    current_by_key = {profile["key"]: profile for profile in current["profiles"]}
+    assert current["version"] == 7
+    for profile in current_by_key.values():
+        for path in profile["generation_paths"].values():
+            assert set(path["image_state_blocks"]) == {
+                "supported_with_image",
+                "supported_without_image",
+                "unsupported_with_image_guidance",
+            }
+            for block in path["image_state_blocks"].values():
+                assert block["title"] and block["text"] and block["source"]
+
+    updated_guidance = (
+        "Inspect the connected images as visual guidance for prompt authoring. "
+        "Use relevant visible evidence from reference in connection with user's given description to infer intent. "
+        "Do not emit Picture/Image reference commentary, or language implying that the downstream generator will receive the images."
+    )
+    assert catalog_text.count(updated_guidance) == len(current_by_key)
+    assert "Translate relevant visible evidence into a self-contained text prompt" not in catalog_text
+
+    official = current_by_key["minimax_h3_official"]["generation_paths"]
+    official_expectations = {
+        "text_to_video": (
+            "integrated_multimodal_description:\n...\n\noverall_soundscape:",
+            "non_diegetic_music:",
+        ),
+        "first_frame_to_video": (
+            "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.",
+            "integrated_multimodal_description:",
+        ),
+        "first_last_frame_to_video": (
+            "How the reference pictures align with the target video",
+            "Picture 2 (from Shot N) aligns with the S.SS-second mark of the target video",
+        ),
+        "last_frame_to_video": (
+            "How the reference pictures align with the target video",
+            "<Picture 1> (from [Shot N]) aligns with the S.SS-second mark of the target video",
+        ),
+        "reference_to_video": (
+            "subject_definitions:\n...\n\nsummary:\n...\n\nretention_analysis:",
+            "detailed_description:",
+        ),
+    }
+    for path_name, expected_clauses in official_expectations.items():
+        contract = official[path_name]["output_contracts"]["natural"]
+        assert contract["negative_off"] == contract["negative_on"]
+        for clause in expected_clauses:
+            assert clause in contract["negative_off"]
+        assert "Return ONLY" in contract["negative_off"]
+
+    alternate = current_by_key["minimax_h3_alternate"]["generation_paths"]
+    assert "[SCENE]" in alternate["text_to_video"]["output_contracts"]["natural"]["negative_off"]
+    assert "[REFERENCE USE]" in alternate["first_frame_to_video"]["output_contracts"]["natural"]["negative_off"]
+    assert "[BOUNDARY FRAMES]" in alternate["first_last_frame_to_video"]["output_contracts"]["natural"]["negative_off"]
+    assert "<Video 1> defines" in alternate["reference_to_video"]["output_contracts"]["natural"]["negative_off"]
+    assert len({
+        path["output_contracts"]["natural"]["negative_off"]
+        for path in alternate.values()
+    }) == 4
+
+
+def test_v7_profiles_expose_one_rules_and_one_full_guide_field_with_source_sentinels():
+    catalog = json.loads(
+        (ROOT / "unified_autoprompter" / "model_prompt_profiles.defaults.json").read_text(encoding="utf-8")
+    )
+    sentinels = {
+        "ideogram4": "## Text and typography",
+        "sdxl": "## Prompt anatomy",
+        "qwen_image": "## Prompt enhancement",
+        "flux1_dev": "## Structured natural-language prompting",
+        "flux2_dev": "## Complex scene construction",
+        "flux_klein": "## Concise high-signal prompting",
+        "krea2": "## Prompt expansion",
+        "z_image": "## Fluent prompt enhancement",
+        "wan2_2": "## Prompt extension objective",
+        "ltx_2_3": "## Temporal anatomy",
+        "minimax_h3_official": "## Shots, timing, and Context Loop",
+        "minimax_h3_alternate": "## Shot construction",
+        "jsonx": "## Structural coherence",
+    }
+    for profile in catalog["profiles"]:
+        searchable = []
+        for rule in profile["formats"].values():
+            if not rule["enabled"]:
+                continue
+            assert "common_blocks" not in rule
+            assert set(rule) == {"enabled", "common_rules", "common_guide"}
+            assert rule["common_rules"]["text"].strip()
+            assert rule["common_guide"]["text"].strip()
+            searchable.append(rule["common_guide"]["text"])
+        for path in profile["generation_paths"].values():
+            assert "instruction_blocks" not in path
+            assert path["path_rules"]["text"].strip()
+            assert path["path_guide"]["text"].strip()
+            searchable.append(path["path_guide"]["text"])
+        assert sentinels[profile["key"]] in "\n".join(searchable)
+
+
+def test_v7_reverse_payload_audit_selects_each_guide_once_and_excludes_other_paths():
+    _profiles, _prompt_io, prompt_builder, _node, _profile_config = _load_package_modules()
+    store = importlib.import_module("workflowx_unified_autoprompter_test.reference_store")
+    bundle = store.current_bundle()
+    for profile in bundle["manifest"]["profiles"]:
+        for format_key in profile["enabled_formats"]:
+            for path_key in profile["enabled_generation_types"]:
+                prompt, activated = prompt_builder.assemble_system_prompt(
+                    profile["key"], format_key, False,
+                    reference_count=1, generation_type=path_key, nsfw_enabled=True,
+                )
+                paths = [item["path"] for item in activated]
+                assert prompt == "\n\n".join(bundle["files"][path] for path in paths)
+                assert [item["kind"] for item in activated] == [
+                    "common", "generation_type", "nsfw", "reference_usage", "output_contract",
+                ] or [item["kind"] for item in activated] == [
+                    "common", "nsfw", "reference_usage", "output_contract",
+                ]
+                for forbidden in (
+                    "activated_blocks", "routing decision", "selected output contract",
+                    "implementation JSON", "process metadata", "think step by step",
+                ):
+                    assert forbidden not in prompt
+
+
+def test_v7_image_profile_path_guides_are_model_specific_and_krea_schema_is_not_ideogram():
+    catalog = json.loads(
+        (ROOT / "unified_autoprompter" / "model_prompt_profiles.defaults.json").read_text(encoding="utf-8")
+    )
+    profiles = {profile["key"]: profile for profile in catalog["profiles"]}
+    image_keys = (
+        "ideogram4", "sdxl", "qwen_image", "flux1_dev", "flux2_dev",
+        "flux_klein", "krea2", "z_image",
+    )
+    for path_key in ("text_to_image", "image_to_image"):
+        guides = [profiles[key]["generation_paths"][path_key]["path_guide"]["text"] for key in image_keys]
+        assert len(set(guides)) == len(guides)
+
+    krea = profiles["krea2"]
+    krea_text = "\n".join(
+        rule["common_rules"]["text"] + "\n" + rule["common_guide"]["text"]
+        for rule in krea["formats"].values() if rule["enabled"]
+    )
+    krea_contract = krea["generation_paths"]["text_to_image"]["output_contracts"]["json"]["negative_off"]
+    assert "high_level_description" not in krea_text + krea_contract
+    assert "style_description" not in krea_text + krea_contract
+    assert "Ideogram" not in krea_text + krea_contract
+    assert "compositional_deconstruction" in krea_contract
+    assert '"description": "complete final Krea2 visual description"' in krea_contract
+
+
+def test_v7_invalid_explicit_profile_path_and_format_do_not_silently_fallback():
+    profiles, _prompt_io, prompt_builder, _node, _profile_config = _load_package_modules()
+    for call, expected in (
+        (lambda: profiles.get_profile("missing_profile"), "Unknown Unified PrompterX profile"),
+        (lambda: profiles.normalize_generation_type("ideogram4", "text_to_video"), "not supported"),
+        (lambda: prompt_builder.build_system_prompt("wan2_2", "natural", False, generation_type="image_to_image"), "not supported"),
+    ):
+        try:
+            call()
+        except ValueError as error:
+            assert expected in str(error)
+        else:
+            raise AssertionError("Expected an explicit invalid selection to fail.")
+
+
+def test_v7_forward_source_concept_audit_covers_common_and_path_guides():
+    catalog = json.loads(
+        (ROOT / "unified_autoprompter" / "model_prompt_profiles.defaults.json").read_text(encoding="utf-8")
+    )
+    profiles = {profile["key"]: profile for profile in catalog["profiles"]}
+    common_sentinels = {
+        "ideogram4": ("Literal natural-language prompting", "Text and typography"),
+        "sdxl": ("Prompt anatomy", "Negative guidance"),
+        "qwen_image": ("Prompt enhancement", "multilingual content"),
+        "flux1_dev": ("Structured natural-language prompting", "Typography"),
+        "flux2_dev": ("Complex scene construction", "Visual consistency"),
+        "flux_klein": ("Concise high-signal prompting", "Relationship clarity"),
+        "krea2": ("Prompt expansion", "Composition and physical description"),
+        "z_image": ("Fluent prompt enhancement", "Text and language fidelity"),
+        "wan2_2": ("Prompt extension objective", "Motion and camera", "Continuity"),
+        "ltx_2_3": ("Temporal anatomy", "Motion and physical acting", "Dialogue and audio"),
+        "minimax_h3_official": ("Shots, timing, and Context Loop", "Reference and dialogue syntax"),
+        "minimax_h3_alternate": ("Shot construction and timing", "Reference labels and ownership"),
+    }
+    for profile_key, sentinels in common_sentinels.items():
+        profile = profiles[profile_key]
+        guides = "\n".join(
+            rule["common_guide"]["text"] for rule in profile["formats"].values() if rule["enabled"]
+        )
+        for sentinel in sentinels:
+            assert sentinel in guides
+
+    path_sentinels = {
+        ("qwen_image", "image_to_image"): ("addition, deletion, replacement", "preserve all unrelated regions"),
+        ("flux2_dev", "image_to_image"): ("Map each supplied source", "incidental people"),
+        ("wan2_2", "first_last_frame_to_video"): ("opening state", "required destination"),
+        ("ltx_2_3", "first_frame_to_video"): ("frame zero", "subsequent motion"),
+        ("minimax_h3_official", "reference_to_video"): ("six-field method", "retention_analysis"),
+        ("minimax_h3_official", "last_frame_to_video"): ("only the final frame", "5.00"),
+        ("minimax_h3_alternate", "reference_to_video"): ("Bounded reference authority", "SOURCE MASTER"),
+    }
+    for (profile_key, path_key), sentinels in path_sentinels.items():
+        guide = profiles[profile_key]["generation_paths"][path_key]["path_guide"]["text"]
+        for sentinel in sentinels:
+            assert sentinel in guide
+
+
+def test_v6_to_v7_migration_preserves_custom_rules_and_installs_guides_and_new_global_path():
+    _profiles, _prompt_io, _prompt_builder, _node, profile_config = _load_package_modules()
+    with _with_temp_profile_paths(profile_config):
+        old = profile_config.default_config()
+        old["version"] = 6
+        old["nsfw_rules"].pop("last_frame_to_video", None)
+        for candidate in old["profiles"]:
+            candidate["generation_paths"].pop("last_frame_to_video", None)
+            for format_rule in candidate["formats"].values():
+                rules = format_rule.pop("common_rules")
+                format_rule.pop("common_guide")
+                format_rule["common_blocks"] = [rules] if rules["text"] else []
+            for path_rule in candidate["generation_paths"].values():
+                rules = path_rule.pop("path_rules")
+                path_rule.pop("path_guide")
+                path_rule["instruction_blocks"] = [rules]
+        ideogram = next(profile for profile in old["profiles"] if profile["key"] == "ideogram4")
+        ideogram["formats"]["natural"]["common_blocks"][0]["text"] = "CUSTOM V6 RULE"
+        profile_config.config_path().write_text(json.dumps(old), encoding="utf-8")
+        migrated = profile_config.load_config()
+        current = next(profile for profile in migrated["profiles"] if profile["key"] == "ideogram4")
+        assert migrated["version"] == 7
+        assert "CUSTOM V6 RULE" in current["formats"]["natural"]["common_rules"]["text"]
+        assert current["formats"]["natural"]["common_guide"]["text"].strip()
+        assert "last_frame_to_video" in migrated["nsfw_rules"]
+        assert profile_config.config_path().with_name("model_prompt_profiles.v6.backup.json").exists()
+
+
+def test_global_nsfw_rules_are_detailed_and_only_selected_path_is_injected():
+    _profiles, _prompt_io, prompt_builder, _node, _profile_config = _load_package_modules()
+    store = importlib.import_module("workflowx_unified_autoprompter_test.reference_store")
+    bundle = store.current_bundle()
+    image_rule = bundle["files"]["nsfw-image.md"]
+    video_rule = bundle["files"]["nsfw-video.md"]
+    assert image_rule.strip() and video_rule.strip()
+
+    selected = "text_to_video"
+    enabled = prompt_builder.build_system_prompt(
+        "minimax_h3_official", "natural", False,
+        generation_type=selected, nsfw_enabled=True,
+    )
+    disabled = prompt_builder.build_system_prompt(
+        "minimax_h3_official", "natural", False,
+        generation_type=selected, nsfw_enabled=False,
+    )
+    assert video_rule in enabled
+    assert video_rule not in disabled
+    assert image_rule not in enabled
 
 
 def test_minimax_system_prompt_uses_plain_text_contract():
@@ -272,13 +606,16 @@ def test_minimax_system_prompt_uses_plain_text_contract():
         "natural",
         True,
         reference_count=2,
+        generation_type="reference_to_video",
     )
 
-    assert "Return plain text only" in official
+    assert "Return only the final MiniMax H3 Official prompt body as plain text" in official
     assert "Return valid JSON only" not in official
-    assert "subject_definitions:\n<Picture 1> is the first frame of [Shot 1]" in official
-    assert "retention_analysis:\n<Picture 1> ([Shot 1] first frame): fully_preserved" in official
-    assert "Negative prompt handling:\nDo not invent a negative prompt" in official
+    assert "subject_definitions" in official
+    assert "detailed_description" in official
+    assert "Do not generate a separate node negative output" in official
+    assert "Target model" not in official
+    assert "Profile notes" not in official
 
 
 def test_prompt_builder_labels_multiple_image_references_for_minimax():
@@ -289,27 +626,22 @@ def test_prompt_builder_labels_multiple_image_references_for_minimax():
         "natural",
         False,
         reference_count=2,
+        generation_type="reference_to_video",
     )
     user_prompt = prompt_builder.build_user_prompt(
         {
-            "idea": "cinematic dance sequence",
-            "reference_or_control_notes": "Audio1 is a female vocal track; use Video1 for background timing.",
-            "extra_instructions": "Use Urdu dialogue. An audio will be provided for voice cloning and matching timbre.",
+            "prompt_text": "Cinematic dance sequence with Urdu dialogue; use Audio 1 for matching timbre.",
+            "detail": "high",
         },
         target_model="minimax_h3_alternate",
         reference_count=2,
+        generation_type="reference_to_video",
     )
 
-    assert "Connected image references: Image1, Image2" in system_prompt
-    assert "<Picture 1>/<Picture 2>" in system_prompt
-    assert "Connected image references provided: Image1, Image2." in user_prompt
-    assert "<Picture 1>, <Picture 2>" in user_prompt
-    assert "Audio1 is a female vocal track" in user_prompt
-    assert "Audio reference required: include <Audio 1>" in user_prompt
-    assert "Video reference required: include <Video 1>" in user_prompt
-    assert "Urdu dialogue required" in user_prompt
-    assert "native Urdu script" in user_prompt
-    assert "Do not assume voice cloning" in user_prompt
+    assert "Treat each reference as bounded evidence" in system_prompt
+    assert "Picture 1, Picture 2" not in user_prompt
+    assert "matching timbre" in user_prompt
+    assert "Detail level: high" in user_prompt
 
 
 def test_prompt_builder_preserves_minimax_audio_as_is_role():
@@ -317,16 +649,16 @@ def test_prompt_builder_preserves_minimax_audio_as_is_role():
 
     user_prompt = prompt_builder.build_user_prompt(
         {
-            "idea": "moody night drive",
-            "extra_instructions": "An audio will be provided; use audio 1 as-is as the complete final soundtrack.",
+            "prompt_text": (
+                "A moody night drive. An audio will be provided; "
+                "use audio 1 as-is as the complete final soundtrack."
+            ),
         },
         target_model="minimax_h3_official",
     )
 
-    assert "Audio reference required: include <Audio 1>" in user_prompt
-    assert "complete reuse/as-is/copy" in user_prompt
-    assert "reused or copied as the target video's audio track" in user_prompt
-    assert "instead of turning it into a voice-timbre instruction" in user_prompt
+    assert "use audio 1 as-is as the complete final soundtrack" in user_prompt
+    assert "Audio reference required" not in user_prompt
 
 
 def test_output_assembly_matches_contract_for_positive_and_negative():
@@ -565,6 +897,23 @@ def test_video_prompt_builder_includes_video_fields_only_for_video_profiles():
     assert "Motion / action" not in image_prompt
 
 
+def test_prompt_builder_uses_simplified_prompt_text_and_retains_detail_level():
+    _profiles, _prompt_io, prompt_builder, _node, _profile_config = _load_package_modules()
+
+    prompt = prompt_builder.build_user_prompt(
+        {
+            "prompt_text": "A five-second locked shot of a woman walking along a beach.",
+            "detail": "very high",
+            "idea": "legacy value must not be merged",
+        },
+        target_model="wan2_2",
+    )
+
+    assert prompt.startswith("A five-second locked shot")
+    assert "Detail level: very high" in prompt
+    assert "legacy value must not be merged" not in prompt
+
+
 def test_prompt_builder_uses_connected_raw_prompt_text_as_context():
     _profiles, _prompt_io, prompt_builder, _node, _profile_config = _load_package_modules()
 
@@ -578,11 +927,27 @@ def test_prompt_builder_uses_connected_raw_prompt_text_as_context():
         target_model="flux2_dev",
     )
 
-    assert "Raw input prompt:" in prompt
     assert '{"scene":"raw upstream prompt"}' in prompt
     assert "Idea: ignore this idea" not in prompt
     assert "Subject: ignore this subject" not in prompt
-    assert "Extra instructions: keep final output concise" in prompt
+    assert "keep final output concise" not in prompt
+
+
+def test_connected_raw_prompt_text_overrides_manual_text_but_keeps_detail_level():
+    _profiles, _prompt_io, prompt_builder, _node, _profile_config = _load_package_modules()
+
+    prompt = prompt_builder.build_user_prompt(
+        {
+            "prompt_text": "manual prompt should be ignored",
+            "raw_prompt_text": "connected prompt wins",
+            "detail": "balanced",
+        },
+        target_model="flux2_dev",
+    )
+
+    assert prompt.startswith("connected prompt wins")
+    assert "manual prompt should be ignored" not in prompt
+    assert "Detail level: balanced" in prompt
 
 
 def test_prompt_builder_adds_bbox_layout_hints_for_bbox_targets_only():
@@ -600,10 +965,10 @@ def test_prompt_builder_adds_bbox_layout_hints_for_bbox_targets_only():
     )
     sdxl_prompt = prompt_builder.build_user_prompt(fields, target_model="sdxl")
 
-    assert "BBox layout JSON / bbox hints" in krea2_prompt
-    assert "BBox palette hints: #ffffff" in krea2_prompt
-    assert "BBox layout JSON / bbox hints" in ideogram_prompt
-    assert "BBox layout JSON / bbox hints" not in sdxl_prompt
+    assert "Layout JSON:" in krea2_prompt
+    assert "Palette: #ffffff" in krea2_prompt
+    assert "Layout JSON:" in ideogram_prompt
+    assert "Layout JSON:" not in sdxl_prompt
 
 
 def test_wan_and_ltx_response_parsing_for_positive_and_negative():
@@ -633,10 +998,24 @@ def test_profile_config_loads_and_recreates_node_local_json_when_missing():
     with _with_temp_profile_paths(profile_config):
         payload = profile_config.profile_config_payload()
 
-        assert payload["version"] == 4
+        assert payload["version"] == 7
         assert profile_config.config_path().exists()
         assert profile_config.config_path().name == "model_prompt_profiles.json"
         assert "ideogram4" in [profile["key"] for profile in payload["profiles"]]
+
+
+def test_profile_config_backs_up_prior_schema_and_installs_v7_defaults():
+    _profiles, _prompt_io, _prompt_builder, _node, profile_config = _load_package_modules()
+    with _with_temp_profile_paths(profile_config):
+        old = {"version": 4, "profiles": [{"key": "development-era"}]}
+        profile_config.config_path().write_text(json.dumps(old), encoding="utf-8")
+        loaded = profile_config.load_config()
+        backup = profile_config.config_path().with_name("model_prompt_profiles.v4.backup.json")
+        assert loaded["version"] == 7
+        assert backup.exists()
+        assert json.loads(backup.read_text(encoding="utf-8")) == old
+        assert {profile["key"] for profile in loaded["profiles"]} >= {"ideogram4", "sdxl"}
+        assert "jsonx" not in {profile["key"] for profile in loaded["profiles"]}
 
 
 def test_profile_config_appends_new_default_profiles_without_overwriting_existing_config():
@@ -666,7 +1045,7 @@ def test_profile_config_rejects_invalid_save_without_overwriting_prior_config():
         profile_config.save_config(valid)
         before = profile_config.config_path().read_text(encoding="utf-8")
         broken = json.loads(before)
-        broken["profiles"][0]["formats"]["json"]["common_instructions"] = ""
+        broken["profiles"][0]["formats"]["json"]["common_rules"]["text"] = ""
 
         try:
             profile_config.save_config(broken)
@@ -678,8 +1057,8 @@ def test_profile_config_rejects_invalid_save_without_overwriting_prior_config():
         assert profile_config.config_path().read_text(encoding="utf-8") == before
 
 
-def test_profile_config_migrates_legacy_custom_profile_to_granular_rules():
-    profiles, _prompt_io, prompt_builder, _node, profile_config = _load_package_modules()
+def test_profile_config_rejects_development_era_profile_without_v7_paths():
+    _profiles, _prompt_io, _prompt_builder, _node, profile_config = _load_package_modules()
     with _with_temp_profile_paths(profile_config):
         legacy = {
             "profiles": [{
@@ -694,13 +1073,12 @@ def test_profile_config_migrates_legacy_custom_profile_to_granular_rules():
                 "system_prompt_template": "Legacy system prompt for {target_label}. {output_contract}",
             }]
         }
-        profile_config.save_config(legacy)
-        merged = profiles.all_profiles()
-        rendered = prompt_builder.build_system_prompt("legacy_model", "natural", False)
-
-        assert merged["legacy_model"].formats["natural"].enabled is True
-        assert "Legacy system prompt" in rendered
-        assert "Reference image" in rendered or "No image reference" in rendered
+        try:
+            profile_config.save_config(legacy)
+        except ValueError as error:
+            assert "generation path" in str(error)
+        else:
+            raise AssertionError("Development-era profile data must not be silently migrated into schema v7.")
 
 
 def test_apply_layout_output_contract_uses_raw_json_as_prompt_and_positive():
@@ -768,18 +1146,29 @@ def test_openai_backend_generates_chat_completions_text_with_optional_image():
     openai_backend = _load_openai_backend()
     calls = []
 
+    def fake_get(url, headers, timeout):
+        assert url == "http://localhost:1234/api/v1/models"
+        return _FakeResponse({
+            "models": [{
+                "key": "gpt-4.1",
+                "display_name": "Local GPT 4.1",
+                "loaded_instances": [{"id": "instance-gpt-4.1"}],
+            }]
+        })
+
     def fake_post(url, headers, json, timeout):
         calls.append({"url": url, "headers": headers, "json": json, "timeout": timeout})
-        if url.endswith("/chat/completions"):
+        if url.endswith("/api/v1/chat"):
             return _FakeResponse({
-                "choices": [{
-                    "message": {"content": "{\"positive\":\"cinematic portrait\"}"},
-                }]
+                "model_instance_id": "instance-gpt-4.1",
+                "output": [{"type": "message", "content": [{"type": "output_text", "text": "{\"positive\":\"cinematic portrait\"}"}]}],
             })
-        return _FakeResponse({"instance_id": json["instance_id"]})
+        return _FakeResponse({"status": "unloaded"})
 
+    original_get = openai_backend.requests.get
     original_post = openai_backend.requests.post
     try:
+        openai_backend.requests.get = fake_get
         openai_backend.requests.post = fake_post
         raw = openai_backend.generate(
             "http://localhost:1234/v1",
@@ -789,29 +1178,28 @@ def test_openai_backend_generates_chat_completions_text_with_optional_image():
             "user prompt",
             pil_image=Image.new("RGB", (1, 1), color=(255, 0, 0)),
             timeout=33,
-            unload_after=True,
+            server_type="lm_studio",
+            lifecycle="unload_after",
         )
     finally:
+        openai_backend.requests.get = original_get
         openai_backend.requests.post = original_post
 
     assert raw == "{\"positive\":\"cinematic portrait\"}"
-    assert calls[0]["url"] == "http://localhost:1234/v1/chat/completions"
+    assert calls[0]["url"] == "http://localhost:1234/api/v1/chat"
     assert calls[0]["headers"] == {"Authorization": "Bearer sk-test", "Content-Type": "application/json"}
     assert calls[0]["timeout"] == 33
     assert calls[0]["json"]["model"] == "gpt-4.1"
     assert calls[0]["json"]["stream"] is False
-    assert "ttl" not in calls[0]["json"]
-    assert calls[0]["json"]["messages"][0] == {"role": "system", "content": "system prompt"}
-    user_message = calls[0]["json"]["messages"][1]
-    assert user_message["role"] == "user"
-    assert user_message["content"][0] == {"type": "text", "text": "user prompt"}
-    assert user_message["content"][1]["type"] == "image_url"
-    assert user_message["content"][1]["image_url"]["detail"] == "auto"
-    assert user_message["content"][1]["image_url"]["url"].startswith("data:image/png;base64,")
+    assert calls[0]["json"]["store"] is False
+    assert calls[0]["json"]["system_prompt"] == "system prompt"
+    assert calls[0]["json"]["input"][0] == {"type": "message", "content": "user prompt"}
+    assert calls[0]["json"]["input"][1]["type"] == "image"
+    assert calls[0]["json"]["input"][1]["data_url"].startswith("data:image/png;base64,")
     assert calls[1] == {
         "url": "http://localhost:1234/api/v1/models/unload",
         "headers": {"Authorization": "Bearer sk-test", "Content-Type": "application/json"},
-        "json": {"instance_id": "gpt-4.1"},
+        "json": {"instance_id": "instance-gpt-4.1"},
         "timeout": 33,
     }
 
@@ -885,7 +1273,7 @@ def test_gemini_backend_sends_safety_defaults_and_multiple_images():
     assert calls[0]["params"] == {"key": "gem-key"}
     assert calls[0]["timeout"] == 77
     assert body["contents"][0]["parts"][0] == {"text": "user prompt"}
-    assert body["generationConfig"] == {"temperature": 0.7, "responseMimeType": "application/json"}
+    assert body["generationConfig"] == {"responseMimeType": "application/json"}
     assert len([part for part in body["contents"][0]["parts"] if "inline_data" in part]) == 2
     assert body["safetySettings"] == [
         {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
@@ -919,26 +1307,411 @@ def test_gemini_backend_omits_json_mime_for_natural_outputs():
 
     assert raw == "plain MiniMax prompt"
     body = calls[0]["json"]
-    assert body["generationConfig"] == {"temperature": 0.7}
-    assert "responseMimeType" not in body["generationConfig"]
+    assert "generationConfig" not in body
 
 
-def test_openai_backend_ignores_unload_failures_after_generation():
-    openai_backend = _load_openai_backend()
+def test_grok_backend_discovers_language_models_and_context_capabilities():
+    grok_backend = _load_grok_backend()
+    calls = []
+
+    def fake_get(url, headers, timeout):
+        calls.append(url)
+        assert headers["Authorization"] == "Bearer xai-test"
+        if url.endswith("/language-models"):
+            return _FakeResponse({"models": [
+                {
+                    "id": "grok-4.6-vision",
+                    "input_modalities": ["text", "image"],
+                    "output_modalities": ["text"],
+                    "aliases": ["grok-latest"],
+                },
+                {"id": "grok-image-only", "input_modalities": ["text"], "output_modalities": ["image"]},
+            ]})
+        if url.endswith("/models"):
+            return _FakeResponse({"data": [{"id": "grok-4.6-vision", "context_length": 131072}]})
+        raise AssertionError(url)
+
+    original_get = grok_backend.requests.get
+    try:
+        grok_backend.requests.get = fake_get
+        models = grok_backend.list_models("xai-test", timeout=31)
+    finally:
+        grok_backend.requests.get = original_get
+
+    assert calls == ["https://api.x.ai/v1/language-models", "https://api.x.ai/v1/models"]
+    assert models == [{
+        "id": "grok-4.6-vision",
+        "display_name": "grok-4.6-vision",
+        "aliases": ["grok-latest"],
+        "vision": True,
+        "input_modalities": ["text", "image"],
+        "output_modalities": ["text"],
+        "context_length": 131072,
+        "reasoning_options": ["default", "low", "medium", "high", "xhigh"],
+    }]
+
+
+def test_grok_backend_uses_responses_structured_output_cache_and_sanitized_usage():
+    grok_backend = _load_grok_backend()
     calls = []
 
     def fake_post(url, headers, json, timeout):
-        calls.append(url)
-        if url.endswith("/chat/completions"):
+        calls.append({"url": url, "headers": headers, "json": json, "timeout": timeout})
+        return _FakeResponse({
+            "model": "grok-4.6-vision",
+            "status": "completed",
+            "output": [{"type": "message", "content": [{"type": "output_text", "text": "{\"prompt_json\":{}}"}]}],
+            "usage": {
+                "input_tokens": 120,
+                "output_tokens": 44,
+                "total_tokens": 164,
+                "input_tokens_details": {"cached_tokens": 80},
+                "output_tokens_details": {"reasoning_tokens": 12},
+            },
+        })
+
+    original_post = grok_backend.requests.post
+    try:
+        grok_backend.requests.post = fake_post
+        raw = grok_backend.generate(
+            "xai-secret",
+            "grok-4.6-vision",
+            "selected system rules",
+            "user prompt",
+            pil_images=[Image.new("RGB", (1, 1), color=(1, 2, 3))],
+            timeout=42,
+            prompt_format="json",
+            max_output_tokens=2048,
+            temperature=0.4,
+            top_p=0.9,
+            reasoning_effort="xhigh",
+            prompt_cache_key="stable-cache-key",
+        )
+    finally:
+        grok_backend.requests.post = original_post
+
+    assert raw == '{"prompt_json":{}}'
+    call = calls[0]
+    assert call["url"] == "https://api.x.ai/v1/responses"
+    assert call["headers"]["Authorization"] == "Bearer xai-secret"
+    body = call["json"]
+    assert body["store"] is False
+    assert body["text"] == {"format": {"type": "json_object"}}
+    assert body["reasoning"] == {"effort": "xhigh"}
+    assert body["prompt_cache_key"] == "stable-cache-key"
+    assert body["max_output_tokens"] == 2048
+    assert body["temperature"] == 0.4
+    assert body["top_p"] == 0.9
+    assert body["input"][0] == {"role": "system", "content": "selected system rules"}
+    assert body["input"][1]["content"][0] == {"type": "input_text", "text": "user prompt"}
+    assert body["input"][1]["content"][1]["type"] == "input_image"
+    for forbidden in ("tools", "web_search", "x_search", "citations", "conversation", "encrypted_reasoning"):
+        assert forbidden not in body
+    assert raw.diagnostics == {
+        "provider": "grok", "model": "grok-4.6-vision", "status": "completed",
+        "input_tokens": 120, "output_tokens": 44, "reasoning_tokens": 12,
+        "cached_tokens": 80, "total_tokens": 164,
+    }
+
+
+def test_grok_backend_rejects_reasoning_effort_not_supported_by_model():
+    grok_backend = _load_grok_backend()
+    try:
+        grok_backend.generate("xai-test", "grok-plain", "system", "user", reasoning_effort="xhigh")
+    except ValueError as error:
+        assert "does not advertise" in str(error)
+    else:
+        raise AssertionError("Unsupported Grok reasoning effort must fail before dispatch.")
+
+
+def test_deepseek_backend_discovers_text_and_vision_models_with_current_limits():
+    backend = _load_deepseek_backend()
+    calls = []
+
+    def fake_get(url, headers, timeout):
+        calls.append({"url": url, "headers": headers, "timeout": timeout})
+        return _FakeResponse({"object": "list", "data": [
+            {"id": "deepseek-v4-pro", "object": "model", "owned_by": "deepseek"},
+            {"id": "deepseek-v4-flash", "object": "model", "owned_by": "deepseek"},
+            {"id": "deepseek-v4-flash-vision-exp", "object": "model", "owned_by": "deepseek"},
+        ]})
+
+    original_get = backend.requests.get
+    try:
+        backend.requests.get = fake_get
+        models = backend.list_models("deepseek-secret", timeout=27)
+    finally:
+        backend.requests.get = original_get
+
+    assert calls == [{
+        "url": "https://api.deepseek.com/models",
+        "headers": {"Authorization": "Bearer deepseek-secret", "Content-Type": "application/json"},
+        "timeout": 27,
+    }]
+    assert [model["id"] for model in models] == [
+        "deepseek-v4-flash", "deepseek-v4-flash-vision-exp", "deepseek-v4-pro",
+    ]
+    for model in models:
+        assert model["context_length"] == 1_000_000
+        assert model["max_output_tokens"] == 384 * 1024
+        assert model["thinking_options"] == ["default", "enabled", "disabled"]
+        assert model["reasoning_options"] == ["default", "low", "high", "max"]
+    assert next(model for model in models if model["id"].endswith("vision-exp"))["vision"] is True
+    assert next(model for model in models if model["id"] == "deepseek-v4-pro")["vision"] is False
+
+
+def test_deepseek_backends_use_chat_completions_and_keep_reasoning_private():
+    standard = _load_deepseek_backend()
+    _load_package_modules()
+    engine = importlib.import_module("workflowx_unified_autoprompter_test.jsonx_profile.engine")
+    private = engine.deepseek_backend
+
+    for backend in (standard, private):
+        calls = []
+
+        def fake_post(url, headers, json, timeout):
+            calls.append({"url": url, "headers": headers, "json": json, "timeout": timeout})
             return _FakeResponse({
+                "model": "deepseek-v4-flash",
+                "system_fingerprint": "fp_test",
                 "choices": [{
-                    "message": {"content": "refined prompt"},
-                }]
+                    "finish_reason": "stop",
+                    "message": {"content": '{"prompt_json":{}}', "reasoning_content": "private chain"},
+                }],
+                "usage": {
+                    "prompt_tokens": 100,
+                    "completion_tokens": 25,
+                    "prompt_cache_hit_tokens": 80,
+                    "prompt_cache_miss_tokens": 20,
+                    "total_tokens": 125,
+                    "completion_tokens_details": {"reasoning_tokens": 9},
+                },
+            })
+
+        original_post = backend.requests.post
+        try:
+            backend.requests.post = fake_post
+            kwargs = {
+                "timeout": 41,
+                "max_tokens": 4096,
+                "thinking": "enabled",
+                "reasoning_effort": "max",
+                "temperature": 0.2,
+                "top_p": 0.8,
+            }
+            if backend is standard:
+                kwargs["prompt_format"] = "json"
+            else:
+                kwargs["response_format"] = "json"
+            raw = backend.generate(
+                "deepseek-secret", "deepseek-v4-flash", "selected system", "user prompt", **kwargs
+            )
+        finally:
+            backend.requests.post = original_post
+
+        assert raw == '{"prompt_json":{}}'
+        body = calls[0]["json"]
+        assert calls[0]["url"] == "https://api.deepseek.com/chat/completions"
+        assert body["messages"] == [
+            {"role": "system", "content": "selected system"},
+            {"role": "user", "content": "user prompt"},
+        ]
+        assert body["stream"] is False
+        assert body["response_format"] == {"type": "json_object"}
+        assert body["thinking"] == {"type": "enabled"}
+        assert body["reasoning_effort"] == "max"
+        assert body["max_tokens"] == 4096
+        assert "temperature" not in body
+        assert "top_p" not in body
+        assert "reasoning_content" not in str(raw)
+        assert raw.diagnostics["cache_hit_tokens"] == 80
+        assert raw.diagnostics["cache_miss_tokens"] == 20
+        assert raw.diagnostics["reasoning_tokens"] == 9
+        assert raw.diagnostics["finish_reason"] == "stop"
+
+
+def test_deepseek_non_thinking_sampling_and_image_rejection_are_explicit():
+    backend = _load_deepseek_backend()
+    calls = []
+
+    def fake_post(url, headers, json, timeout):
+        calls.append(json)
+        return _FakeResponse({
+            "model": "deepseek-v4-pro",
+            "choices": [{"finish_reason": "stop", "message": {"content": "final prompt"}}],
+            "usage": {},
+        })
+
+    original_post = backend.requests.post
+    try:
+        backend.requests.post = fake_post
+        raw = backend.generate(
+            "deepseek-secret", "deepseek-v4-pro", "system", "user",
+            thinking="disabled", reasoning_effort="max", temperature=0.3, top_p=0.75,
+        )
+    finally:
+        backend.requests.post = original_post
+    assert raw == "final prompt"
+    assert calls[0]["thinking"] == {"type": "disabled"}
+    assert calls[0]["temperature"] == 0.3
+    assert calls[0]["top_p"] == 0.75
+    assert "reasoning_effort" not in calls[0]
+
+    try:
+        backend.generate(
+            "deepseek-secret", "deepseek-v4-flash", "system", "user",
+            pil_images=[Image.new("RGB", (1, 1))],
+        )
+    except ValueError as error:
+        assert "does not accept image input" in str(error)
+    else:
+        raise AssertionError("A text-only DeepSeek model must reject image input before dispatch.")
+
+
+def test_deepseek_vision_model_sends_ordered_inline_images_in_both_isolated_backends():
+    standard = _load_deepseek_backend()
+    _load_package_modules()
+    engine = importlib.import_module("workflowx_unified_autoprompter_test.jsonx_profile.engine")
+
+    for backend in (standard, engine.deepseek_backend):
+        calls = []
+
+        def fake_post(url, headers, json, timeout):
+            calls.append(json)
+            return _FakeResponse({
+                "model": "deepseek-v4-flash-vision-exp",
+                "choices": [{"finish_reason": "stop", "message": {"content": "vision prompt"}}],
+                "usage": {},
+            })
+
+        original_post = backend.requests.post
+        try:
+            backend.requests.post = fake_post
+            kwargs = {
+                "pil_images": [Image.new("RGB", (2, 2), "red"), Image.new("RGB", (2, 2), "blue")],
+                "image_detail": "low",
+            }
+            kwargs["prompt_format" if backend is standard else "response_format"] = "natural"
+            raw = backend.generate(
+                "deepseek-secret",
+                "deepseek-v4-flash-vision-exp",
+                "system",
+                "inspect both images",
+                **kwargs,
+            )
+        finally:
+            backend.requests.post = original_post
+
+        assert raw == "vision prompt"
+        content = calls[0]["messages"][1]["content"]
+        assert content[0] == {"type": "text", "text": "inspect both images"}
+        assert len(content) == 3
+        assert all(item["type"] == "image_url" for item in content[1:])
+        assert all(item["image_url"]["url"].startswith("data:image/png;base64,") for item in content[1:])
+        assert all(item["image_url"]["detail"] == "low" for item in content[1:])
+
+
+def test_unified_jsonx_dispatches_through_its_private_deepseek_adapter():
+    _load_package_modules()
+    engine = importlib.import_module("workflowx_unified_autoprompter_test.jsonx_profile.engine")
+    calls = []
+
+    def fake_generate(api_key, model, system_prompt, user_prompt, **kwargs):
+        calls.append((api_key, model, system_prompt, user_prompt, kwargs))
+        return '{"scene":{"environment":"coastal beach"}}'
+
+    original = engine.deepseek_backend.generate
+    try:
+        engine.deepseek_backend.generate = fake_generate
+        raw = engine._call_provider(
+            {
+                "backend": "deepseek",
+                "api_key": "deepseek-secret",
+                "model": "deepseek-v4-pro",
+                "timeout": 44,
+                "deepseek_max_tokens": 4096,
+                "deepseek_thinking": "enabled",
+                "deepseek_reasoning_effort": "high",
+                "deepseek_temperature": 0.4,
+                "deepseek_top_p": 0.9,
+                "_deepseek_response_format": "json",
+            },
+            "jsonx system",
+            "jsonx user",
+            None,
+        )
+    finally:
+        engine.deepseek_backend.generate = original
+
+    assert raw == '{"scene":{"environment":"coastal beach"}}'
+    assert calls == [(
+        "deepseek-secret",
+        "deepseek-v4-pro",
+        "jsonx system",
+        "jsonx user",
+        {
+            "pil_images": [],
+            "timeout": 44.0,
+            "response_format": "json",
+            "max_tokens": 4096,
+            "thinking": "enabled",
+            "reasoning_effort": "high",
+            "temperature": 0.4,
+            "top_p": 0.9,
+            "image_detail": "default",
+        },
+    )]
+
+
+def test_grok_prompt_cache_key_excludes_user_content_and_credentials():
+    routes = _load_routes_module()
+    base = {
+        "grok_prompt_cache": "auto",
+        "target_model": "wan2_2",
+        "generation_type": "text_to_video",
+        "prompt_format": "natural",
+        "api_key": "secret-one",
+        "fields": {"prompt_text": "first private prompt"},
+    }
+    changed_private_data = {
+        **base,
+        "api_key": "secret-two",
+        "fields": {"prompt_text": "different private prompt"},
+        "images_b64": ["private-image"],
+    }
+    first = routes._prompt_cache_key(base, "stable selected rules", "single")
+    second = routes._prompt_cache_key(changed_private_data, "stable selected rules", "single")
+    different_rules = routes._prompt_cache_key(base, "changed selected rules", "single")
+    assert first == second
+    assert first != different_rules
+    assert routes._prompt_cache_key({**base, "grok_prompt_cache": "off"}, "stable selected rules") == ""
+
+
+def test_openai_backend_ignores_unload_failures_after_generation(capsys):
+    openai_backend = _load_openai_backend()
+    calls = []
+
+    def fake_get(url, headers, timeout):
+        return _FakeResponse({
+            "models": [{
+                "key": "local-model",
+                "loaded_instances": [{"id": "loaded-local-model"}],
+            }]
+        })
+
+    def fake_post(url, headers, json, timeout):
+        calls.append(url)
+        if url.endswith("/api/v1/chat"):
+            return _FakeResponse({
+                "model_instance_id": "loaded-local-model",
+                "output": [{"type": "message", "content": "refined prompt"}],
             })
         raise RuntimeError("server does not expose LM Studio unload")
 
+    original_get = openai_backend.requests.get
     original_post = openai_backend.requests.post
     try:
+        openai_backend.requests.get = fake_get
         openai_backend.requests.post = fake_post
         raw = openai_backend.generate(
             "http://localhost:3000/api",
@@ -947,16 +1720,242 @@ def test_openai_backend_ignores_unload_failures_after_generation():
             "system prompt",
             "user prompt",
             timeout=11,
-            unload_after=True,
+            server_type="lm_studio",
+            lifecycle="unload_after",
         )
     finally:
+        openai_backend.requests.get = original_get
         openai_backend.requests.post = original_post
 
     assert raw == "refined prompt"
     assert calls == [
-        "http://localhost:3000/api/chat/completions",
+        "http://localhost:3000/api/v1/chat",
         "http://localhost:3000/api/v1/models/unload",
     ]
+    warning = capsys.readouterr().out
+    assert "Warning: lm_studio model unload failed" in warning
+    assert "generation output was kept" in warning
+
+
+def test_openai_backend_auto_discovers_lm_studio_models_and_capabilities():
+    openai_backend = _load_openai_backend()
+    calls = []
+
+    def fake_get(url, headers, timeout):
+        calls.append(url)
+        if url == "http://localhost:1234/v1/models":
+            return _FakeResponse({"data": [{"id": "fallback-model"}]})
+        if url.endswith("/api/inference/status"):
+            return _FakeResponse({}, status_code=404)
+        if url.endswith("/api/v1/models"):
+            return _FakeResponse({
+                "models": [{
+                    "key": "reasoning-vision-model",
+                    "display_name": "Reasoning Vision Model",
+                    "capabilities": {
+                        "vision": True,
+                        "reasoning": {
+                            "allowed_options": ["off", "low", "medium", "high"],
+                            "default": "medium",
+                        },
+                    },
+                    "loaded_instances": [{"id": "instance-123"}],
+                }]
+            })
+        raise AssertionError(url)
+
+    original_get = openai_backend.requests.get
+    try:
+        openai_backend.requests.get = fake_get
+        discovery = openai_backend.discover_models("http://localhost:1234/v1", server_type="auto")
+    finally:
+        openai_backend.requests.get = original_get
+
+    assert discovery["server_type"] == "lm_studio"
+    assert discovery["models"] == [{
+        "id": "reasoning-vision-model",
+        "display_name": "Reasoning Vision Model",
+        "loaded": True,
+        "instance_id": "instance-123",
+        "vision": True,
+        "reasoning_options": ["off", "low", "medium", "high"],
+        "reasoning_default": "medium",
+    }]
+    assert calls == [
+        "http://localhost:1234/v1/models",
+        "http://localhost:1234/api/inference/status",
+        "http://localhost:1234/api/v1/models",
+    ]
+
+
+def test_openai_backend_auto_discovers_unsloth_reasoning_capabilities():
+    openai_backend = _load_openai_backend()
+
+    def fake_get(url, headers, timeout):
+        if url == "http://localhost:8000/v1/models":
+            return _FakeResponse({"data": [{"id": "unsloth-model"}]})
+        if url.endswith("/api/inference/status"):
+            return _FakeResponse({
+                "supports_reasoning": True,
+                "reasoning_style": "effort",
+                "reasoning_effort_levels": ["none", "low", "medium", "high", "xhigh"],
+                "reasoning_always_on": False,
+                "supports_preserve_thinking": True,
+            })
+        raise AssertionError(url)
+
+    original_get = openai_backend.requests.get
+    try:
+        openai_backend.requests.get = fake_get
+        discovery = openai_backend.discover_models("http://localhost:8000/v1", server_type="auto")
+    finally:
+        openai_backend.requests.get = original_get
+
+    assert discovery["server_type"] == "unsloth"
+    assert discovery["models"] == [{"id": "unsloth-model", "display_name": "unsloth-model"}]
+    assert discovery["reasoning"]["supported"] is True
+    assert discovery["reasoning"]["style"] == "effort"
+    assert discovery["reasoning"]["options"] == ["none", "low", "medium", "high", "xhigh"]
+    assert discovery["reasoning"]["always_on"] is False
+    assert discovery["reasoning"]["supports_preserve_thinking"] is True
+
+
+def test_openai_backends_send_unsloth_reasoning_and_unload_independently():
+    standard_backend = _load_openai_backend()
+    _load_package_modules()
+    engine = importlib.import_module("workflowx_unified_autoprompter_test.jsonx_profile.engine")
+    private_backend = engine.openai_backend
+
+    for backend in (standard_backend, private_backend):
+        calls = []
+
+        def fake_post(url, headers, json, timeout):
+            calls.append({"url": url, "json": json})
+            if url.endswith("/chat/completions"):
+                return _FakeResponse({
+                    "choices": [{"message": {"content": "<think>hidden</think>usable prompt"}}]
+                })
+            return _FakeResponse({"status": "unloaded"})
+
+        original_post = backend.requests.post
+        try:
+            backend.requests.post = fake_post
+            raw = backend.generate(
+                "http://localhost:8000/v1",
+                "",
+                "unsloth-model",
+                "system prompt",
+                "user prompt",
+                server_type="unsloth",
+                lifecycle="unload_after",
+                reasoning_effort="xhigh",
+            )
+        finally:
+            backend.requests.post = original_post
+
+        assert raw == "usable prompt"
+        assert calls[0]["url"] == "http://localhost:8000/v1/chat/completions"
+        assert calls[0]["json"]["enable_thinking"] is True
+        assert calls[0]["json"]["reasoning_effort"] == "xhigh"
+        assert calls[1] == {
+            "url": "http://localhost:8000/api/inference/unload",
+            "json": {"model_path": "unsloth-model"},
+        }
+
+
+def test_openai_backends_use_lm_studio_native_reasoning_and_instance_unload():
+    standard_backend = _load_openai_backend()
+    _load_package_modules()
+    engine = importlib.import_module("workflowx_unified_autoprompter_test.jsonx_profile.engine")
+    private_backend = engine.openai_backend
+
+    for backend in (standard_backend, private_backend):
+        calls = []
+
+        def fake_post(url, headers, json, timeout):
+            calls.append({"url": url, "json": json})
+            if url.endswith("/api/v1/chat"):
+                return _FakeResponse({
+                    "model_instance_id": "instance-native-1",
+                    "model": "lm-model",
+                    "output": [
+                        {"type": "reasoning", "content": "private reasoning"},
+                        {"type": "message", "content": "final visible prompt"},
+                    ],
+                    "stats": {
+                        "input_tokens": 101,
+                        "total_output_tokens": 52,
+                        "reasoning_output_tokens": 11,
+                        "tokens_per_second": 24.5,
+                        "time_to_first_token_seconds": 0.4,
+                        "model_load_time_seconds": 1.75,
+                    },
+                })
+            return _FakeResponse({"status": "unloaded"})
+
+        original_post = backend.requests.post
+        try:
+            backend.requests.post = fake_post
+            raw = backend.generate(
+                "http://localhost:1234/v1",
+                "",
+                "lm-model",
+                "system prompt",
+                "user prompt",
+                server_type="lm_studio",
+                lifecycle="unload_after",
+                reasoning_effort="none",
+            )
+        finally:
+            backend.requests.post = original_post
+
+        assert raw == "final visible prompt"
+        assert raw.diagnostics == {
+            "provider": "lm_studio",
+            "model": "lm-model",
+            "input_tokens": 101,
+            "output_tokens": 52,
+            "reasoning_tokens": 11,
+            "tokens_per_second": 24.5,
+            "time_to_first_token": 0.4,
+            "model_load_time": 1.75,
+        }
+        assert calls[0]["url"] == "http://localhost:1234/api/v1/chat"
+        assert calls[0]["json"]["reasoning"] == "off"
+        assert calls[1] == {
+            "url": "http://localhost:1234/api/v1/models/unload",
+            "json": {"instance_id": "instance-native-1"},
+        }
+
+
+def test_openai_generic_unload_is_console_warning_only(capsys):
+    openai_backend = _load_openai_backend()
+    calls = []
+
+    def fake_post(url, headers, json, timeout):
+        calls.append(url)
+        return _FakeResponse({"choices": [{"message": {"content": "successful prompt"}}]})
+
+    original_post = openai_backend.requests.post
+    try:
+        openai_backend.requests.post = fake_post
+        raw = openai_backend.generate(
+            "http://localhost:9000/v1",
+            "",
+            "generic-model",
+            "system prompt",
+            "user prompt",
+            server_type="generic",
+            lifecycle="unload_after",
+        )
+    finally:
+        openai_backend.requests.post = original_post
+
+    assert raw == "successful prompt"
+    assert calls == ["http://localhost:9000/v1/chat/completions"]
+    warning = capsys.readouterr().out
+    assert "Generic OpenAI-compatible model unload failed" in warning
+    assert "generation output was kept" in warning
 
 
 def test_refresh_comfy_vram_unloads_all_models_and_cache():
@@ -1036,6 +2035,7 @@ def test_unified_frontend_collapses_provider_model_settings_and_refits_the_node(
     assert 'buildDom("details", "workflowx-uap-model-settings")' in source
     assert 'buildDom("summary", "", "Model settings")' in source
     assert "modelSettingsBody.appendChild(geminiPanel)" in source
+    assert "modelSettingsBody.appendChild(deepseekPanel)" in source
     assert "modelSettingsBody.appendChild(openaiPanel)" in source
     assert "modelSettingsBody.appendChild(ollamaPanel)" in source
     assert "modelSettingsBody.appendChild(localPanel)" in source
@@ -1043,7 +2043,9 @@ def test_unified_frontend_collapses_provider_model_settings_and_refits_the_node(
     assert 'modelSettingsDetails.addEventListener("toggle"' in source
     assert "scheduleVisibleContentResize();" in source
     assert 'modelSettingsBtn.textContent = "Profile settings"' in source
-    assert 'modelSettingsBtn.addEventListener("click", openModelSettingsModalV3)' in source
+    assert 'modelSettingsBtn.addEventListener("click", openMarkdownProfileSettings)' in source
+    assert 'const REFERENCE_SCHEMA_VERSION = 1' in source
+    assert '"Common Profile Rules"' in source
     assert "openJsonXSettingsModal" not in source
     assert "Unified JsonX Settings" not in source
     assert "measureVisibleContentHeight" in source
@@ -1051,44 +2053,149 @@ def test_unified_frontend_collapses_provider_model_settings_and_refits_the_node(
     assert "wrap.scrollHeight" not in source
 
 
+def test_unified_frontend_uses_one_persisted_prompt_editor_and_detail_selector():
+    source = (ROOT / "web" / "js" / "unified_autoprompter.js").read_text(encoding="utf-8")
+    input_surface = source.split('const promptArea = createTextarea(7);', 1)[1].split(
+        'const connectedInputRow = buildDom("div", "workflowx-uap-row");', 1
+    )[0]
+    default_state = source.split("function defaultState(node)", 1)[1].split(
+        "function serializableState(state)", 1
+    )[0]
+
+    assert 'field(wrap, "Prompt instructions", promptArea)' in input_surface
+    assert 'field(wrap, "Detail level", detailSelect)' in input_surface
+    for removed_label in (
+        '"Idea"', '"Subject"', '"Style"', '"Lighting"', '"Camera / composition"',
+        '"Text / typography"', '"Reference image note"', '"Video duration / frames"',
+        '"Camera movement"', '"Motion / action"', '"Temporal beats"',
+        '"Audio / dialogue"', '"Reference / control notes"', '"Extra instructions"',
+    ):
+        assert removed_label not in input_surface
+    assert 'prompt_text: saved.prompt_text || ""' in default_state
+    assert "idea: saved.idea" not in default_state
+    assert "promptArea.placeholder = promptInstructionsPlaceholder(profile)" in source
+    assert "prompt_text: state.prompt_text" in source
+    assert "const hasTextSeed = Boolean(rawPromptText || String(state.prompt_text || \"\").trim())" in source
+
+
+def test_unified_jsonx_field_compiler_uses_prompt_text_and_connected_override():
+    _load_package_modules()
+    routes = importlib.import_module("workflowx_unified_autoprompter_test.jsonx_profile.routes")
+
+    manual = routes._instructions_from_fields({"prompt_text": "manual scene", "detail": "high"})
+    connected = routes._instructions_from_fields({
+        "prompt_text": "manual scene",
+        "raw_prompt_text": "connected scene",
+        "detail": "concise",
+    })
+
+    assert manual == "manual scene\nDetail level: high"
+    assert connected == "connected scene\nDetail level: concise"
+    assert "manual scene" not in connected
+
+
+def test_unified_jsonx_request_payload_keeps_images_as_text_path_authoring_guidance():
+    _load_package_modules()
+    routes = importlib.import_module("workflowx_unified_autoprompter_test.jsonx_profile.routes")
+
+    text_payload = routes._request_payload({
+        "target_model": "jsonx",
+        "generation_type": "text_to_image",
+        "images_b64": ["image-1", "image-2"],
+        "fields": {"prompt_text": "describe a scene", "detail": "high"},
+    })
+    assert text_payload["images_b64"] == ["image-1", "image-2"]
+    assert text_payload["image_b64"] == "image-1"
+    assert text_payload["_connected_image_count"] == 2
+    assert text_payload["_ignored_image_count"] == 0
+    assert text_payload["_submitted_image_count"] == 2
+    assert text_payload["_image_state"] == "unsupported_with_image_guidance"
+    engine = importlib.import_module("workflowx_unified_autoprompter_test.jsonx_profile.engine")
+    preview = engine.effective_instruction_preview(text_payload)
+    assert "combine relevant visible evidence" in preview["stage_one"]
+    assert "image-reference commentary" in preview["stage_one"]
+
+    image_payload = routes._request_payload({
+        "target_model": "jsonx",
+        "generation_type": "image_to_image",
+        "images_b64": ["image-1", "image-2"],
+        "fields": {"prompt_text": "describe the images", "detail": "high"},
+    })
+    assert image_payload["images_b64"] == ["image-1", "image-2"]
+    assert image_payload["_ignored_image_count"] == 0
+    assert image_payload["_submitted_image_count"] == 2
+    assert image_payload["_image_state"] == "supported_with_image"
+
+
+def test_connected_local_images_require_a_vision_mmproj_in_both_engines():
+    _load_package_modules()
+    engine = importlib.import_module("workflowx_unified_autoprompter_test.jsonx_profile.engine")
+    image = Image.new("RGB", (8, 8), "white")
+    try:
+        engine._call_provider(
+            {"backend": "local", "model": "model.gguf", "mmproj": "none"},
+            "system",
+            "user",
+            [image],
+        )
+    except ValueError as error:
+        assert "vision mmproj" in str(error)
+    else:
+        raise AssertionError("JsonX local generation must reject images without a vision mmproj.")
+
+    standard_routes = (ROOT / "unified_autoprompter" / "routes.py").read_text(encoding="utf-8")
+    frontend = (ROOT / "web" / "js" / "unified_autoprompter.js").read_text(encoding="utf-8")
+    assert "Connected authoring images require a vision mmproj" in standard_routes
+    assert "Connected authoring images require a compatible vision mmproj" in frontend
+
+
 def test_unified_jsonx_profile_editor_shows_effective_packaged_instructions():
     source = (ROOT / "web" / "js" / "unified_autoprompter.js").read_text(encoding="utf-8")
-    assert '`${JSONX_ROUTE}/instructions`' in source
-    assert "jsonxInstructionDefault" in source
-    assert "config[key] || jsonxInstructionDefault(key)" in source
-    assert "normalizedJsonXConfig" in source
-    assert "unchanged defaults remain linked to the packaged engine instructions" in source
+    assert '`${JSONX_ROUTE}/reference_config`' in source
+    assert "openJsonXMarkdownProfileSettings" in source
+    assert "Complete JsonX preset catalog" in source
+    assert "Adaptive ranked context" in source
+    assert "Ranked presets — Recommended" in source
+    assert "Full preset catalog" in source
+    assert "JsonX construction method" in source
+    assert "Natural output always uses two passes" in source
+    assert "contextMode.disabled = !adaptive" in source
+    assert "presets.disabled = adaptive" in source
+    assert "depth.disabled = !adaptive && !templateRefinedJson" in source
+    setup_names = [
+        "Adaptive Balanced", "Adaptive Polished", "Adaptive Max",
+        "Template Flex", "Template Catalog", "Custom",
+    ]
+    setup_positions = [source.index(f'"{name}"') for name in setup_names]
+    assert setup_positions == sorted(setup_positions)
+    assert 'overviewField("JsonX setup preset", setupPreset)' in source
+    assert 'setupPreset.value = "custom"' in source
 
     _load_package_modules()
     engine = importlib.import_module("workflowx_unified_autoprompter_test.jsonx_profile.engine")
     templates = engine.instruction_templates()
-    for key in ("stage_one", "template_fill", "refinement", "natural_language"):
-        assert templates[key].strip()
+    assert templates["jsonx_reference_schema_version"] == 1
+    for key in ("stage_one_adaptive", "stage_one_template_fill", "stage_two_json_refinement", "stage_two_natural_conversion"):
+        assert templates["editors"][key].strip()
 
 
 def test_unified_jsonx_profiles_persist_engine_and_profile_owned_configuration():
-    _profiles, _prompt_io, _prompt_builder, _node, profile_config = _load_package_modules()
-    with _with_temp_profile_paths(profile_config):
-        payload = profile_config.profile_config_payload()
-        jsonx = next(profile for profile in payload["profiles"] if profile["key"] == "jsonx")
-        assert jsonx["engine"] == "jsonx"
-        assert jsonx["jsonx_config"]["generation_profile"] == "adaptive"
-        assert jsonx["jsonx_config"]["with_image_instructions"] == ""
-
-        duplicate = json.loads(json.dumps(jsonx))
-        duplicate["key"] = "jsonx_custom"
-        duplicate["label"] = "JsonX Custom"
-        duplicate["jsonx_config"]["generation_profile"] = "template_fill"
-        saved = profile_config.save_config({"profiles": payload["profiles"] + [duplicate]})
-        custom = next(profile for profile in saved["profiles"] if profile["key"] == "jsonx_custom")
-        assert custom["engine"] == "jsonx"
-        assert custom["jsonx_config"]["generation_profile"] == "template_fill"
+    profiles, _prompt_io, _prompt_builder, _node, _profile_config = _load_package_modules()
+    payload = profiles.profiles_payload()
+    jsonx = next(profile for profile in payload["profiles"] if profile["key"] == "jsonx")
+    assert jsonx["engine"] == "jsonx"
+    assert jsonx["jsonx_config"]["generation_profile"] == "adaptive"
+    assert set(jsonx["jsonx_config"]) == {
+        "generation_profile", "generation_mode", "preset_context_mode",
+        "template_use_presets", "enable_framing_and_placement", "detail_level",
+    }
 
 
 def test_unified_frontend_routes_shared_controls_to_isolated_jsonx_state():
     source = (ROOT / "web" / "js" / "unified_autoprompter.js").read_text(encoding="utf-8")
     assert 'return profile?.engine === "jsonx"' in source
     assert '`${jsonx ? JSONX_ROUTE : ROUTE}/gemini/models`' in source
+    assert '`${jsonx ? JSONX_ROUTE : ROUTE}/deepseek/models`' in source
     assert '`${jsonx ? JSONX_ROUTE : ROUTE}/openai/models`' in source
     assert '`${jsonx ? JSONX_ROUTE : ROUTE}/ollama/models`' in source
     assert '`${jsonx ? JSONX_ROUTE : ROUTE}/local/models`' in source
@@ -1096,6 +2203,138 @@ def test_unified_frontend_routes_shared_controls_to_isolated_jsonx_state():
     assert "workflowx_unified_jsonx_gemini_api_key" in source
     assert "workflowx_unified_jsonx_openai_api_key" in source
     assert 'if (isJsonXProfile()) {\n      persistJsonXProviderFromControls();\n      return;' in source
+
+
+def test_unified_frontend_exposes_provider_aware_openai_controls_and_discovery():
+    source = (ROOT / "web" / "js" / "unified_autoprompter.js").read_text(encoding="utf-8")
+    for label in (
+        "Grok API",
+        "DeepSeek API",
+        "OpenAI Compatible",
+        "LM Studio",
+        "Unsloth Studio",
+        "Ollama",
+        "Local GGUF",
+        "Server managed",
+        "Keep loaded",
+        "Unload after generation",
+        "Provider / model default",
+    ):
+        assert label in source
+    assert 'openai_server_type: normalizeOpenAIServerType(openaiServerTypeSelect.value)' in source
+    assert 'openai_lifecycle: normalizeOpenAILifecycle(openaiLifecycleSelect.value)' in source
+    assert 'openai_reasoning_effort: normalizeOpenAIReasoning(openaiReasoningSelect.value)' in source
+    assert 'state.openai_model = (openaiModelSelect.value || openaiModelInput.value || "").trim()' in source
+    assert "let openaiDiscoveryScope = null" in source
+    assert 'const discoveryScope = isJsonXProfile() ? "jsonx" : "standard"' in source
+    assert 'openaiDetectedServerType = "auto"' in source
+    assert 'body: JSON.stringify({' in source
+    assert "const FRONTEND_SCHEMA_VERSION = 7" in source
+    assert 'field(topGrid, "Provider", providerSelect)' in source
+    assert 'field(topGrid, "Generation type", generationTypeSelect)' in source
+    assert "NSFW instructions" in source
+    assert "Restart ComfyUI and hard-refresh the browser" in source
+    assert '`${jsonx ? JSONX_ROUTE : ROUTE}/grok/models`' in source
+    assert '`${jsonx ? JSONX_ROUTE : ROUTE}/deepseek/models`' in source
+    assert '`${jsonx ? JSONX_ROUTE : ROUTE}/${kind}/models`' in source
+    assert "syncGrokReasoningOptions" in source
+    assert "syncDeepSeekControls" in source
+    assert "deepseek-v4-flash-vision-exp" in source
+    assert "Image detail" in source
+    assert "Provider Default" in source
+    for action in (
+        "Fetch Gemini models",
+        "Fetch xAI models",
+        "Fetch DeepSeek models",
+        "Fetch OpenAI-compatible models",
+        "Fetch Ollama models",
+    ):
+        assert action in source
+    assert '`Fetch ${kind === "lm_studio" ? "LM Studio" : "Unsloth Studio"} models`' in source
+    assert "Fetch xAI language models" not in source
+
+
+def test_unified_frontend_uses_effective_images_and_transparent_profile_editor_contracts():
+    source = (ROOT / "web" / "js" / "unified_autoprompter.js").read_text(encoding="utf-8")
+    markdown_surface = source.split("async function openMarkdownProfileSettings(forceEngine", 1)[1].split("function normalizeBoxFromBbox", 1)[0]
+    assert "function effectiveGenerationImages" in source
+    assert "const submitted = connected" in source
+    assert 'imageState: rule?.supportsImages' in source
+    assert "activeProviderPayload(true, images)" in source
+    assert "activeProviderPayload(false, images)" in source
+    assert "activated_blocks" in source
+    assert "Local routing only" in source
+    assert "Exact system text" in source
+    assert 'const nsfwMode = buildDom("button", "", "Global NSFW Rules")' in source
+    assert 'let editorMode = "profiles"' in source
+    assert "function renderGlobalNsfw()" in source
+    nsfw_surface = markdown_surface.split("function renderGlobalNsfw()", 1)[1].split("function renderPreview", 1)[0]
+    assert '"nsfw-image.md"' in nsfw_surface
+    assert '"nsfw-video.md"' in nsfw_surface
+    assert "GENERATION_TYPES" not in nsfw_surface
+    assert "function renderReferences(profile)" in source
+    path_surface = markdown_surface.split("function renderPaths(profile)", 1)[1].split("function renderReferences", 1)[0]
+    reference_surface = markdown_surface.split("function renderReferences(profile)", 1)[1].split("function renderContracts", 1)[0]
+    assert "Supporting/" not in path_surface
+    assert "with_reference_supported.md" in reference_surface
+    assert "without_reference_supported.md" in reference_surface
+    assert "without_reference_unsupported.md" in reference_surface
+    assert '["references", "Reference Usage"]' in source
+    assert '["common", "Common Profile Rules"]' in source
+    assert "Exactly one profile-wide output contract" in source
+    assert "${profile.key} · ${profile.engine}" not in source
+    for marker in (
+        "workflowx-uap-settings-card",
+        "workflowx-uap-condition-badge",
+        "Reference Usage",
+        "Exact output contract",
+        "reference/current_use",
+    ):
+        assert marker in source
+
+
+def test_unified_frontend_v7_has_one_rules_and_guide_editor_and_all_jsonx_instruction_surfaces():
+    source = (ROOT / "web" / "js" / "unified_autoprompter.js").read_text(encoding="utf-8")
+    markdown_surface = source.split("async function openMarkdownProfileSettings(forceEngine", 1)[1].split("function normalizeBoxFromBbox", 1)[0]
+    common_surface = markdown_surface.split("function renderCommon(profile)", 1)[1].split("function renderPaths", 1)[0]
+    path_surface = markdown_surface.split("function renderPaths(profile)", 1)[1].split("function renderReferences", 1)[0]
+    assert 'profilePath(profile, "split/common.md")' in common_surface
+    assert common_surface.count("addExactEditor(") == 1
+    assert "pathFile(profile, activePath)" in path_surface
+    assert path_surface.count("addExactEditor(") == 1
+    assert "common_rules" not in markdown_surface
+    assert "common_guide" not in markdown_surface
+    assert "path_rules" not in markdown_surface
+    assert "path_guide" not in markdown_surface
+    assert '["last_frame_to_video", "Last Frame to Video", 1, 1]' in source
+    jsonx_surface = source.split("async function openJsonXMarkdownProfileSettings(requestedProfileKey", 1)[1].split(
+        "async function openMarkdownProfileSettings(forceEngine", 1
+    )[0]
+    for key in (
+        "stage_one_adaptive",
+        "stage_one_template_fill",
+        "stage_two_json_refinement",
+        "stage_two_natural_conversion",
+        "repair_json",
+        "repair_natural",
+        "user_stage_one",
+        "user_json_refinement",
+        "user_natural_conversion",
+        "user_json_repair",
+        "user_natural_repair",
+        "depth_deep",
+        "depth_exhaustive",
+        "framing_json_enabled",
+        "framing_json_disabled",
+        "template_presets_enabled",
+        "template_presets_disabled",
+        "template_adaptive_ranked",
+        "template_adaptive_full",
+        "presets_full",
+        "contract_stage_one_json",
+        "contract_stage_two_natural",
+    ):
+        assert key in jsonx_surface
 
 
 def test_unified_jsonx_workflow_state_snapshots_provider_models_and_profile_config_without_secrets():
@@ -1113,12 +2352,16 @@ def test_unified_jsonx_workflow_state_snapshots_provider_models_and_profile_conf
         assert private_field not in provider_snapshot
 
     assert "jsonx_provider: workflowJsonXProviderSettings(saved.jsonx_provider)" in source
-    assert "jsonx_profile_configs: saved.jsonx_profile_configs" in source
-    assert "jsonx_provider: workflowJsonXProviderSettings(rest.jsonx_provider)" in serializable
-    assert "state.jsonx_provider = workflowJsonXProviderSettings(provider)" in source
-    assert "ensureJsonXConfigSnapshot" in source
+    assert "jsonx_profile_configs: Object.fromEntries(Object.entries(" in source
+    assert "jsonxBehaviorConfig(value)" in source
+    assert "jsonx_provider: workflowJsonXProviderSettings(rest.jsonx_provider)" not in serializable
+    assert '"jsonx_provider"' in serializable
+    assert "result.jsonx_profile_configs" in serializable
+    assert '"grok"' in serializable
+    assert '"deepseek"' in serializable
+    assert '"lm_studio"' in serializable
+    assert '"unsloth"' in serializable
     assert "const jsonx = effectiveJsonXConfig();" in source
-    assert "const snapshot = state.jsonx_profile_configs?.[profile.key]" in source
     assert 'localModelSelect.addEventListener("change", () => {\n' in source
     local_model_handler = source.split('localModelSelect.addEventListener("change", () => {', 1)[1].split("});", 1)[0]
     assert "persistModelSelection();" in local_model_handler
@@ -1128,12 +2371,11 @@ def test_unified_jsonx_workflow_state_snapshots_provider_models_and_profile_conf
 def test_unified_profile_editor_uses_close_for_discard_and_explains_ambiguous_controls():
     source = (ROOT / "web" / "js" / "unified_autoprompter.js").read_text(encoding="utf-8")
 
-    assert '"Revert"' not in source
-    assert "revertBtn" not in source
-    assert source.count('closeBtn.title = "Close without saving editor changes"') == 2
-    assert 'resetOneBtn.title = "Restore the selected built-in profile defaults in this draft; click Save to apply"' in source
-    assert 'resetAllBtn.title = "Immediately replace every saved profile with the packaged WorkflowX defaults"' in source
-    assert 'cancelJsonXBtn.title = "Stop the active JsonX generation and keep the previous output"' in source
+    assert 'buildDom("button", "workflowx-uap-btn", "Revert")' in source
+    assert source.count('close.title = "Close without saving editor changes"') == 2
+    assert source.count("resetOne.title = \"Immediately restore the selected built-in") == 2
+    assert source.count("resetAll.title = \"Immediately restore all built-in") == 2
+    assert 'cancelJsonXBtn.title = "Stop the active generation and keep the previous output"' in source
     assert 'modelSettingsBtn.title = "Edit prompt profiles and JsonX generation settings"' in source
 
 
@@ -1145,31 +2387,57 @@ def test_unified_jsonx_profile_is_private_and_has_the_expected_contract():
     sources = "\n".join(path.read_text(encoding="utf-8") for path in root.rglob("*.py"))
     assert "afj_awesome_flex_json_v2" not in sources
     assert "unified_autoprompter.gemini_backend" not in sources
+    assert (root / "backends" / "grok.py").exists()
+    private_grok = (root / "backends" / "grok.py").read_text(encoding="utf-8")
+    assert "unified_autoprompter.grok_backend" not in private_grok
+    assert "from ...grok_backend" not in private_grok
+    assert (root / "backends" / "deepseek.py").exists()
+    private_deepseek = (root / "backends" / "deepseek.py").read_text(encoding="utf-8")
+    assert "unified_autoprompter.deepseek_backend" not in private_deepseek
+    assert "from ...deepseek_backend" not in private_deepseek
     assert "vendor\" / \"unified-jsonx-llama.cpp" in sources
     route_source = (root / "routes.py").read_text(encoding="utf-8")
     assert 'ROUTE_PREFIX = "/workflowx/unified_autoprompter/jsonx"' in route_source
     assert 'f"{ROUTE_PREFIX}/generate"' in route_source
+    assert 'f"{ROUTE_PREFIX}/deepseek/models"' in route_source
     assert "result[\"positive\"] = result.get(\"prompt\", \"\")" in route_source
     assert "_negative_text(stage_one)" in route_source
 
 
-def test_unified_jsonx_profile_image_mode_instructions_reach_both_stages():
+def test_unified_jsonx_profile_selected_canonical_blocks_reach_stage_one_only():
     _load_package_modules()
+    routes = importlib.import_module("workflowx_unified_autoprompter_test.jsonx_profile.routes")
     engine = importlib.import_module("workflowx_unified_autoprompter_test.jsonx_profile.engine")
-    preview = engine.effective_instruction_preview({
-        "user_instructions": "Create a detailed portrait.",
+    store = importlib.import_module("workflowx_unified_autoprompter_test.jsonx_profile.reference_store")
+    payload = routes._request_payload({
+        "target_model": "jsonx",
+        "generation_type": "image_to_image",
+        "images_b64": ["image-1"],
+        "fields": {"prompt_text": "Create a detailed portrait.", "detail": "high"},
         "generation_profile": "adaptive",
         "generation_mode": "refined",
         "output_format": "natural",
         "preset_context_mode": "optimized",
         "detail_level": "deep",
-        "has_image": True,
-        "with_image_instructions": "Preserve the reference identity exactly.",
-        "without_image_instructions": "Invent a coherent identity from text.",
+        "nsfw_enabled": True,
     })
-    assert "Preserve the reference identity exactly." in preview["stage_one"]
-    assert "Preserve the reference identity exactly." in preview["refinement"]
-    assert "Invent a coherent identity from text." not in preview["stage_one"]
+    preview = engine.effective_instruction_preview(payload)
+    stage_one = preview["stage_one"]
+    ordered = [
+        store.block("jsonx", "stage_one_adaptive")[1],
+        store.block("jsonx", "generation_image_to_image")[1],
+        store.block("jsonx", "reference_with_supported")[1],
+        store.shared_nsfw_image()[1],
+        store.block("jsonx", "adaptive_image_with")[1],
+        store.block("jsonx", "adaptive_open_world")[1],
+        store.block("jsonx", "depth_deep")[1],
+        store.block("jsonx", "framing_json_disabled")[1],
+        store.block("jsonx", "contract_stage_one_json")[1],
+    ]
+    assert all(ordered[index] in stage_one for index in range(len(ordered)))
+    assert [stage_one.index(text) for text in ordered] == sorted(stage_one.index(text) for text in ordered)
+    assert store.block("jsonx", "reference_with_supported")[1] not in preview["refinement"]
+    assert preview["activated_files"]["stage_one"][-1].endswith("contracts/stage-one-json.md")
 
 
 def test_unified_jsonx_natural_validator_normalizes_provider_formatting():
@@ -1322,6 +2590,12 @@ def test_unified_autoprompter_node_is_registered_and_builds_outputs():
     assert klass.RETURN_NAMES == ("prompt", "positive", "negative")
     assert klass.CATEGORY == "WorkflowX/Prompting"
     input_types = klass.INPUT_TYPES()
+    assert input_types["required"]["generation_type"][0] == (
+        "text_to_image", "image_to_image", "text_to_video", "first_frame_to_video",
+        "first_last_frame_to_video", "last_frame_to_video", "reference_to_video", "video_to_video",
+    )
+    assert input_types["required"]["nsfw_enabled"][0] == "BOOLEAN"
+    assert input_types["required"]["nsfw_enabled"][1]["default"] is False
     assert input_types["required"]["enable_bbox_json_input"][0] == "BOOLEAN"
     assert input_types["required"]["enable_text_input"][0] == "BOOLEAN"
     assert input_types["required"]["refresh_vram"][0] == "BOOLEAN"

@@ -1,0 +1,3 @@
+Describe the requested result as a controlled transformation. Preserve assigned or visibly supported identity, layout, pose, style, lighting, color, text, and object facts; state requested additions, removals, or changes explicitly and avoid inventing hidden or unrelated content.
+
+Inspect the connected image as visual evidence and combine it with the user's instructions. Describe only visible or reasonably inferable image-generation attributes, preserve subject count and relationships, and avoid contradictory details. Use the JsonX hierarchy and catalog deeply while allowing precise custom values where presets do not fit.

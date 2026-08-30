@@ -1,25 +1,27 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
 import json
 import re
 from difflib import SequenceMatcher
-from pathlib import Path
 from typing import Any
 
 from PIL import Image
 
 from .backends import JsonXProviderError
+from .backends import deepseek as deepseek_backend
 from .backends import gemini as gemini_backend
+from .backends import grok as grok_backend
 from .backends import local_llama as local_llama_backend
 from .backends import local_models
 from .backends import ollama as ollama_backend
 from .backends import openai_compatible as openai_backend
 from .backends import runtime
+from . import reference_store as jsonx_references
 
 
-PRESETS_PATH = Path(__file__).with_name("presets.json")
 OPTIMIZED_CANDIDATE_BUDGET = 16_000
 LEGACY_PRESET_ID_ALIASES: dict[str, tuple[tuple[str, str], ...]] = {
     # IDs used before the catalog-wide uniqueness cleanup.  Keep this narrow
@@ -97,132 +99,6 @@ FRAMING_AND_PLACEMENT_KEYS = (
     "bottom_right",
 )
 
-FRAMING_AND_PLACEMENT_ENABLED_GUIDANCE = """Framing and placement map is enabled and mandatory.
-- Output `framing_and_placement` as one object containing exactly these nine scalar string leaves in this order: top_left, top_center, top_right, middle_left, center, middle_right, bottom_left, bottom_center, bottom_right.
-- Treat the image frame as a named 3x3 rule-of-thirds grid: top/middle/bottom rows crossed with left/center/right columns. Do not output numeric coordinates or bounding boxes.
-- Describe what the final image visibly contains in every region. Name the actual subject part, object, prop, text, environment, or background present there rather than returning a generic role label.
-- All nine leaves are required and must be non-empty. A region without a subject or prop must describe its background, environment, or negative space.
-- When an element spans or is cropped across several regions, describe its visible contribution independently in every affected region.
-- Keep the nine descriptions mutually coherent with the camera framing, subjects, pose, interactions, scene, and user instructions."""
-
-FRAMING_AND_PLACEMENT_DISABLED_GUIDANCE = """Framing and placement map is disabled.
-- Do not output a `framing_and_placement` root, even when that catalog branch appears in supplied preset context."""
-
-DEFAULT_STAGE_ONE_INSTRUCTIONS = """You are LLM to JsonX. Produce one deep, modular, deterministic JSON image prompt.
-
-Rules:
-- Return the prompt object itself: valid JSON only, no markdown, commentary, or process metadata.
-- Use the supplied JsonX catalog paths as the structural contract. Preset IDs are lookup metadata only and must never appear as output keys or values.
-- A catalog entry shown as `scene.environment | env_indoor_home => interior of a modern home` must output `{"scene":{"environment":"interior of a modern home"}}`.
-- Never output the incorrect ID-key form `{"scene":{"environment":{"env_indoor_home":"interior of a modern home"}}}`.
-- Convert catalog `subject` structure into the repeatable output array `subjects`, even for one subject.
-- Catalog sibling paths remain siblings. Do not nest `scene.background` or `scene.depth` inside `scene.environment`.
-- Model each distinct visual concept as its own atomic leaf. Never compress several attributes into one broad summary string when catalog child paths exist.
-- Build from parent to child to sub-child to leaf. For visible people, independently expand relevant identity, clothing, pose/orientation/body-parts, skin, hair, face, and expression branches. For objects, replace human branches with equally granular object-specific construction, material, surface, condition, placement, and interaction branches.
-- Expand scene context into relevant environment, location, time, background, surface, props, and depth leaves. Expand lighting into type, direction, quality, temperature, shadows, highlights, intensity, and sources when visually supportable.
-- Expand camera intent into shot/angle/position plus nested lens and exposure leaves when supportable. Keep style, mood, quality, and negative guidance modular.
-- Prefer exact preset fit, then a reasonable same-path preset fit, then a deterministic custom value.
-- Multiple subjects or primary objects must be separate array items with their own details. Add interactions only when cardinality and framing support them.
-- Visibility governs detail: close-ups deeply expand visible face/hair/skin while omitting invisible lower-body detail; medium shots expand visible upper-body branches; full-body framing expands all visible clothing, pose, and body-part branches.
-- Resolve contradictions to one visually plausible state. Avoid vague, optional, or choice-oriented wording.
-- Do not emit keys such as pipeline_stage, stage, task, debug, reasoning, timestamp, or original_intent."""
-
-DEFAULT_REFINEMENT_INSTRUCTIONS = """You are the JsonX coherence refiner. Refine the supplied draft into the final deep prompt object.
-
-- Return valid prompt-only JSON with no wrapper, markdown, commentary, or process metadata.
-- Do not use or request presets during refinement.
-- Preserve every valid atomic leaf from the draft while pruning only details impossible for the selected framing.
-- Increase hierarchy and detail where the draft used a broad parent value or omitted a visually evident sub-branch. Never replace a detailed subtree with a summary string.
-- Resolve contradictions according to explicit user intent, inferred mode, framing visibility, then secondary leaves.
-- Keep multiple entities modular and interactions consistent with subject count.
-- Enrich materials, textures, surface condition, lighting interaction, camera intent, environment, and visible subject/object properties without flattening the hierarchy.
-- Use deterministic wording and never offer alternatives."""
-
-DEFAULT_NATURAL_LANGUAGE_INSTRUCTIONS = """You are the JsonX natural-language coherence refiner. Convert the supplied validated JsonX draft into one detailed, model-ready natural-language prompt.
-
-- Return only the final prompt text. Do not return JSON, code fences, bullet lists, process commentary, or an explanation of your work.
-- Preserve every non-null semantic detail from the draft. Improve flow, specificity, and coherence while converting, but do not omit details, introduce unsupported facts, or create contradictions.
-- You may organize the prompt with concise top-level headings matching the populated JsonX root concepts, in their source order. Beneath each heading, write cohesive prose rather than exposing nested keys or path notation.
-- Keep multiple subjects distinct and preserve their individual properties, poses, visibility, and interactions.
-- Express the negative branch as an explicit avoidance section or sentence rather than mixing exclusions into positive scene description.
-- Translate camera, lighting, framing, placement, quality, mood, style, and other structural details into direct visual language suitable for an image-generation model.
-- Never expose internal preset IDs, JsonX implementation terminology, or alternative choices."""
-
-NATURAL_FRAMING_ENABLED_GUIDANCE = """Natural-language framing rule:
-- The validated draft contains a complete named 3x3 framing_and_placement map.
-- Preserve the visible contribution of all nine named regions: top left, top center, top right, middle left, center, middle right, bottom left, bottom center, and bottom right.
-- Describe spanning or cropped elements in every affected region and keep placement coherent with the camera and subjects.
-- Use named thirds only; do not invent numeric coordinates or bounding boxes."""
-
-NATURAL_FRAMING_DISABLED_GUIDANCE = """Natural-language framing rule:
-- The optional 3x3 framing map is disabled. Do not invent a region-by-region placement section that is absent from the validated draft."""
-
-DEFAULT_TEMPLATE_FILL_INSTRUCTIONS = """You are LLM to JsonX operating in Template Fill profile.
-
-Rules:
-- Return exactly one valid JSON prompt object with no markdown, wrapper, commentary, or process metadata.
-- Use the supplied blank JsonX hierarchy as the output structure. Do not rename, move, wrap, flatten, or invent branches.
-- Replace each applicable `null` leaf with one concise, deterministic natural-language visual value.
-- Leave a leaf as JSON `null` only when it clearly does not apply, is not visible or supported, or would require guessing.
-- Do not use empty strings, placeholder text, arrays, or objects as leaf values. Catalog leaves must remain scalar.
-- `subjects` must remain an array of objects. Use one populated object per distinct visible or requested subject; duplicate the supplied subject item structure only when another subject is required.
-- Keep independent details in their existing independent leaves. Resolve contradictions and respect framing visibility.
-- Preset IDs are lookup metadata only and must never appear as output keys or values."""
-
-TEMPLATE_FILL_PRESET_GUIDANCE = """Preset use is enabled for Template Fill.
-- The complete presets.json catalog is supplied verbatim after the blank hierarchy.
-- For each applicable leaf, first choose the preset value that faithfully matches the request or image.
-- Output the preset's natural-language value, never its internal preset ID.
-- If no preset value is suitable, write a custom value in the same concise, deterministic descriptive style as neighboring values for that leaf. Never force an inaccurate preset match."""
-
-TEMPLATE_FILL_NO_PRESET_GUIDANCE = """Preset use is disabled for Template Fill.
-- Fill applicable leaves by reasoning from the user instructions and image.
-- Use concise, deterministic natural-language visual values.
-- Keep `null` only where the leaf genuinely does not apply or lacks support."""
-
-TEMPLATE_FILL_REFINEMENT_GUIDANCE = """Template Fill refinement constraint:
-- Improve only coherence, specificity, and wording of existing populated scalar leaves.
-- Preserve the populated Stage 1 hierarchy and every existing path. Do not rename, move, flatten, wrap, or add branches.
-- You may set an existing leaf to JSON `null` only when it is clearly contradictory, impossible, or unsupported. Omitted paths are treated as unchanged.
-- Return the complete refined prompt object as JSON only."""
-
-PRESET_OPEN_WORLD_GUIDANCE = """Preset coverage rule: the JsonX preset catalog is authoritative guidance, not a closed vocabulary.
-- First use an exact catalog value when it faithfully expresses the requested or observed concept.
-- Otherwise use a semantically close value only when it preserves the specific meaning; never force a merely similar preset that changes, weakens, or generalizes the intent.
-- When the correct catalog path exists but none of its preset values is suitable, keep that path and write a concise, deterministic custom natural-language value in the same descriptive style as neighboring preset values.
-- A catalog leaf is scalar. When a concept needs nested children beneath a catalog scalar leaf, keep the catalog leaf scalar when applicable and put the expansion in a sibling `<leaf>_details` custom subtree; for example, use `scene.environment_details.*`, not an object inside `scene.environment`.
-- When no suitable catalog path exists, place the concept beneath the closest logical JsonX parent and create the smallest coherent nested branch needed to express it. Use descriptive lower_snake_case keys and natural-language visual values; never invent preset IDs or ID-like keys.
-- Preserve deep tree structure for custom content. Split independent attributes into separate leaves instead of packing uncovered details into one catch-all string.
-- Never omit a requested, visible, or strongly implied concept merely because the preset catalog does not contain it. Reason from the instructions and image, while respecting visibility, coherence, and the prompt-only contract."""
-
-REFINEMENT_OPEN_WORLD_GUIDANCE = """Open-world refinement rule: custom JsonX paths and values are valid prompt content.
-- Preserve a coherent custom leaf or subtree when it expresses a concept not covered by the draft's catalog-derived structure.
-- Do not delete, flatten, or replace custom content merely because it is not a preset value.
-- Keep catalog leaves scalar; move a justified nested expansion beside the leaf as a `<leaf>_details` custom subtree.
-- When adding an uncovered detail, use the closest logical parent, descriptive lower_snake_case keys, atomic natural-language values, and the same concise visual wording style as the rest of the prompt."""
-
-DEPTH_GUIDANCE = {
-    "deep": (
-        "Coverage target: maximize the relevant JsonX tree, subtrees, and atomic leaves. Explore "
-        "every root group and child branch that is supported by the instructions, image, or a "
-        "strong visual implication, and use the deepest sensible catalog or custom path. Pay "
-        "particular attention to subjects[].dress.*, subjects[].pose.*, subjects[].properties.*, "
-        "camera.lens.*, and camera.exposure.*. There is no leaf-count target or maximum and no "
-        "count should act as a stopping condition. Continue until all relevant independent visual "
-        "attributes are represented, but never add unsupported filler merely to enlarge the tree."
-    ),
-    "exhaustive": (
-        "Coverage target: perform an exhaustive relevance pass and maximize tree depth, subtrees, "
-        "and atomic leaves across every applicable catalog and reasoned custom branch. Use the "
-        "deepest coherent child paths instead of parent-level summaries, and keep expanding until "
-        "every visible, requested, or strongly implied independent attribute has its own leaf. "
-        "There is no leaf-count target or maximum and no count should act as a stopping condition. "
-        "Omit only branches made irrelevant by framing, subject type, coherence, or evidence; never "
-        "invent invisible details or padding."
-    ),
-}
-
-
 class JsonXGenerationError(ValueError):
     def __init__(self, message: str, diagnostics: dict[str, Any] | None = None):
         super().__init__(message)
@@ -243,16 +119,33 @@ def _raise_if_cancelled(data: dict[str, Any]) -> None:
         raise JsonXGenerationCancelled("JsonX generation cancelled.")
 
 
-def raw_presets_text() -> str:
-    """Return the packaged preset source without parsing or reserialization."""
-    return PRESETS_PATH.read_bytes().decode("utf-8")
+def _profile_key(data: dict[str, Any] | None = None) -> str:
+    return str((data or {}).get("profile_key") or (data or {}).get("target_model") or "jsonx").strip()
 
 
-def load_presets() -> dict[str, Any]:
-    parsed = json.loads(raw_presets_text().lstrip("\ufeff"))
-    if not isinstance(parsed, dict):
-        raise ValueError("JsonX presets.json must contain a JSON object.")
-    return parsed
+def _reference_bundle(data: dict[str, Any] | None = None) -> dict[str, Any]:
+    existing = (data or {}).get("_jsonx_reference_bundle")
+    if isinstance(existing, dict):
+        return existing
+    bundle = jsonx_references.current_bundle()
+    if isinstance(data, dict):
+        data["_jsonx_reference_bundle"] = bundle
+    return bundle
+
+
+def raw_presets_text(
+    profile_key: str = "jsonx",
+    bundle: dict[str, Any] | None = None,
+) -> str:
+    """Return the active editable preset source without reserialization."""
+    return jsonx_references.preset_text(profile_key, bundle)
+
+
+def load_presets(
+    profile_key: str = "jsonx",
+    bundle: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return jsonx_references.presets(profile_key, bundle)
 
 
 def _is_leaf_options(value: Any) -> bool:
@@ -309,8 +202,11 @@ def optimized_preset_context(
     user_instructions: str,
     presets: dict[str, Any] | None = None,
     candidate_budget: int = OPTIMIZED_CANDIDATE_BUDGET,
+    *,
+    profile_key: str = "jsonx",
+    bundle: dict[str, Any] | None = None,
 ) -> str:
-    catalog = presets or load_presets()
+    catalog = presets or load_presets(profile_key, bundle)
     leaves = flatten_preset_leaves(catalog)
     schema = "\n".join(f"- {path}" for path in leaves)
     ranked: list[tuple[float, int, str, str, str]] = []
@@ -335,66 +231,79 @@ def optimized_preset_context(
         used += len(line) + 1
 
     candidate_text = "\n".join(candidates) or "- No lexical match; use deterministic custom values where necessary."
-    return (
-        "JsonX preset schema paths (complete):\n"
-        f"{schema}\n\n"
-        "Relevant preset candidates (ranked, preset ID => canonical output value):\n"
-        f"{candidate_text}"
-    )
+    return jsonx_references.render_template(
+        profile_key,
+        "template_adaptive_ranked",
+        {
+            "SCHEMA_PATHS": schema,
+            "RANKED_PRESET_CANDIDATES": candidate_text,
+        },
+        bundle,
+    )[1]
 
 
-def build_preset_context(mode: str, user_instructions: str) -> tuple[str, int]:
+def build_preset_context(
+    mode: str,
+    user_instructions: str,
+    *,
+    profile_key: str = "jsonx",
+    bundle: dict[str, Any] | None = None,
+) -> tuple[str, int]:
     mode = str(mode or "optimized").strip().lower()
-    raw = raw_presets_text()
+    raw = raw_presets_text(profile_key, bundle)
     if mode == "full":
-        return "JsonX presets.json (verbatim):\n" + raw, len(raw)
+        return jsonx_references.render_template(
+            profile_key,
+            "template_adaptive_full",
+            {"PRESET_CATALOG": raw},
+            bundle,
+        )[1], len(raw)
     if mode != "optimized":
         raise ValueError(f"Unsupported JsonX preset context mode: {mode}")
-    return optimized_preset_context(user_instructions), len(raw)
+    return optimized_preset_context(
+        user_instructions,
+        profile_key=profile_key,
+        bundle=bundle,
+    ), len(raw)
 
 
 def template_fill_hierarchy(
     presets: dict[str, Any] | None = None,
     enable_framing_and_placement: bool = False,
+    *,
+    profile_key: str = "jsonx",
+    bundle: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Build the complete live catalog hierarchy with null scalar leaves."""
-    catalog = presets if presets is not None else load_presets()
-
-    def blank(value: Any) -> Any:
-        if _is_leaf_options(value):
-            return None
-        if isinstance(value, dict):
-            return {str(key): blank(item) for key, item in value.items()}
-        return None
-
-    output: dict[str, Any] = {}
-    for key, value in catalog.items():
-        if key == "framing_and_placement" and not enable_framing_and_placement:
-            continue
-        if key == "subject":
-            output["subjects"] = [blank(value)]
-        elif key == "interaction_suggestions":
-            output["interactions"] = blank(value)
-        else:
-            output[str(key)] = blank(value)
-    return output
+    """Return the active editable blank hierarchy template."""
+    del presets
+    return jsonx_references.hierarchy_template(
+        profile_key,
+        enable_framing_and_placement,
+        bundle,
+    )[2]
 
 
 def template_fill_context(
     use_presets: bool,
     enable_framing_and_placement: bool = False,
+    *,
+    profile_key: str = "jsonx",
+    bundle: dict[str, Any] | None = None,
 ) -> tuple[str, int]:
-    raw = raw_presets_text()
-    hierarchy = json.dumps(
-        template_fill_hierarchy(
-            enable_framing_and_placement=enable_framing_and_placement,
-        ),
-        ensure_ascii=False,
-        indent=2,
+    raw = raw_presets_text(profile_key, bundle)
+    _path, context, _hierarchy = jsonx_references.hierarchy_template(
+        profile_key,
+        enable_framing_and_placement,
+        bundle,
     )
-    context = "Blank JsonX hierarchy to fill:\n" + hierarchy
     if use_presets:
-        context += "\n\nComplete JsonX presets.json (verbatim):\n" + raw
+        full_context = jsonx_references.render_template(
+            profile_key,
+            "template_adaptive_full",
+            {"PRESET_CATALOG": raw},
+            bundle,
+        )[1]
+        context += "\n\n" + full_context
     return context, len(raw)
 
 
@@ -1020,28 +929,207 @@ def _decode_image(image_b64: Any) -> Image.Image | None:
         return None
 
 
-def _custom_instructions(value: Any, fallback: str) -> str:
-    text = str(value or "").strip()
-    if not text:
-        return fallback
-    if len(text) > 50_000:
-        raise ValueError("Custom JsonX backend instructions must be 50,000 characters or fewer.")
+def _decode_images(data: dict[str, Any]) -> list[Image.Image]:
+    candidates = data.get("images_b64")
+    if not isinstance(candidates, list) or not candidates:
+        candidates = [data.get("image_b64")]
+    return [image for image in (_decode_image(value) for value in candidates) if image is not None]
+
+
+def _optional_number(value: Any, *, integer: bool = False) -> float | int | None:
+    if value is None or value == "" or str(value).strip().lower() in {"default", "provider_default"}:
+        return None
+    return int(value) if integer else float(value)
+
+
+def _grok_cache_key(data: dict[str, Any], system_prompt: str) -> str:
+    if str(data.get("grok_prompt_cache") or "auto").strip().lower() == "off":
+        return ""
+    stable = {
+        "engine": "unified_jsonx",
+        "profile": str(data.get("profile_key") or data.get("target_model") or "jsonx"),
+        "generation_type": str(data.get("generation_type") or ""),
+        "format": str(data.get("output_format") or "json"),
+        "stage": str(data.get("_provider_stage") or "stage_1"),
+        "system_sha256": hashlib.sha256(system_prompt.encode("utf-8")).hexdigest(),
+    }
+    return hashlib.sha256(json.dumps(stable, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def _joined(blocks: list[str]) -> str:
+    return "\n\n".join(blocks)
+
+
+def _selected_block(
+    data: dict[str, Any],
+    semantic_key: str,
+    activated: list[str],
+) -> str:
+    path, text = jsonx_references.block(
+        _profile_key(data), semantic_key, _reference_bundle(data)
+    )
+    activated.append(path)
     return text
 
 
-def depth_guidance(detail_level: str) -> str:
-    level = str(detail_level or "deep").strip().lower()
-    if level not in DEPTH_GUIDANCE:
-        raise ValueError(f"Unsupported JsonX detail level: {level}")
-    return DEPTH_GUIDANCE[level]
+def _reference_semantic_key(data: dict[str, Any], has_image: bool) -> str:
+    generation_type = str(data.get("generation_type") or "text_to_image").strip().lower()
+    if generation_type == "image_to_image":
+        return "reference_with_supported" if has_image else "reference_without_supported"
+    return "reference_without_unsupported"
 
 
-def framing_and_placement_guidance(enabled: bool) -> str:
-    return (
-        FRAMING_AND_PLACEMENT_ENABLED_GUIDANCE
-        if enabled
-        else FRAMING_AND_PLACEMENT_DISABLED_GUIDANCE
-    )
+def _generation_semantic_key(data: dict[str, Any]) -> str:
+    generation_type = str(data.get("generation_type") or "text_to_image").strip().lower()
+    if generation_type not in {"text_to_image", "image_to_image"}:
+        raise ValueError(f"Unsupported JsonX generation type: {generation_type}")
+    return f"generation_{generation_type}"
+
+
+def _stage_one_payload(
+    data: dict[str, Any],
+    user_instructions: str,
+    has_image: bool,
+) -> tuple[str, list[str], int, str]:
+    generation_profile = str(data.get("generation_profile") or "adaptive").strip().lower()
+    detail_level = str(data.get("detail_level") or "deep").strip().lower()
+    framing = bool(data.get("enable_framing_and_placement", False))
+    use_presets = bool(data.get("template_use_presets", False))
+    context_mode = str(data.get("preset_context_mode") or "optimized").strip().lower()
+    if generation_profile not in {"adaptive", "template_fill"}:
+        raise ValueError(f"Unsupported JsonX generation profile: {generation_profile}")
+    if detail_level not in {"deep", "exhaustive"}:
+        raise ValueError(f"Unsupported JsonX detail level: {detail_level}")
+    activated: list[str] = []
+    blocks = [
+        _selected_block(
+            data,
+            "stage_one_template_fill" if generation_profile == "template_fill" else "stage_one_adaptive",
+            activated,
+        ),
+        _selected_block(data, _generation_semantic_key(data), activated),
+        _selected_block(data, _reference_semantic_key(data, has_image), activated),
+    ]
+    if bool(data.get("nsfw_enabled", False)):
+        path, text = jsonx_references.shared_nsfw_image()
+        activated.append(path)
+        blocks.append(text)
+    if generation_profile == "template_fill":
+        blocks.extend([
+            _selected_block(data, "template_image_with" if has_image else "template_image_without", activated),
+            _selected_block(data, "template_presets_enabled" if use_presets else "template_presets_disabled", activated),
+            _selected_block(data, "framing_json_enabled" if framing else "framing_json_disabled", activated),
+        ])
+        context, full_chars = template_fill_context(
+            use_presets,
+            framing,
+            profile_key=_profile_key(data),
+            bundle=_reference_bundle(data),
+        )
+        hierarchy_key = "template_fill_with_framing" if framing else "template_fill_without_framing"
+        hierarchy_path = jsonx_references.block(
+            _profile_key(data), hierarchy_key, _reference_bundle(data)
+        )[0]
+        activated.append(hierarchy_path)
+        if use_presets:
+            activated.append(jsonx_references.block(
+                _profile_key(data), "template_adaptive_full", _reference_bundle(data)
+            )[0])
+            activated.append(jsonx_references.block(
+                _profile_key(data), "presets_full", _reference_bundle(data)
+            )[0])
+        blocks.append(context)
+        effective_mode = "full" if use_presets else "none"
+    else:
+        blocks.extend([
+            _selected_block(data, "adaptive_image_with" if has_image else "adaptive_image_without", activated),
+            _selected_block(data, "adaptive_open_world", activated),
+            _selected_block(data, f"depth_{detail_level}", activated),
+            _selected_block(data, "framing_json_enabled" if framing else "framing_json_disabled", activated),
+        ])
+        context, full_chars = build_preset_context(
+            context_mode,
+            user_instructions,
+            profile_key=_profile_key(data),
+            bundle=_reference_bundle(data),
+        )
+        template_key = "template_adaptive_full" if context_mode == "full" else "template_adaptive_ranked"
+        activated.append(jsonx_references.block(
+            _profile_key(data), template_key, _reference_bundle(data)
+        )[0])
+        activated.append(jsonx_references.block(
+            _profile_key(data), "presets_full", _reference_bundle(data)
+        )[0])
+        blocks.append(context)
+        effective_mode = context_mode
+    blocks.append(_selected_block(data, "contract_stage_one_json", activated))
+    return _joined(blocks), activated, full_chars, effective_mode
+
+
+def _stage_two_payload(
+    data: dict[str, Any],
+    has_image: bool,
+    output_format: str,
+) -> tuple[str, list[str]]:
+    framing = bool(data.get("enable_framing_and_placement", False))
+    detail_level = str(data.get("detail_level") or "deep").strip().lower()
+    generation_profile = str(data.get("generation_profile") or "adaptive").strip().lower()
+    activated: list[str] = []
+    if output_format == "natural":
+        blocks = [
+            _selected_block(data, "stage_two_natural_conversion", activated),
+            _selected_block(data, "natural_image_with" if has_image else "natural_image_without", activated),
+            _selected_block(data, "framing_natural_enabled" if framing else "framing_natural_disabled", activated),
+            _selected_block(data, "contract_stage_two_natural", activated),
+        ]
+    else:
+        blocks = [
+            _selected_block(data, "stage_two_json_refinement", activated),
+            _selected_block(data, "refinement_image_with" if has_image else "refinement_image_without", activated),
+            _selected_block(data, "refinement_open_world", activated),
+            _selected_block(data, f"depth_{detail_level}", activated),
+            _selected_block(data, "framing_json_enabled" if framing else "framing_json_disabled", activated),
+        ]
+        if generation_profile == "template_fill":
+            blocks.append(_selected_block(data, "template_refinement", activated))
+        blocks.append(_selected_block(data, "contract_stage_two_json", activated))
+    return _joined(blocks), activated
+
+
+def _repair_payload(data: dict[str, Any], natural: bool) -> tuple[str, list[str]]:
+    activated: list[str] = []
+    blocks = [
+        _selected_block(data, "repair_natural" if natural else "repair_json", activated),
+        _selected_block(data, "contract_natural_repair" if natural else "contract_json_repair", activated),
+    ]
+    return _joined(blocks), activated
+
+
+def _render_user_template(
+    data: dict[str, Any],
+    semantic_key: str,
+    **values: str,
+) -> str:
+    return jsonx_references.render_user_template(
+        _profile_key(data),
+        semantic_key,
+        bundle=_reference_bundle(data),
+        **values,
+    )[1]
+
+
+def instruction_templates(profile_key: str = "jsonx") -> dict[str, Any]:
+    bundle = jsonx_references.current_bundle()
+    profile = jsonx_references.profile_metadata(profile_key)
+    editors = {
+        key: jsonx_references.block(profile_key, key, bundle)[1]
+        for key in jsonx_references.REQUIRED_FILE_KEYS
+    }
+    return {
+        "jsonx_reference_schema_version": jsonx_references.JSONX_REFERENCE_SCHEMA_VERSION,
+        "profile": profile,
+        "editors": editors,
+    }
 
 
 def stage_one_system_prompt(
@@ -1050,204 +1138,102 @@ def stage_one_system_prompt(
     instructions: str | None = None,
     detail_level: str = "deep",
     enable_framing_and_placement: bool = False,
+    config: dict[str, Any] | None = None,
 ) -> str:
-    image_rule = (
-        "Inspect the provided image and model only visible, relevant details."
-        if has_image
-        else "No image is provided; derive the scene from the user instructions."
+    """Compatibility wrapper backed only by active JsonX Markdown."""
+    del instructions
+    data = dict(config or {})
+    data.update({
+        "generation_profile": "adaptive",
+        "detail_level": detail_level,
+        "enable_framing_and_placement": enable_framing_and_placement,
+    })
+    system, _activated, _chars, _mode = _stage_one_payload(data, "", has_image)
+    return system.replace(
+        build_preset_context(
+            str(data.get("preset_context_mode") or "optimized"),
+            "",
+            profile_key=_profile_key(data),
+            bundle=_reference_bundle(data),
+        )[0],
+        preset_context,
     )
-    base = _custom_instructions(instructions, DEFAULT_STAGE_ONE_INSTRUCTIONS)
-    return (
-        f"{base}\n\nImage rule: {image_rule}\n\n{PRESET_OPEN_WORLD_GUIDANCE}"
-        f"\n\n{depth_guidance(detail_level)}"
-        f"\n\n{framing_and_placement_guidance(enable_framing_and_placement)}"
-        f"\n\n{preset_context}"
-    )
-
-
-def template_fill_system_prompt(
-    template_context: str,
-    has_image: bool,
-    use_presets: bool,
-    instructions: str | None = None,
-    enable_framing_and_placement: bool = False,
-) -> str:
-    image_rule = (
-        "Inspect the provided image and fill only visible, relevant, or strongly supported details."
-        if has_image
-        else "No image is provided; fill the hierarchy from the user instructions only."
-    )
-    base = _custom_instructions(instructions, DEFAULT_TEMPLATE_FILL_INSTRUCTIONS)
-    preset_rule = TEMPLATE_FILL_PRESET_GUIDANCE if use_presets else TEMPLATE_FILL_NO_PRESET_GUIDANCE
-    return (
-        f"{base}\n\nImage rule: {image_rule}\n\n{preset_rule}"
-        f"\n\n{framing_and_placement_guidance(enable_framing_and_placement)}"
-        f"\n\n{template_context}"
-    )
-
-
-def refinement_system_prompt(
-    has_image: bool,
-    instructions: str | None = None,
-    detail_level: str = "deep",
-    enable_framing_and_placement: bool = False,
-) -> str:
-    image_rule = "Use the reference image as visual evidence." if has_image else "No reference image is provided."
-    base = _custom_instructions(instructions, DEFAULT_REFINEMENT_INSTRUCTIONS)
-    return (
-        f"{base}\n\nImage rule: {image_rule}\n\n{REFINEMENT_OPEN_WORLD_GUIDANCE}"
-        f"\n\n{depth_guidance(detail_level)}"
-        f"\n\n{framing_and_placement_guidance(enable_framing_and_placement)}"
-    )
-
-
-def template_fill_refinement_system_prompt(
-    has_image: bool,
-    instructions: str | None = None,
-    detail_level: str = "deep",
-    enable_framing_and_placement: bool = False,
-) -> str:
-    return (
-        refinement_system_prompt(
-            has_image,
-            instructions,
-            detail_level,
-            enable_framing_and_placement,
-        )
-        + "\n\n"
-        + TEMPLATE_FILL_REFINEMENT_GUIDANCE
-    )
-
-
-def natural_language_system_prompt(
-    has_image: bool,
-    instructions: str | None = None,
-    enable_framing_and_placement: bool = False,
-) -> str:
-    image_rule = (
-        "Use the reference image as visual evidence while preserving the validated draft."
-        if has_image
-        else "No reference image is provided; preserve the validated draft as the visual source of truth."
-    )
-    framing_rule = (
-        NATURAL_FRAMING_ENABLED_GUIDANCE
-        if enable_framing_and_placement
-        else NATURAL_FRAMING_DISABLED_GUIDANCE
-    )
-    base = _custom_instructions(instructions, DEFAULT_NATURAL_LANGUAGE_INSTRUCTIONS)
-    return f"{base}\n\nImage rule: {image_rule}\n\n{framing_rule}"
-
-
-def profile_image_mode_guidance(data: dict[str, Any], has_image: bool) -> str:
-    """Return the profile-specific image-mode addition without replacing core rules."""
-    key = "with_image_instructions" if has_image else "without_image_instructions"
-    text = str(data.get(key) or "").strip()
-    if len(text) > 50_000:
-        raise ValueError("JsonX image-mode instructions must be 50,000 characters or fewer.")
-    return text
-
-
-def append_profile_image_guidance(prompt: str, data: dict[str, Any], has_image: bool) -> str:
-    guidance = profile_image_mode_guidance(data, has_image)
-    return f"{prompt}\n\nProfile image-mode instructions:\n{guidance}" if guidance else prompt
-
-
-def instruction_templates() -> dict[str, Any]:
-    return {
-        "stage_one": DEFAULT_STAGE_ONE_INSTRUCTIONS,
-        "template_fill": DEFAULT_TEMPLATE_FILL_INSTRUCTIONS,
-        "refinement": DEFAULT_REFINEMENT_INSTRUCTIONS,
-        "natural_language": DEFAULT_NATURAL_LANGUAGE_INSTRUCTIONS,
-        "generation_profiles": ["adaptive", "template_fill"],
-        "default_generation_profile": "adaptive",
-        "default_enable_framing_and_placement": False,
-        "output_formats": ["json", "natural"],
-        "default_output_format": "json",
-        "detail_levels": list(DEPTH_GUIDANCE),
-        "default_detail_level": "deep",
-    }
 
 
 def effective_instruction_preview(data: dict[str, Any]) -> dict[str, Any]:
     user_instructions = str(data.get("user_instructions") or "").strip()
-    context_mode = str(data.get("preset_context_mode") or "optimized").strip().lower()
-    detail_level = str(data.get("detail_level") or "deep").strip().lower()
-    generation_profile = str(data.get("generation_profile") or "adaptive").strip().lower()
-    if generation_profile not in {"adaptive", "template_fill"}:
-        raise ValueError(f"Unsupported JsonX generation profile: {generation_profile}")
     output_format = str(data.get("output_format") or "json").strip().lower()
     if output_format not in {"json", "natural"}:
         raise ValueError(f"Unsupported JsonX output format: {output_format}")
-    template_use_presets = bool(data.get("template_use_presets", False))
-    enable_framing_and_placement = bool(data.get("enable_framing_and_placement", False))
-    has_image = bool(data.get("has_image", False))
-    if generation_profile == "template_fill":
-        preset_context, full_chars = template_fill_context(
-            template_use_presets,
-            enable_framing_and_placement,
+    has_image = bool(data.get("has_image", False) or data.get("images_b64") or data.get("image_b64"))
+    preview_user = user_instructions or "Describe the provided image as a complete JsonX prompt."
+    stage_one, stage_one_files, full_chars, effective_mode = _stage_one_payload(
+        data, preview_user, has_image
+    )
+    stage_two_applicable = output_format == "natural" or str(data.get("generation_mode") or "fast").strip().lower() == "refined"
+    stage_two, stage_two_files = (
+        _stage_two_payload(data, has_image, output_format)
+        if stage_two_applicable
+        else ("", [])
+    )
+    json_repair, json_repair_files = _repair_payload(data, False)
+    natural_repair, natural_repair_files = _repair_payload(data, True)
+    stage_one_user = _render_user_template(
+        data, "user_stage_one", user_instructions=preview_user
+    )
+    stage_two_user = (
+        _render_user_template(
+            data,
+            "user_natural_conversion" if output_format == "natural" else "user_json_refinement",
+            user_instructions=preview_user,
+            stage_one_json="{validated Stage 1 JsonX}",
         )
-        stage_one = template_fill_system_prompt(
-            preset_context,
-            has_image,
-            template_use_presets,
-            data.get("template_fill_instructions"),
-            enable_framing_and_placement,
-        )
-        refinement = (
-            natural_language_system_prompt(
-                has_image,
-                data.get("natural_language_instructions"),
-                enable_framing_and_placement,
-            )
-            if output_format == "natural"
-            else template_fill_refinement_system_prompt(
-                has_image,
-                data.get("refinement_instructions"),
-                detail_level,
-                enable_framing_and_placement,
-            )
-        )
-        effective_preset_mode = "full" if template_use_presets else "none"
-    else:
-        preset_context, full_chars = build_preset_context(context_mode, user_instructions)
-        stage_one = stage_one_system_prompt(
-            preset_context,
-            has_image,
-            data.get("stage_one_instructions"),
-            detail_level,
-            enable_framing_and_placement,
-        )
-        refinement = (
-            natural_language_system_prompt(
-                has_image,
-                data.get("natural_language_instructions"),
-                enable_framing_and_placement,
-            )
-            if output_format == "natural"
-            else refinement_system_prompt(
-                has_image,
-                data.get("refinement_instructions"),
-                detail_level,
-                enable_framing_and_placement,
-            )
-        )
-        effective_preset_mode = context_mode
-    stage_one = append_profile_image_guidance(stage_one, data, has_image)
-    refinement = append_profile_image_guidance(refinement, data, has_image)
+        if stage_two_applicable
+        else ""
+    )
+    json_repair_user = _render_user_template(
+        data,
+        "user_json_repair",
+        validation_error="{validation error}",
+        user_instructions=preview_user,
+        raw_response="{provider response}",
+    )
+    natural_repair_user = _render_user_template(
+        data,
+        "user_natural_repair",
+        validation_error="{validation error}",
+        user_instructions=preview_user,
+        stage_one_json="{validated Stage 1 JsonX}",
+        raw_response="{provider response}",
+    )
+    generation_profile = str(data.get("generation_profile") or "adaptive").strip().lower()
     return {
         "stage_one": stage_one,
-        "refinement": refinement,
+        "refinement": stage_two,
+        "user": stage_one_user,
+        "stage_two_user": stage_two_user,
+        "json_repair": json_repair,
+        "json_repair_user": json_repair_user,
+        "natural_repair": natural_repair,
+        "natural_repair_user": natural_repair_user,
         "stage_one_characters": len(stage_one),
-        "refinement_characters": len(refinement),
+        "refinement_characters": len(stage_two),
         "full_preset_chars": full_chars,
-        "detail_level": detail_level,
+        "detail_level": str(data.get("detail_level") or "deep"),
         "generation_profile": generation_profile,
         "generation_mode": "refined" if output_format == "natural" else str(data.get("generation_mode") or "fast"),
         "output_format": output_format,
         "forced_two_pass": output_format == "natural",
-        "template_use_presets": template_use_presets,
-        "enable_framing_and_placement": enable_framing_and_placement,
-        "preset_context_mode": effective_preset_mode,
+        "stage_two_applicable": stage_two_applicable,
+        "template_use_presets": bool(data.get("template_use_presets", False)),
+        "enable_framing_and_placement": bool(data.get("enable_framing_and_placement", False)),
+        "preset_context_mode": effective_mode,
+        "activated_files": {
+            "stage_one": stage_one_files,
+            "stage_two": stage_two_files,
+            "json_repair": json_repair_files,
+            "natural_repair": natural_repair_files,
+        },
     }
 
 
@@ -1284,7 +1270,9 @@ def hierarchy_metrics(prompt: dict[str, Any]) -> dict[str, int]:
 def _call_provider(data: dict[str, Any], system_prompt: str, user_prompt: str, image: Image.Image | None) -> str:
     _raise_if_cancelled(data)
     backend = str(data.get("backend") or "gemini").strip().lower()
-    images = [image] if image is not None else []
+    images = [value for value in data.get("_pil_images", []) if isinstance(value, Image.Image)]
+    if not images and image is not None:
+        images = [image]
     timeout = max(5.0, min(3600.0, float(data.get("timeout") or 120)))
     try:
         if backend == "gemini":
@@ -1298,7 +1286,10 @@ def _call_provider(data: dict[str, Any], system_prompt: str, user_prompt: str, i
                 timeout=timeout,
                 response_mime_type=str(data.get("_gemini_response_mime_type") or "application/json"),
             )
-        elif backend == "openai":
+        elif backend in {"openai", "lm_studio", "unsloth"}:
+            capabilities = data.get("model_capabilities") if isinstance(data.get("model_capabilities"), dict) else {}
+            if images and backend in {"lm_studio", "unsloth"} and capabilities.get("vision") is False:
+                raise ValueError(f"The selected {backend.replace('_', ' ').title()} model does not accept image input.")
             result = openai_backend.generate(
                 str(data.get("base_url") or ""),
                 str(data.get("api_key") or "").strip(),
@@ -1307,7 +1298,51 @@ def _call_provider(data: dict[str, Any], system_prompt: str, user_prompt: str, i
                 user_prompt,
                 pil_images=images,
                 timeout=timeout,
-                unload_after=bool(data.get("unload_after", False)),
+                unload_after=(
+                    bool(data.get("unload_after"))
+                    if "openai_lifecycle" not in data and "unload_after" in data
+                    else None
+                ),
+                server_type={"openai": "generic", "lm_studio": "lm_studio", "unsloth": "unsloth"}[backend],
+                lifecycle=str(data.get("openai_lifecycle") or "server_managed"),
+                reasoning_effort=str(data.get("openai_reasoning_effort") or "default"),
+                provider_options=data.get("provider_options") if isinstance(data.get("provider_options"), dict) else None,
+            )
+        elif backend == "grok":
+            capabilities = data.get("model_capabilities") if isinstance(data.get("model_capabilities"), dict) else {}
+            if images and capabilities.get("vision") is False:
+                raise ValueError("The selected Grok model does not accept image input.")
+            result = grok_backend.generate(
+                str(data.get("api_key") or "").strip(),
+                str(data.get("model") or ""),
+                system_prompt,
+                user_prompt,
+                pil_images=images,
+                timeout=timeout,
+                response_format=str(data.get("_grok_response_format") or "json"),
+                max_output_tokens=_optional_number(data.get("grok_max_output_tokens"), integer=True),
+                temperature=_optional_number(data.get("grok_temperature")),
+                top_p=_optional_number(data.get("grok_top_p")),
+                reasoning_effort=str(data.get("grok_reasoning_effort") or "default"),
+                prompt_cache_key=_grok_cache_key(data, system_prompt),
+            )
+        elif backend == "deepseek":
+            if images and not deepseek_backend.is_vision_model(str(data.get("model") or "")):
+                raise ValueError(f"The selected DeepSeek model '{data.get('model') or ''}' does not accept image input.")
+            result = deepseek_backend.generate(
+                str(data.get("api_key") or "").strip(),
+                str(data.get("model") or ""),
+                system_prompt,
+                user_prompt,
+                pil_images=images,
+                timeout=timeout,
+                response_format=str(data.get("_deepseek_response_format") or "json"),
+                max_tokens=_optional_number(data.get("deepseek_max_tokens"), integer=True),
+                thinking=str(data.get("deepseek_thinking") or "default"),
+                reasoning_effort=str(data.get("deepseek_reasoning_effort") or "default"),
+                temperature=_optional_number(data.get("deepseek_temperature")),
+                top_p=_optional_number(data.get("deepseek_top_p")),
+                image_detail=str(data.get("deepseek_image_detail") or "default"),
             )
         elif backend == "ollama":
             result = ollama_backend.generate(
@@ -1319,11 +1354,17 @@ def _call_provider(data: dict[str, Any], system_prompt: str, user_prompt: str, i
                 think=bool(data.get("think", False)),
                 unload_after=bool(data.get("unload_after", True)),
                 timeout=timeout,
+                options=data.get("ollama_options") if isinstance(data.get("ollama_options"), dict) else None,
             )
         elif backend == "local":
             options = data.get("local_options") if isinstance(data.get("local_options"), dict) else {}
             options = dict(options)
             options.setdefault("timeout", timeout)
+            if images and str(data.get("mmproj") or "none").strip().lower() in {"", "none"}:
+                raise ValueError(
+                    "Connected authoring images require a vision mmproj for the selected local GGUF model. "
+                    "Select a compatible mmproj or disconnect the images."
+                )
             result = local_llama_backend.generate(
                 model=str(data.get("model") or ""),
                 system_prompt=system_prompt,
@@ -1341,6 +1382,14 @@ def _call_provider(data: dict[str, Any], system_prompt: str, user_prompt: str, i
         _raise_if_cancelled(data)
         raise
     _raise_if_cancelled(data)
+    diagnostics = getattr(result, "diagnostics", None)
+    if isinstance(diagnostics, dict) and diagnostics:
+        diagnostics = dict(diagnostics)
+        if backend == "grok":
+            capabilities = data.get("model_capabilities") if isinstance(data.get("model_capabilities"), dict) else {}
+            if capabilities.get("context_length") is not None:
+                diagnostics["context_length"] = int(capabilities.get("context_length") or 0)
+        data["_provider_diagnostics"] = diagnostics
     return result
 
 
@@ -1485,10 +1534,11 @@ def _parse_and_normalize(
     *,
     prune_null: bool = False,
     enable_framing_and_placement: bool = False,
+    presets: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     parsed = parse_prompt_json(raw)
     canonical = canonicalize_prompt_structure(parsed)
-    normalized = validate_canonical_prompt(align_prompt_to_presets(canonical))
+    normalized = validate_canonical_prompt(align_prompt_to_presets(canonical, presets))
     if prune_null:
         normalized = prune_null_leaves(normalized)
     normalized = enforce_framing_and_placement(
@@ -1508,41 +1558,26 @@ def _parse_or_repair(
     enable_framing_and_placement = bool(
         data.get("enable_framing_and_placement", False)
     )
+    presets = data.get("_jsonx_presets")
+    if not isinstance(presets, dict):
+        presets = load_presets(_profile_key(data), _reference_bundle(data))
+        data["_jsonx_presets"] = presets
     try:
         return _parse_and_normalize(
             raw,
             prune_null=prune_null,
             enable_framing_and_placement=enable_framing_and_placement,
+            presets=presets,
         )
     except Exception as first_error:
-        catalog = load_presets()
-        output_roots = [
-            "subjects" if key == "subject" else "interactions" if key == "interaction_suggestions" else key
-            for key in catalog
-        ]
-        subject_branches = list(catalog.get("subject", {})) if isinstance(catalog.get("subject"), dict) else []
-        repair_system = (
-            "Repair the supplied response with the smallest possible edits into one valid JsonX prompt object. "
-            "This is syntax and structure repair, not a new generation or summary. Preserve every recoverable "
-            "branch, key, and visual value from the source; never replace a detailed subtree with a broad string. "
-            "Return JSON only with no wrapper, markdown, commentary, or process metadata. "
-            "The top level must be the prompt object itself, never a catalog, schema, custom_paths, or result wrapper. "
-            "Internal preset IDs must not appear as keys or values. Catalog leaves are scalar; when the source "
-            "expands a catalog leaf, retain the expansion as a descriptive sibling custom subtree. "
-            "The `subjects` value must be an array of objects. Each subject object must retain its own nested "
-            "identity, clothing or dress, pose, properties or appearance, face, hair, skin, and expression details "
-            "when present. Never turn a subject object into a label string. `interactions` must be an object. "
-            "Keep catalog sibling paths as siblings and preserve valid open-world custom paths; "
-            "presets are guidance, not an allow-list. "
-            f"Catalog-derived output roots include: {', '.join(output_roots)}. "
-            f"Catalog subject branches include: {', '.join(subject_branches)}. "
-            f"{framing_and_placement_guidance(enable_framing_and_placement)}"
-        )
+        repair_system, _repair_files = _repair_payload(data, False)
         original_instructions = str(data.get("user_instructions") or "").strip()
-        repair_user = (
-            f"Validation error: {first_error}\n\n"
-            f"Original user instructions:\n{original_instructions or '(image-led request)'}\n\n"
-            f"Response to minimally repair:\n{raw}"
+        repair_user = _render_user_template(
+            data,
+            "user_json_repair",
+            validation_error=str(first_error),
+            user_instructions=original_instructions or "(image-led request)",
+            raw_response=raw,
         )
         repair_data = dict(data)
         if str(data.get("backend") or "").strip().lower() == "local":
@@ -1581,6 +1616,7 @@ def _parse_or_repair(
                 repaired,
                 prune_null=prune_null,
                 enable_framing_and_placement=enable_framing_and_placement,
+                presets=presets,
             )
         except Exception as repair_error:
             raise JsonXGenerationError(
@@ -1706,7 +1742,7 @@ def natural_prompt_from_validated_jsonx(stage_one: dict[str, Any], user_prompt: 
         prose = ". ".join(item.rstrip(". ") for item in leaves if item.strip()).strip()
         if not prose:
             continue
-        if str(key).strip().lower() in {"negative", "negative_prompt", "avoid"}:
+        if str(key).strip().lower() in {"negative", "negative_prompt", "negative_prompts", "avoid"}:
             sections.append(f"## Avoid\nAvoid {prose}.")
         else:
             sections.append(f"## {_natural_section_title(str(key))}\n{prose}.")
@@ -1730,25 +1766,18 @@ def _parse_or_repair_natural(
     try:
         return validate_natural_prompt(raw)
     except Exception as first_error:
-        repair_system = (
-            append_profile_image_guidance(natural_language_system_prompt(
-                image is not None,
-                data.get("natural_language_instructions"),
-                bool(data.get("enable_framing_and_placement", False)),
-            ), data, image is not None)
-            + "\n\nRepair rule: Rewrite the malformed response into the final natural-language prompt. "
-            "Use the validated JsonX draft below as the complete semantic source of truth. "
-            "Preserve all of its non-null details and return prompt prose only. "
-            "Do not return JSON, a code fence, list markers, a preamble, or process commentary."
-        )
-        repair_user = (
-            f"Validation error: {first_error}\n\n"
-            f"Original user instructions:\n{user_prompt}\n\n"
-            f"Validated JsonX draft:\n{json.dumps(stage_one, ensure_ascii=False, indent=2)}\n\n"
-            f"Malformed natural-language response to repair:\n{raw}"
+        repair_system, _repair_files = _repair_payload(data, True)
+        repair_user = _render_user_template(
+            data,
+            "user_natural_repair",
+            validation_error=str(first_error),
+            user_instructions=user_prompt,
+            stage_one_json=json.dumps(stage_one, ensure_ascii=False, indent=2),
+            raw_response=raw,
         )
         repair_data = dict(data)
         repair_data["_gemini_response_mime_type"] = "text/plain"
+        repair_data["_deepseek_response_format"] = "text"
         if str(data.get("backend") or "").strip().lower() == "local":
             local_options = dict(data.get("local_options") or {})
             try:
@@ -1810,8 +1839,12 @@ def _is_context_limit_error(error: Exception) -> bool:
 
 def generate_jsonx(data: dict[str, Any]) -> dict[str, Any]:
     _raise_if_cancelled(data)
+    data["_jsonx_reference_bundle"] = jsonx_references.current_bundle()
+    data["_jsonx_presets"] = load_presets(_profile_key(data), _reference_bundle(data))
     instructions = str(data.get("user_instructions") or "").strip()
-    image = _decode_image(data.get("image_b64"))
+    images = _decode_images(data)
+    image = images[0] if images else None
+    data["_pil_images"] = images
     if not instructions and image is None:
         raise ValueError("Enter JsonX instructions or connect a readable image.")
 
@@ -1829,34 +1862,19 @@ def generate_jsonx(data: dict[str, Any]) -> dict[str, Any]:
         raise ValueError(f"Unsupported JsonX output format: {output_format}")
     if generation_profile not in {"adaptive", "template_fill"}:
         raise ValueError(f"Unsupported JsonX generation profile: {generation_profile}")
-    depth_guidance(detail_level)
+    if detail_level not in {"deep", "exhaustive"}:
+        raise ValueError(f"Unsupported JsonX detail level: {detail_level}")
 
-    if generation_profile == "template_fill":
-        preset_context, full_preset_chars = template_fill_context(
-            template_use_presets,
-            enable_framing_and_placement,
-        )
-        stage_one_prompt = template_fill_system_prompt(
-            preset_context,
-            image is not None,
-            template_use_presets,
-            data.get("template_fill_instructions"),
-            enable_framing_and_placement,
-        )
-        effective_preset_mode = "full" if template_use_presets else "none"
-    else:
-        preset_context, full_preset_chars = build_preset_context(context_mode, instructions)
-        stage_one_prompt = stage_one_system_prompt(
-            preset_context,
-            image is not None,
-            data.get("stage_one_instructions"),
-            detail_level,
-            enable_framing_and_placement,
-        )
-        effective_preset_mode = context_mode
-    stage_one_prompt = append_profile_image_guidance(stage_one_prompt, data, image is not None)
+    stage_one_prompt, stage_one_files, full_preset_chars, effective_preset_mode = (
+        _stage_one_payload(data, instructions, image is not None)
+    )
     full_context_sent = effective_preset_mode == "full"
-    user_prompt = instructions or "Describe the provided image as a complete JsonX prompt."
+    base_user_prompt = instructions or "Describe the provided image as a complete JsonX prompt."
+    user_prompt = _render_user_template(
+        data,
+        "user_stage_one",
+        user_instructions=base_user_prompt,
+    )
     if bool(data.get("refresh_vram", False)):
         runtime.refresh_comfy_vram()
     _raise_if_cancelled(data)
@@ -1902,27 +1920,29 @@ def generate_jsonx(data: dict[str, Any]) -> dict[str, Any]:
             stage_one,
             template_fill_hierarchy(
                 enable_framing_and_placement=enable_framing_and_placement,
+                profile_key=_profile_key(data),
+                bundle=_reference_bundle(data),
             ),
         )
 
     final_prompt = stage_one
     final_output = json.dumps(stage_one, ensure_ascii=False, indent=2)
     if output_format == "natural":
-        natural_user = (
-            f"Original user instructions:\n{user_prompt}\n\n"
-            f"Validated JsonX draft to convert and refine into natural language:\n"
-            f"{json.dumps(stage_one, ensure_ascii=False, indent=2)}"
+        natural_user = _render_user_template(
+            data,
+            "user_natural_conversion",
+            user_instructions=base_user_prompt,
+            stage_one_json=json.dumps(stage_one, ensure_ascii=False, indent=2),
         )
         try:
             natural_data = dict(data)
             natural_data["_gemini_response_mime_type"] = "text/plain"
+            natural_data["_grok_response_format"] = "text"
+            natural_data["_deepseek_response_format"] = "text"
+            natural_data["_provider_stage"] = "natural_stage_2"
             raw_natural = _call_provider(
                 natural_data,
-                append_profile_image_guidance(natural_language_system_prompt(
-                    image is not None,
-                    data.get("natural_language_instructions"),
-                    enable_framing_and_placement,
-                ), data, image is not None),
+                _stage_two_payload(data, image is not None, "natural")[0],
                 natural_user,
                 image,
             )
@@ -1935,30 +1955,22 @@ def generate_jsonx(data: dict[str, Any]) -> dict[str, Any]:
             data,
             raw_natural,
             stage_one,
-            user_prompt,
+            base_user_prompt,
             image,
         )
     elif generation_mode == "refined":
-        refinement_user = (
-            f"Original user instructions:\n{user_prompt}\n\n"
-            f"JsonX draft to refine:\n{json.dumps(stage_one, ensure_ascii=False, indent=2)}"
+        refinement_user = _render_user_template(
+            data,
+            "user_json_refinement",
+            user_instructions=base_user_prompt,
+            stage_one_json=json.dumps(stage_one, ensure_ascii=False, indent=2),
         )
         try:
+            refined_data = dict(data)
+            refined_data["_provider_stage"] = "refined_stage_2"
             raw_refined = _call_provider(
-                data,
-                append_profile_image_guidance((template_fill_refinement_system_prompt(
-                    image is not None,
-                    data.get("refinement_instructions"),
-                    detail_level,
-                    enable_framing_and_placement,
-                )
-                if generation_profile == "template_fill"
-                else refinement_system_prompt(
-                    image is not None,
-                    data.get("refinement_instructions"),
-                    detail_level,
-                    enable_framing_and_placement,
-                )), data, image is not None),
+                refined_data,
+                _stage_two_payload(data, image is not None, "json")[0],
                 refinement_user,
                 image,
             )
@@ -1989,6 +2001,9 @@ def generate_jsonx(data: dict[str, Any]) -> dict[str, Any]:
         "detail_level": detail_level,
         "hierarchy_metrics": hierarchy_metrics(final_prompt),
         "full_preset_chars": full_preset_chars,
+        "activated_files": {
+            "stage_one": stage_one_files,
+        },
     }
     if output_format == "json":
         result["prompt_json"] = final_output
@@ -1996,4 +2011,6 @@ def generate_jsonx(data: dict[str, Any]) -> dict[str, Any]:
     if isinstance(natural_fallback_diagnostics, dict):
         result["natural_fallback"] = True
         result["diagnostics"] = natural_fallback_diagnostics
+    elif isinstance(data.get("_provider_diagnostics"), dict):
+        result["diagnostics"] = data["_provider_diagnostics"]
     return result

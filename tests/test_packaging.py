@@ -88,7 +88,7 @@ def _load_package():
 
 def test_combined_package_exports_workflowx_and_afj_nodes():
     module = _load_package()
-    assert len(module.NODE_CLASS_MAPPINGS) == 43
+    assert len(module.NODE_CLASS_MAPPINGS) == 42
     assert "KVGC_GroupConfigurator" in module.NODE_CLASS_MAPPINGS
     assert "KVGC_ConfigSelectorAdvanced" in module.NODE_CLASS_MAPPINGS
     assert "KVGC_ConfigSelectorX" in module.NODE_CLASS_MAPPINGS
@@ -100,12 +100,11 @@ def test_combined_package_exports_workflowx_and_afj_nodes():
     assert "FluxVisualJsonBuilder" in module.NODE_CLASS_MAPPINGS
     assert "FluxTemplateRandomizer" in module.NODE_CLASS_MAPPINGS
     assert "AFJPromptTemplateImporter" in module.NODE_CLASS_MAPPINGS
-    assert "LLMToJsonX" in module.NODE_CLASS_MAPPINGS
+    assert "LLMToJsonX" not in module.NODE_CLASS_MAPPINGS
     assert module.NODE_DISPLAY_NAME_MAPPINGS["FluxVisualJsonBuilder"] == "JsonX - Visual Builder"
     assert module.NODE_DISPLAY_NAME_MAPPINGS["FluxTemplateRandomizer"] == "JsonX - Template Randomizer"
     assert module.NODE_DISPLAY_NAME_MAPPINGS["AFJPromptTemplateImporter"] == "JsonX - Prompt Template Importer"
-    assert module.NODE_DISPLAY_NAME_MAPPINGS["LLMToJsonX"] == "LLM to JsonX"
-    for node_id in ("FluxVisualJsonBuilder", "FluxTemplateRandomizer", "AFJPromptTemplateImporter", "LLMToJsonX"):
+    for node_id in ("FluxVisualJsonBuilder", "FluxTemplateRandomizer", "AFJPromptTemplateImporter"):
         assert module.NODE_CLASS_MAPPINGS[node_id].CATEGORY == "WorkflowX/Prompting/JsonX"
     assert "UnifiedAutoprompterX" in module.NODE_CLASS_MAPPINGS
     assert module.NODE_DISPLAY_NAME_MAPPINGS["UnifiedAutoprompterX"] == "Unified Autoprompter X"
@@ -138,6 +137,22 @@ def test_combined_package_exports_workflowx_and_afj_nodes():
     assert module.NODE_CLASS_MAPPINGS["WorkflowX_ImageProcessorX"].RETURN_TYPES == ("IMAGE",)
     assert module.NODE_CLASS_MAPPINGS["WorkflowX_ImageProcessorX"].CATEGORY == "WorkflowX/Image Compare"
     assert module.WEB_DIRECTORY == "./web/js"
+
+
+def test_standalone_llm_to_jsonx_is_removed_while_unified_jsonx_remains():
+    removed = (
+        ROOT / "web" / "js" / "llm_to_jsonx.js",
+        ROOT / "afj_awesome_flex_json_v2" / "visual_builder" / "jsonx_llm.py",
+        ROOT / "afj_awesome_flex_json_v2" / "visual_builder" / "jsonx_backends" / "__init__.py",
+        ROOT / "afj_awesome_flex_json_v2" / "visual_builder" / "jsonx_backends" / "runtime.py",
+    )
+    assert all(not path.exists() for path in removed)
+
+    visual_api = (ROOT / "afj_awesome_flex_json_v2" / "visual_builder" / "api.py").read_text(encoding="utf-8")
+    assert "/workflowx/jsonx/" not in visual_api
+    assert (ROOT / "unified_autoprompter" / "jsonx_profile" / "engine.py").is_file()
+    assert (ROOT / "web" / "js" / "unified_autoprompter.js").is_file()
+    assert (ROOT / "unified_autoprompter" / "reference" / "current_use" / "JsonX" / "manifest.json").is_file()
 
 
 def test_save_video_x_exposes_predictable_crf_controls():

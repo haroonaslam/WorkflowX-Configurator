@@ -25,6 +25,7 @@ models/
 # Auto-downloaded JsonX local llama.cpp runtime (machine-local cache)
 vendor/jsonx-llama.cpp/
 vendor/unified-jsonx-llama.cpp/
+unified_autoprompter/model_prompt_profiles.v*.backup.json
 
 .DS_Store
 Thumbs.db

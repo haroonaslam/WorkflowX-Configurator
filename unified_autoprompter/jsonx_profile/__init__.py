@@ -5,6 +5,9 @@ standard Unified provider modules. It owns its catalog, providers and binary
 cache so changes cannot cross those boundaries.
 """
 
-from .routes import register_routes
+def register_routes(*args, **kwargs):
+    from .routes import register_routes as _register_routes
+
+    return _register_routes(*args, **kwargs)
 
 __all__ = ["register_routes"]

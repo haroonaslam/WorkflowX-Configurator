@@ -91,14 +91,15 @@ def generate(
         images = [pil_image]
     for image in images:
         parts.append(_image_part(image))
-    generation_config = {"temperature": 0.7}
+    generation_config = {}
     if str(prompt_format or "").strip().lower() == "json":
         generation_config["responseMimeType"] = "application/json"
     body = {
         "systemInstruction": {"parts": [{"text": system_prompt}]},
         "contents": [{"role": "user", "parts": parts}],
-        "generationConfig": generation_config,
     }
+    if generation_config:
+        body["generationConfig"] = generation_config
     safety = _build_safety_settings(safety_settings)
     if safety:
         body["safetySettings"] = safety

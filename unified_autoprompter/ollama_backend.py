@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import io
+from typing import Any
 
 import requests
 from PIL import Image
@@ -41,6 +42,7 @@ def generate(
     think: bool = False,
     unload_after: bool = True,
     timeout: float = 600,
+    options: dict[str, Any] | None = None,
 ) -> str:
     if not model:
         raise ValueError("No Ollama model selected.")
@@ -51,8 +53,10 @@ def generate(
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
-        "options": {"temperature": 0.7},
     }
+    clean_options = {key: value for key, value in (options or {}).items() if value is not None}
+    if clean_options:
+        body["options"] = clean_options
     if not think:
         body["think"] = False
     if unload_after:
