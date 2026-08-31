@@ -4,13 +4,13 @@
 
 WorkflowX is a production toolkit for building, configuring, editing, organizing, and reusing ComfyUI workflows. It combines image and video nodes, model and LoRA controls, structured prompting, remote image APIs, reusable workflow libraries, scoped configuration, and canvas utilities in one package.
 
-> **Short project brief:** WorkflowX adds 34 active ComfyUI nodes plus XFlows, XPrompts, XNodes, and package-wide right-click utilities. Use it to build configurable workflows, manage LoRA stacks and VRAM, load and edit images, create structured prompts, call supported image APIs, save video, store reusable graph fragments, group selections, and replace nodes without rebuilding compatible links.
+> **Short project brief:** WorkflowX adds 40 active ComfyUI nodes plus XFlows, XPrompts, XNodes, and package-wide right-click utilities. Use it to build configurable workflows, manage LoRA stacks and VRAM, load, preview, and edit image/video media, create structured prompts, call supported image APIs, save video, store reusable graph fragments, group selections, and replace nodes without rebuilding compatible links.
 
 ## Capabilities
 
 | Area | What WorkflowX adds | Jump to |
 |---|---|---|
-| Image input | Thumbnail browsing, masks, dimensions, advanced image-state controls | [Image and media loading](#image-and-media-loading) |
+| Media input | Thumbnail browsing, masks, visual video trimming/cropping, dimensions, advanced geometry controls | [Image and media loading](#image-and-media-loading) |
 | Models | Ordered LoRA stacks and explicit model-component unloading | [Model and LoRA management](#model-and-lora-management) |
 | Prompting | Multi-backend prompt composition and structured JsonX tools | [Prompting and JsonX](#prompting-and-jsonx) |
 | APIs | Gemini/NanoBanana, Kie, and Atlas image generation/editing | [Remote image APIs](#remote-image-apis) |
@@ -35,7 +35,7 @@ All downloadable examples are under [`examples/`](examples/README.md). They cont
 
 ## Image and media loading
 
-WorkflowX provides a quick image picker and an advanced loader for workflows that also need mask polarity, source dimensions, or serialized image-editor state.
+WorkflowX provides quick and advanced image loaders plus a visual video loader for workflows that need masks, dimensions, trimming, crop/resize controls, or serialized editor state.
 
 ![Load ImageX and Load ImageX Adv](docs/images/workflowx-image-loaders.png)
 
@@ -75,11 +75,31 @@ The backend validates the selected path against ComfyUI's input directory and pa
 
 The serialized state travels with the workflow; source files do not. See the [advanced loader guide](docs/IMAGE_LOADERS.md).
 
+### Load VideoX Adv
+
+**Node ID / category:** `WorkflowX_LoadVideoXAdv` · `WorkflowX/Video`
+
+| Inputs and state | Type | Required | Behavior |
+|---|---|---:|---|
+| `video` | video-file combo | Yes | Recursively selects or uploads a video in ComfyUI's input directory. |
+| `seconds` | `FLOAT` | No | When connected, locks the visual trim range to that duration while allowing the range to slide. |
+| `workflowx_state` | `STRING` | UI-managed | Versioned trim, crop, resize, snap, resample, and spatial-padding state. |
+
+| Outputs | Type | Behavior |
+|---|---|---|
+| `video` | `VIDEO` | Native lazy trim when possible; otherwise a rebuilt trimmed/cropped video preserving source FPS, bit depth, color space, and available audio. |
+| `video_frames` | `IMAGE` | The selected frame batch with the same crop and geometry transform. |
+| `audio` | `AUDIO` | Trimmed source audio, or `None` for silent sources. |
+| `width` | `INT` | Final output width. |
+| `height` | `INT` | Final output height. |
+
+The node face provides the full Load ImageX Adv geometry toolset and reflows when mode-specific controls appear. ComfyUI's native video player is the only node-face preview, with a transparent crop overlay attached directly to it; the video picture is reserved for crop interaction and playback starts from the native play control. **Open Timeline** creates a graph-following, canvas-layer-aware floating player with a thumbnail filmstrip, large in/out handles, draggable selection, separate playhead scrubber, editable selection seconds, selection playback, frame/time readouts, lock, minimize, resize, and fullscreen controls. Media outputs are processed only when connected, so width/height-only graphs remain metadata-only. See the [Load VideoX Adv guide](docs/LOAD_VIDEO_X_ADV.md).
+
 ### Working example
 
 ![Image loading and processing workflow](docs/images/workflowx-example-03-image-tools.png)
 
-[Download: image loading, processing, and comparison](examples/03-image-loading-processing-and-comparison.json) — select two local images, then inspect the image, mask, inverted mask, processed output, and terminal comparison.
+[Download: image/video loading, processing, and comparison](examples/03-image-loading-processing-and-comparison.json) — select two local images and optionally a video, then inspect masks, processed images, a trimmed/cropped frame batch, the native video preview, and the terminal comparison.
 
 ## Model and LoRA management
 
@@ -338,6 +358,23 @@ See the [Anything Swap guide](docs/ANYTHING_SWAP_BRIDGE.md).
 ## Video output
 
 ![Save Video X](docs/images/workflowx-save-video-x.png)
+
+### Preview Video X
+
+**Node ID / category:** `WorkflowX_PreviewVideoX` · `WorkflowX/Video`
+
+| Inputs | Type | Required | Behavior |
+|---|---|---:|---|
+| `video` | `VIDEO` | Yes | Native ComfyUI video displayed as an animated in-node player. |
+| `save_output` | `BOOLEAN` | Yes | Off writes only the temporary preview; on also makes the encoded MP4 a persistent output. |
+| `filename_prefix` | `STRING` | Yes | Relative preview/output name prefix. |
+
+| Outputs | Type | Behavior |
+|---|---|---|
+| `video` | `VIDEO` | Passes the original video through unchanged. |
+| `filenames` | `VHS_FILENAMES` | Describes the temporary or saved preview file. |
+
+The node always materializes the minimum MP4 needed for ComfyUI's player. With **save output** off that file lives in the temporary directory; with it on the same preview is written to the normal output directory. H.264 previews of odd-sized videos receive at most one black pixel on the right or bottom to satisfy the codec; the pass-through `VIDEO` remains unchanged.
 
 ### Save Video X
 

@@ -56,6 +56,8 @@ def _install_comfy_stubs():
 
     folder_paths = types.ModuleType("folder_paths")
     folder_paths.get_user_directory = lambda: str(ROOT / ".test_user")
+    folder_paths.get_input_directory = lambda: str(ROOT / ".test_input")
+    folder_paths.filter_files_content_types = lambda files, _types: list(files)
     folder_paths.models_dir = str(ROOT / ".test_models")
     folder_paths.folder_names_and_paths = {}
     folder_paths.map_legacy = lambda folder_name: folder_name
@@ -88,7 +90,7 @@ def _load_package():
 
 def test_combined_package_exports_workflowx_and_afj_nodes():
     module = _load_package()
-    assert len(module.NODE_CLASS_MAPPINGS) == 42
+    assert len(module.NODE_CLASS_MAPPINGS) == 44
     assert "KVGC_GroupConfigurator" in module.NODE_CLASS_MAPPINGS
     assert "KVGC_ConfigSelectorAdvanced" in module.NODE_CLASS_MAPPINGS
     assert "KVGC_ConfigSelectorX" in module.NODE_CLASS_MAPPINGS
@@ -129,6 +131,14 @@ def test_combined_package_exports_workflowx_and_afj_nodes():
     assert "WorkflowX_LoadImageXAdv" in module.NODE_CLASS_MAPPINGS
     assert module.NODE_DISPLAY_NAME_MAPPINGS["WorkflowX_LoadImageXAdv"] == "Load ImageX Adv"
     assert module.NODE_CLASS_MAPPINGS["WorkflowX_LoadImageXAdv"].RETURN_TYPES == ("IMAGE", "MASK", "MASK", "INT", "INT")
+    assert "WorkflowX_LoadVideoXAdv" in module.NODE_CLASS_MAPPINGS
+    assert module.NODE_DISPLAY_NAME_MAPPINGS["WorkflowX_LoadVideoXAdv"] == "Load VideoX Adv"
+    assert module.NODE_CLASS_MAPPINGS["WorkflowX_LoadVideoXAdv"].CATEGORY == "WorkflowX/Video"
+    assert module.NODE_CLASS_MAPPINGS["WorkflowX_LoadVideoXAdv"].RETURN_TYPES == ("VIDEO", "IMAGE", "AUDIO", "INT", "INT")
+    assert "WorkflowX_PreviewVideoX" in module.NODE_CLASS_MAPPINGS
+    assert module.NODE_DISPLAY_NAME_MAPPINGS["WorkflowX_PreviewVideoX"] == "Preview Video X"
+    assert module.NODE_CLASS_MAPPINGS["WorkflowX_PreviewVideoX"].CATEGORY == "WorkflowX/Video"
+    assert module.NODE_CLASS_MAPPINGS["WorkflowX_PreviewVideoX"].RETURN_TYPES == ("VIDEO", "VHS_FILENAMES")
     assert "WorkflowX_SaveVideoX" in module.NODE_CLASS_MAPPINGS
     assert module.NODE_DISPLAY_NAME_MAPPINGS["WorkflowX_SaveVideoX"] == "Save Video X"
     assert module.NODE_CLASS_MAPPINGS["WorkflowX_SaveVideoX"].CATEGORY == "WorkflowX/Video"

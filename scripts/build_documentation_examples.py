@@ -276,6 +276,47 @@ def load_image_x(w: Workflow, type_name: str, x: int, y: int) -> dict[str, Any]:
     )
 
 
+def load_video_x_adv(w: Workflow, x: int, y: int) -> dict[str, Any]:
+    state = {
+        "version": 1,
+        "mode": "off",
+        "output_snap": 0,
+        "resample": "auto",
+        "allow_upscale": False,
+        "crop_enabled": False,
+        "crop_snap": 0,
+        "crop_rect": None,
+        "trim_start": 0,
+        "trim_end": None,
+    }
+    return w.node(
+        "WorkflowX_LoadVideoXAdv", x, y, size=(400, 650),
+        inputs=[
+            socket("video", "COMBO", widget=True),
+            socket("workflowx_state", "STRING", widget=True),
+            socket("seconds", "FLOAT"),
+        ],
+        outputs=[
+            port("video", "VIDEO"), port("video_frames", "IMAGE"), port("audio", "AUDIO"),
+            port("width", "INT"), port("height", "INT"),
+        ],
+        widgets=["select-a-video.mp4", json.dumps(state, separators=(",", ":"))],
+    )
+
+
+def preview_video_x(w: Workflow, x: int, y: int) -> dict[str, Any]:
+    return w.node(
+        "WorkflowX_PreviewVideoX", x, y, size=(320, 190),
+        inputs=[
+            socket("video", "VIDEO"),
+            socket("save_output", "BOOLEAN", widget=True),
+            socket("filename_prefix", "STRING", widget=True),
+        ],
+        outputs=[port("video", "VIDEO"), port("filenames", "VHS_FILENAMES")],
+        widgets=[False, "WorkflowX/example-preview"],
+    )
+
+
 def build_configuration() -> Workflow:
     w = Workflow("configuration-and-routing", "Configuration and routing", "Choose local checkpoints before execution.", "Model-dependent; configuration state is complete and serialized.")
     draft_group, final_group = "Draft settings", "Final settings"
@@ -472,7 +513,7 @@ def build_local_generation() -> Workflow:
 
 
 def build_image_tools() -> Workflow:
-    w = Workflow("image-loading-processing-and-comparison", "Image loading, processing, and comparison", "Select two local input images.", "Locally runnable; Image Compare Edit X is the terminal interactive output.")
+    w = Workflow("image-loading-processing-and-comparison", "Image and video loading, processing, and comparison", "Select two local input images and an optional local input video.", "Locally runnable; Image Compare Edit X is the terminal interactive output.")
     basic = load_image_x(w, "WorkflowX_LoadImageX", 40, 100)
     advanced = load_image_x(w, "WorkflowX_LoadImageXAdv", 40, 500)
     mask = w.node("MaskToImage", 450, 540, size=(220, 90), inputs=[socket("mask", "MASK")], outputs=[port("IMAGE", "IMAGE")])
@@ -486,6 +527,9 @@ def build_image_tools() -> Workflow:
     )
     processed_preview = preview(w, 900, 110, "Processed output")
     compare = w.node("KVGC_ImageCompareEditX", 1260, 160, size=(420, 360), inputs=[socket("image1", "IMAGE"), socket("image2", "IMAGE")])
+    video = load_video_x_adv(w, 1760, 100)
+    video_preview = preview(w, 2220, 180, "Trimmed/cropped video frame batch")
+    native_video_preview = preview_video_x(w, 2220, 470)
     w.connect(basic, 0, processor, 0)
     w.connect(advanced, 0, processor, 4)
     w.connect(advanced, 1, mask, 0)
@@ -495,9 +539,12 @@ def build_image_tools() -> Workflow:
     w.connect(processor, 0, processed_preview, 0)
     w.connect(basic, 0, compare, 0)
     w.connect(processor, 0, compare, 1)
+    w.connect(video, 1, video_preview, 0)
+    w.connect(video, 0, native_video_preview, 0)
     w.group("Image inputs", 10, 50, 380, 820, "#355c7d")
     w.group("Processor and mask outputs", 410, 60, 800, 1020, "#2f6f62")
     w.group("Interactive comparison", 1220, 100, 500, 500, "#8a6d3b")
+    w.group("Visual video loading", 1730, 50, 850, 750, "#6c5b7b")
     return w
 
 

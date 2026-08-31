@@ -6,7 +6,7 @@ These seven examples are connected teaching workflows, not node inventories. The
 |---:|---|---|---|
 | 1 | [Configuration and routing](01-configuration-and-routing.json) | Select local checkpoints | Model-dependent; Config SelectorX state is initialized |
 | 2 | [Local generation and model management](02-local-generation-and-model-management.json) | Image, checkpoint, LoRA, FFmpeg codec | Resource/model-dependent |
-| 3 | [Image loading, processing, and comparison](03-image-loading-processing-and-comparison.json) | Two local images | Locally runnable; terminal comparison is interactive |
+| 3 | [Image and video loading, processing, and comparison](03-image-loading-processing-and-comparison.json) | Two local images and an optional local video | Locally runnable; terminal comparison is interactive |
 | 4 | [Anything Swap with NanoBanana](04-anything-swap-with-nanobanana.json) | Source image and Gemini credential | API-dependent; blank credential |
 | 5 | [Kie and Atlas APIs](05-kie-and-atlas-apis.json) | Optional reference image and provider credentials | API-dependent; blank credentials |
 | 6 | [JsonX prompt toolchain](06-jsonx-prompt-toolchain.json) | Optional configured LLM profile | Builder/importer/randomizer local; LLM profile-dependent |

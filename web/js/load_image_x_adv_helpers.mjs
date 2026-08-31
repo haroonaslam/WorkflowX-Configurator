@@ -192,7 +192,8 @@ export function computeOutputDimensions(sourceWidth, sourceHeight, stateValue) {
       + clamp(Math.trunc(finiteNumber(state.pad_bottom, 0)), 0, 8192));
   }
 
-  width = clamp(snapDown(width, state.output_snap), 8, 16384);
-  height = clamp(snapDown(height, state.output_snap), 8, 16384);
+  const minimum = state.output_snap > 0 ? 8 : 1;
+  width = clamp(snapDown(width, state.output_snap), minimum, 16384);
+  height = clamp(snapDown(height, state.output_snap), minimum, 16384);
   return { width, height, crop };
 }

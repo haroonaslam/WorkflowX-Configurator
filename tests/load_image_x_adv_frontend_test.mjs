@@ -93,6 +93,10 @@ test("dimension preview covers all resize modes", () => {
   }
 });
 
+test("dimension preview preserves tiny sources when output snapping is off", () => {
+  assert.deepEqual(computeOutputDimensions(4, 2, DEFAULT_ADV_STATE), { width: 4, height: 2, crop: null });
+});
+
 test("annotated image paths produce the correct native ComfyUI view URL", () => {
   assert.deepEqual(splitAnnotatedPath("folder/frame.png [output]"), { path: "folder/frame.png", type: "output" });
   assert.deepEqual(splitAnnotatedPath("frame.png"), { path: "frame.png", type: "input" });

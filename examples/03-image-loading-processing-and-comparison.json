@@ -1,8 +1,8 @@
 {
   "id": "workflowx-image-loading-processing-and-comparison",
   "revision": 0,
-  "last_node_id": 9,
-  "last_link_id": 9,
+  "last_node_id": 12,
+  "last_link_id": 11,
   "nodes": [
     {
       "id": 1,
@@ -386,6 +386,167 @@
         "Node name for S&R": "KVGC_ImageCompareEditX"
       },
       "widgets_values": []
+    },
+    {
+      "id": 10,
+      "type": "WorkflowX_LoadVideoXAdv",
+      "pos": [
+        1760,
+        100
+      ],
+      "size": [
+        400,
+        650
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "video",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "video"
+          }
+        },
+        {
+          "name": "workflowx_state",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "workflowx_state"
+          }
+        },
+        {
+          "name": "seconds",
+          "type": "FLOAT",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "video",
+          "type": "VIDEO",
+          "links": [
+            11
+          ]
+        },
+        {
+          "name": "video_frames",
+          "type": "IMAGE",
+          "links": [
+            10
+          ]
+        },
+        {
+          "name": "audio",
+          "type": "AUDIO",
+          "links": []
+        },
+        {
+          "name": "width",
+          "type": "INT",
+          "links": []
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "WorkflowX_LoadVideoXAdv"
+      },
+      "widgets_values": [
+        "select-a-video.mp4",
+        "{\"version\":1,\"mode\":\"off\",\"output_snap\":0,\"resample\":\"auto\",\"allow_upscale\":false,\"crop_enabled\":false,\"crop_snap\":0,\"crop_rect\":null,\"trim_start\":0,\"trim_end\":null}"
+      ]
+    },
+    {
+      "id": 11,
+      "type": "PreviewImage",
+      "pos": [
+        2220,
+        180
+      ],
+      "size": [
+        280,
+        240
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 10
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "PreviewImage"
+      },
+      "widgets_values": [],
+      "title": "Trimmed/cropped video frame batch"
+    },
+    {
+      "id": 12,
+      "type": "WorkflowX_PreviewVideoX",
+      "pos": [
+        2220,
+        470
+      ],
+      "size": [
+        320,
+        190
+      ],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "video",
+          "type": "VIDEO",
+          "link": 11
+        },
+        {
+          "name": "save_output",
+          "type": "BOOLEAN",
+          "link": null,
+          "widget": {
+            "name": "save_output"
+          }
+        },
+        {
+          "name": "filename_prefix",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "filename_prefix"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "video",
+          "type": "VIDEO",
+          "links": []
+        },
+        {
+          "name": "filenames",
+          "type": "VHS_FILENAMES",
+          "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "WorkflowX_PreviewVideoX"
+      },
+      "widgets_values": [
+        false,
+        "WorkflowX/example-preview"
+      ]
     }
   ],
   "links": [
@@ -460,6 +621,22 @@
       9,
       1,
       "IMAGE"
+    ],
+    [
+      10,
+      10,
+      1,
+      11,
+      0,
+      "IMAGE"
+    ],
+    [
+      11,
+      10,
+      0,
+      12,
+      0,
+      "VIDEO"
     ]
   ],
   "groups": [
@@ -501,14 +678,27 @@
       "color": "#8a6d3b",
       "font_size": 24,
       "flags": {}
+    },
+    {
+      "id": 4,
+      "title": "Visual video loading",
+      "bounding": [
+        1730,
+        50,
+        850,
+        750
+      ],
+      "color": "#6c5b7b",
+      "font_size": 24,
+      "flags": {}
     }
   ],
   "config": {},
   "extra": {
     "frontendVersion": "1.43.17",
     "workflowx_example": {
-      "title": "Image loading, processing, and comparison",
-      "requirements": "Select two local input images.",
+      "title": "Image and video loading, processing, and comparison",
+      "requirements": "Select two local input images and an optional local input video.",
       "status": "Locally runnable; Image Compare Edit X is the terminal interactive output.",
       "privacy": "No media, credentials, personal paths, model-library names, or prompts are bundled."
     }

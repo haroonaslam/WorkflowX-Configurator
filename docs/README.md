@@ -7,8 +7,8 @@ Start with the self-contained [WorkflowX README](../README.md). It contains the 
 | Area | Guide |
 |---|---|
 | Configuration | [Config SelectorX](CONFIG_SELECTOR_X.md) |
-| Images | [Image loaders](IMAGE_LOADERS.md), [Image ProcessorX](IMAGE_PROCESSOR_X.md), [Image Compare Edit X](IMAGE_COMPARE_EDIT_X_EDITOR.md) |
-| Models and output | [Load Diffusion Model X](LOAD_DIFFUSION_MODEL_X.md), [LoraX](LORAX.md), [Save Video X](SAVE_VIDEO_X.md) |
+| Media | [Image loaders](IMAGE_LOADERS.md), [Load VideoX Adv](LOAD_VIDEO_X_ADV.md), [Image ProcessorX](IMAGE_PROCESSOR_X.md), [Image Compare Edit X](IMAGE_COMPARE_EDIT_X_EDITOR.md) |
+| Models and output | [Load Diffusion Model X](LOAD_DIFFUSION_MODEL_X.md), [LoraX](LORAX.md), Preview Video X, [Save Video X](SAVE_VIDEO_X.md) |
 | Swap and APIs | [Anything Swap bridge](ANYTHING_SWAP_BRIDGE.md), [NanoBanana API](NANOBANANA_FULL_API.md), [Kie and Atlas APIs](KIE_ATLAS_API_NODES.md) |
 | Prompting | [Unified Autoprompter X](UNIFIED_AUTOPROMPTER_X.md), [JsonX user guide](afj-awesome-flex-json/USER_GUIDE.md) |
 | Libraries | [XFlows](XFLOWS.md), [XPrompts](XPROMPTS.md), [XNodes](XNODES.md) |

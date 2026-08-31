@@ -1,4 +1,5 @@
 import { app } from "../../scripts/app.js";
+import { graphDockScreenRect } from "./workflowx_graph_dock.mjs";
 
 const TARGET_NODE = "UnifiedAutoprompterX";
 const ROUTE = "/workflowx/unified_autoprompter";
@@ -321,11 +322,9 @@ function applyGraphDockTransform(dock) {
     dock.__workflowXDockSig = "";
   }
   if (!node.pos) return;
-  const ds = canvas.ds;
-  const scale = ds.scale || 1;
-  const rect = canvas.canvas.getBoundingClientRect();
-  const left = rect.left + (node.pos[0] + graph.x + ds.offset[0]) * scale;
-  const top = rect.top + (node.pos[1] + graph.y + ds.offset[1]) * scale;
+  const screen = graphDockScreenRect(app, node, graph);
+  if (!screen) return;
+  const { left, top, scale } = screen;
   const sig = `fixed|${left}|${top}|${scale}|${graph.w}|${graph.h}`;
   if (dock.__workflowXDockSig !== sig) {
     dock.style.position = "fixed";
