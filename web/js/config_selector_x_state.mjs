@@ -31,7 +31,7 @@ export function createBlankSelectorXState(groupNames = []) {
   return {
     version: SELECTOR_X_VERSION,
     initialized: true,
-    configs: [{ name: "Config 1", modes: {} }],
+    configs: [{ name: "Config 1", enabled: true, modes: {} }],
     scopes,
     advanced: { mute: {}, bypass: {} },
   };
@@ -58,6 +58,7 @@ export function parseSelectorXState(raw) {
   for (const rawConfig of value.configs) {
     if (!isRecord(rawConfig) || !isRecord(rawConfig.modes)) return null;
     if (typeof rawConfig.name !== "string") return null;
+    if (rawConfig.enabled !== undefined && typeof rawConfig.enabled !== "boolean") return null;
     const name = rawConfig.name.trim();
     if (!name || names.has(name)) return null;
     names.add(name);
@@ -66,7 +67,7 @@ export function parseSelectorXState(raw) {
       if (!MODE_NAMES.includes(mode)) return null;
       modes[String(groupName)] = mode;
     }
-    configs.push({ name, modes });
+    configs.push({ name, enabled: rawConfig.enabled ?? true, modes });
   }
 
   const scopes = {};
@@ -141,6 +142,7 @@ export function buildImportedSelectorXState({ groupNames, configs, scopes, advan
       if (!name) return map;
       map.set(name, {
         name,
+        enabled: true,
         modes: Object.fromEntries(
           Object.entries(config.modes ?? {}).filter(([, mode]) => MODE_NAMES.includes(mode)),
         ),

@@ -277,16 +277,17 @@ function ensureStyles() {
     .workflowx-lorax-folder-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .workflowx-lorax-folder-count{margin-left:auto;color:#88919d;font-size:11px}
     .workflowx-lorax-results{overflow:auto;padding:10px;display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;align-content:start;background:#101215}
-    .workflowx-lorax-card{position:relative;min-height:122px;border:1px solid #303640;background:#1c2026;border-radius:7px;display:grid;grid-template-columns:92px 1fr;gap:10px;padding:8px;cursor:pointer;overflow:hidden;color:inherit;text-align:left}
+    .workflowx-lorax-card{position:relative;min-height:156px;border:1px solid #303640;background:#1c2026;border-radius:7px;display:grid;grid-template-columns:100px 1fr;gap:10px;padding:8px;cursor:pointer;overflow:hidden;color:inherit;text-align:left}
     .workflowx-lorax-card:hover{border-color:#6f8fd4;background:#232a34}
-    .workflowx-lorax-thumb,.workflowx-lorax-video{width:92px;height:106px;border-radius:5px;background:#0d0f12;object-fit:cover;border:1px solid #30343b}
-    .workflowx-lorax-no-thumb{width:92px;height:106px;border-radius:5px;background:#222831;border:1px solid #30343b;display:flex;align-items:center;justify-content:center;color:#8f98a5}
-    .workflowx-lorax-card-body{min-width:0;padding-right:48px}
-    .workflowx-lorax-card-actions{position:absolute;right:8px;top:8px;display:flex;gap:5px}
+    .workflowx-lorax-thumb,.workflowx-lorax-video{width:100px;height:140px;border-radius:5px;background:#0d0f12;object-fit:cover;border:1px solid #30343b}
+    .workflowx-lorax-no-thumb{width:100px;height:140px;border-radius:5px;background:#222831;border:1px solid #30343b;display:flex;align-items:center;justify-content:center;color:#8f98a5}
+    .workflowx-lorax-card-body{min-width:0;padding-bottom:31px}
+    .workflowx-lorax-card-actions{position:absolute;right:8px;bottom:8px;display:flex;gap:5px}
     .workflowx-lorax-view{height:25px;border:1px solid #4b5563;border-radius:5px;background:#252d37;color:#d9e4f2;cursor:pointer;font-size:11px;padding:0 7px}
     .workflowx-lorax-view:hover{background:#31415a;border-color:#6f8fd4;color:#fff}
-    .workflowx-lorax-name{font-weight:700;color:#f4f6f9;line-height:1.2;max-height:34px;overflow:hidden}
-    .workflowx-lorax-path{color:#9fa8b4;margin-top:4px;line-height:1.25;max-height:34px;overflow:hidden}
+    .workflowx-lorax-filename{font-weight:700;color:#f4f6f9;line-height:1.25;overflow-wrap:anywhere;word-break:break-word}
+    .workflowx-lorax-name{color:#cbd4df;line-height:1.2;margin-top:5px;max-height:32px;overflow:hidden}
+    .workflowx-lorax-path{color:#9fa8b4;margin-top:5px;font-size:11px;line-height:1.25;max-height:30px;overflow:hidden;overflow-wrap:anywhere}
     .workflowx-lorax-meta{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}
     .workflowx-lorax-chip{font-size:11px;line-height:18px;padding:0 6px;border-radius:4px;background:#2a3440;color:#cdd5df;max-width:128px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .workflowx-lorax-empty{grid-column:1/-1;color:#a7afba;padding:32px;text-align:center}
@@ -438,6 +439,10 @@ function createCard(item, onSelect, onView) {
 
   const body = document.createElement("div");
   body.className = "workflowx-lorax-card-body";
+  const filename = document.createElement("div");
+  filename.className = "workflowx-lorax-filename";
+  filename.textContent = item.filename || normalizePath(item.load_name).split("/").pop() || item.load_name;
+  body.appendChild(filename);
   const name = document.createElement("div");
   name.className = "workflowx-lorax-name";
   name.textContent = item.display_name || item.file_stem || item.load_name;
@@ -450,7 +455,9 @@ function createCard(item, onSelect, onView) {
 
   const meta = document.createElement("div");
   meta.className = "workflowx-lorax-meta";
-  const chips = [item.base_model, item.sub_type, item.favorite ? "Favorite" : "", item.update_available ? "Update" : "", ...item.tags].filter(Boolean).slice(0, 5);
+  const chips = [item.base_model, item.favorite ? "Favorite" : "", item.update_available ? "Update" : "", ...item.tags]
+    .filter((value) => value && lower(value).replace(/[^a-z0-9]+/g, "") !== "lora")
+    .slice(0, 5);
   for (const value of chips) {
     const chip = document.createElement("span");
     chip.className = "workflowx-lorax-chip";

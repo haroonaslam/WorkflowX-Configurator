@@ -10,7 +10,7 @@ import {
   nextConfigName,
   parseSelectorXState,
   reconcileSelectorXState,
-} from "./config_selector_x_state.mjs";
+} from "./config_selector_x_state.mjs?workflowx=2";
 
 const UI_MARKER = "__workflowXSelectorXWidget";
 
@@ -36,6 +36,10 @@ function roundedRect(ctx, x, y, width, height, radius) {
   ctx.rect(x, y, width, height);
 }
 
+function configIsEnabled(config) {
+  return config?.enabled !== false;
+}
+
 function installStyles() {
   if (document.getElementById("workflowx-csx-style")) return;
   const style = document.createElement("style");
@@ -48,8 +52,8 @@ function installStyles() {
     .workflowx-csx-actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.workflowx-csx-btn{min-height:32px;border:1px solid var(--border-color,#465665);border-radius:6px;padding:6px 10px;background:var(--comfy-input-bg,#222a32);color:var(--fg-color,#eef3f8);cursor:pointer}.workflowx-csx-btn:hover{border-color:#62a8d7;background:#273746}.workflowx-csx-btn.primary{border-color:#2380b9;background:#176a9d;color:#fff}.workflowx-csx-btn.danger{border-color:#a85252;color:#ffc5c5}.workflowx-csx-btn:disabled{opacity:.4;cursor:default}
     .workflowx-csx-body{min-height:0;overflow:auto;padding:12px 14px}.workflowx-csx-scope-grid{display:grid;gap:1px;min-width:720px;border:1px solid var(--border-color,#35414c);background:var(--border-color,#35414c)}.workflowx-csx-scope-row{display:grid;grid-template-columns:minmax(180px,1fr) minmax(440px,2fr);gap:12px;align-items:center;min-height:45px;padding:6px 9px;background:var(--comfy-menu-bg,#151a20)}
     .workflowx-csx-group-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.workflowx-csx-segments{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:4px}.workflowx-csx-segment{min-height:30px;border:1px solid var(--border-color,#465665);border-radius:5px;padding:4px 7px;background:var(--comfy-input-bg,#222a32);color:var(--descrip-text,#aeb9c4);cursor:pointer;white-space:nowrap}.workflowx-csx-segment.active{border-color:#39a5d8;background:#164f6d;color:#fff}
-    .workflowx-csx-config-layout{height:100%;min-height:470px;display:grid;grid-template-columns:260px minmax(0,1fr);gap:12px}.workflowx-csx-config-sidebar{min-height:0;display:grid;grid-template-rows:auto minmax(0,1fr) auto;border-right:1px solid var(--border-color,#35414c);padding-right:12px}.workflowx-csx-config-list{min-height:0;overflow:auto;display:grid;align-content:start;gap:5px;padding:8px 0}.workflowx-csx-config-item{width:100%;min-height:34px;overflow:hidden;text-align:left;text-overflow:ellipsis;white-space:nowrap;border:1px solid transparent;border-radius:5px;padding:6px 9px;background:transparent;color:var(--fg-color,#e7edf5);cursor:pointer}.workflowx-csx-config-item.active{border-color:#39a5d8;background:#173f55}
-    .workflowx-csx-editor{min-width:0;min-height:0;display:grid;grid-template-rows:auto minmax(0,1fr)}.workflowx-csx-field{display:grid;grid-template-columns:80px minmax(0,1fr);gap:9px;align-items:center;padding-bottom:10px}.workflowx-csx-input{width:100%;min-height:34px;box-sizing:border-box;border:1px solid var(--border-color,#465665);border-radius:6px;padding:6px 9px;background:var(--comfy-input-bg,#222a32);color:var(--fg-color,#eef3f8)}.workflowx-csx-mode-list{min-height:0;overflow:auto;display:grid;align-content:start;border:1px solid var(--border-color,#35414c);background:var(--comfy-menu-bg,#151a20)}.workflowx-csx-mode-row{display:grid;grid-template-columns:minmax(160px,1fr) minmax(340px,1.7fr);gap:10px;align-items:center;min-height:44px;padding:6px 9px;border-bottom:1px solid var(--border-color,#35414c);background:var(--comfy-menu-bg,#151a20)}.workflowx-csx-empty{padding:24px;color:var(--descrip-text,#9aa8b6);text-align:center}
+    .workflowx-csx-config-layout{height:100%;min-height:470px;display:grid;grid-template-columns:260px minmax(0,1fr);gap:12px}.workflowx-csx-config-sidebar{min-height:0;display:grid;grid-template-rows:auto minmax(0,1fr) auto;border-right:1px solid var(--border-color,#35414c);padding-right:12px}.workflowx-csx-config-list{min-height:0;overflow:auto;display:grid;align-content:start;gap:5px;padding:8px 0}.workflowx-csx-config-item{width:100%;min-height:34px;overflow:hidden;text-align:left;text-overflow:ellipsis;white-space:nowrap;border:1px solid transparent;border-radius:5px;padding:6px 9px;background:transparent;color:var(--fg-color,#e7edf5);cursor:pointer}.workflowx-csx-config-item.disabled{color:var(--descrip-text,#8995a1);opacity:.72}.workflowx-csx-config-item.active{border-color:#39a5d8;background:#173f55}
+    .workflowx-csx-editor{min-width:0;min-height:0;display:grid;grid-template-rows:auto minmax(0,1fr)}.workflowx-csx-editor-fields{display:grid;grid-template-columns:minmax(300px,600px) auto;gap:14px;align-items:center}.workflowx-csx-field{display:grid;grid-template-columns:80px minmax(0,1fr);gap:9px;align-items:center;padding-bottom:10px}.workflowx-csx-input{width:100%;min-height:34px;box-sizing:border-box;border:1px solid var(--border-color,#465665);border-radius:6px;padding:6px 9px;background:var(--comfy-input-bg,#222a32);color:var(--fg-color,#eef3f8)}.workflowx-csx-switch{display:inline-flex;align-items:center;gap:10px;width:max-content;min-height:34px;margin:0 0 10px;padding:0;border:0;background:transparent;color:inherit;font:inherit;cursor:pointer;user-select:none}.workflowx-csx-switch-track{position:relative;width:44px;height:24px;box-sizing:border-box;border:1px solid var(--border-color,#596571);border-radius:999px;background:var(--comfy-input-bg,#252b31);transition:background .15s,border-color .15s}.workflowx-csx-switch-track::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#a9b1ba;box-shadow:0 1px 3px rgba(0,0,0,.45);transition:transform .15s,background .15s}.workflowx-csx-switch[aria-checked="true"] .workflowx-csx-switch-track{border-color:#39a5d8;background:#176a9d}.workflowx-csx-switch[aria-checked="true"] .workflowx-csx-switch-track::after{transform:translateX(20px);background:#fff}.workflowx-csx-switch:focus-visible .workflowx-csx-switch-track{outline:2px solid #79c9ee;outline-offset:2px}.workflowx-csx-switch-label{color:var(--fg-color,#e7edf5);font-size:13px}.workflowx-csx-mode-list{min-height:0;overflow:auto;display:grid;align-content:start;border:1px solid var(--border-color,#35414c);background:var(--comfy-menu-bg,#151a20)}.workflowx-csx-mode-row{display:grid;grid-template-columns:minmax(160px,1fr) minmax(340px,1.7fr);gap:10px;align-items:center;min-height:44px;padding:6px 9px;border-bottom:1px solid var(--border-color,#35414c);background:var(--comfy-menu-bg,#151a20)}.workflowx-csx-empty{padding:24px;color:var(--descrip-text,#9aa8b6);text-align:center}
     @media(max-width:800px){.workflowx-csx-overlay{padding:8px}.workflowx-csx-modal{width:100%;height:96vh}.workflowx-csx-config-layout{grid-template-columns:190px minmax(0,1fr);gap:8px}.workflowx-csx-scope-row,.workflowx-csx-mode-row{grid-template-columns:1fr}}
   `;
   document.head.appendChild(style);
@@ -76,8 +80,10 @@ export function createSelectorXController(adapter) {
     const existing = readState(node);
     if (existing) {
       const names = existing.configs.map((config) => config.name);
-      if (!names.includes(adapter.selectedConfigName(node))) {
-        adapter.setWidgetValueSilently(node, "selected_config", names[0] ?? "");
+      const enabledNames = existing.configs.filter(configIsEnabled).map((config) => config.name);
+      const selected = adapter.selectedConfigName(node);
+      if (!names.includes(selected) || (enabledNames.length && !enabledNames.includes(selected))) {
+        adapter.setWidgetValueSilently(node, "selected_config", enabledNames[0] ?? names[0] ?? "");
       }
       return existing;
     }
@@ -143,7 +149,10 @@ export function createSelectorXController(adapter) {
       config.name = names[index];
     });
     draft = reconcileSelectorXState(draft, adapter.groupNames());
-    if (!names.includes(draftSelected)) draftSelected = names[0];
+    const enabledNames = draft.configs.filter(configIsEnabled).map((config) => config.name);
+    if (!names.includes(draftSelected) || (enabledNames.length && !enabledNames.includes(draftSelected))) {
+      draftSelected = enabledNames[0] ?? names[0];
+    }
     writeState(editorNode, draft);
     adapter.setWidgetValueSilently(editorNode, "selected_config", draftSelected);
     const node = editorNode;
@@ -260,7 +269,7 @@ export function createSelectorXController(adapter) {
             .filter(([, scope]) => scope === CONFIG_SCOPE)
             .map(([groupName]) => [groupName, "Active"]),
         );
-        draft.configs.push({ name, modes });
+        draft.configs.push({ name, enabled: true, modes });
         configIndex = draft.configs.length - 1;
         rerender();
       }),
@@ -268,6 +277,7 @@ export function createSelectorXController(adapter) {
         const source = draft.configs[configIndex];
         draft.configs.splice(configIndex + 1, 0, {
           name: copiedName(source.name),
+          enabled: configIsEnabled(source),
           modes: { ...source.modes },
         });
         configIndex += 1;
@@ -278,6 +288,7 @@ export function createSelectorXController(adapter) {
     draft.configs.forEach((config, index) => {
       const item = el("button", "workflowx-csx-config-item", config.name);
       item.type = "button";
+      if (!configIsEnabled(config)) item.classList.add("disabled");
       if (index === configIndex) item.classList.add("active");
       item.addEventListener("click", () => {
         configIndex = index;
@@ -314,6 +325,7 @@ export function createSelectorXController(adapter) {
     sidebar.append(topActions, list, bottomActions);
 
     const config = draft.configs[configIndex];
+    const fields = el("div", "workflowx-csx-editor-fields");
     const field = el("label", "workflowx-csx-field");
     field.append(el("span", "", "Name"));
     const nameInput = el("input", "workflowx-csx-input");
@@ -325,6 +337,22 @@ export function createSelectorXController(adapter) {
       list.children[configIndex].textContent = nameInput.value || "Untitled";
     });
     field.append(nameInput);
+
+    const visibility = el("button", "workflowx-csx-switch");
+    visibility.type = "button";
+    visibility.setAttribute("role", "switch");
+    visibility.setAttribute("aria-checked", String(configIsEnabled(config)));
+    const visibilityTrack = el("span", "workflowx-csx-switch-track");
+    visibilityTrack.setAttribute("aria-hidden", "true");
+    const visibilityLabel = el("span", "workflowx-csx-switch-label", configIsEnabled(config) ? "Enabled" : "Disabled");
+    visibility.addEventListener("click", () => {
+      config.enabled = !configIsEnabled(config);
+      visibility.setAttribute("aria-checked", String(config.enabled));
+      visibilityLabel.textContent = config.enabled ? "Enabled" : "Disabled";
+      list.children[configIndex]?.classList.toggle("disabled", !config.enabled);
+    });
+    visibility.append(visibilityTrack, visibilityLabel);
+    fields.append(field, visibility);
 
     const modeList = el("div", "workflowx-csx-mode-list");
     const configGroups = Object.entries(draft.scopes)
@@ -350,7 +378,7 @@ export function createSelectorXController(adapter) {
       modeList.append(row);
     }
     if (!configGroups.length) modeList.append(el("div", "workflowx-csx-empty", "No groups are assigned to Config scope."));
-    editor.append(field, modeList);
+    editor.append(fields, modeList);
     layout.append(sidebar, editor);
     body.append(layout);
     modal.append(body);
@@ -517,7 +545,9 @@ export function createSelectorXController(adapter) {
       adapter.recomputeNodeHeight(node);
       return;
     }
-    for (const config of state.configs) addChoice(node, config.name);
+    for (const config of state.configs) {
+      if (configIsEnabled(config)) addChoice(node, config.name);
+    }
     const muteGroups = Object.entries(state.scopes).filter(([, scope]) => scope === MUTE_SCOPE).map(([name]) => name);
     const bypassGroups = Object.entries(state.scopes).filter(([, scope]) => scope === BYPASS_SCOPE).map(([name]) => name);
     if (muteGroups.length) {

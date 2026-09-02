@@ -126,6 +126,8 @@ def _parse_selectorx_state(raw_state: str) -> dict[str, Any]:
         raw_name = config.get("name")
         if not isinstance(raw_name, str):
             raise ValueError("Config SelectorX config names must be strings.")
+        if "enabled" in config and not isinstance(config["enabled"], bool):
+            raise ValueError("Config SelectorX config enabled values must be booleans.")
         name = raw_name.strip()
         if not name:
             raise ValueError("Config SelectorX config names cannot be empty.")

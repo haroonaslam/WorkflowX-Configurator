@@ -123,3 +123,14 @@ test("frontend remains loadable with the pre-filename-fix state module export su
     "restoreModelRows",
   ]);
 });
+
+test("picker cards prioritize a fully wrapping filename in the taller layout", () => {
+  assert.match(frontendSource, /workflowx-dmx-card\{[^}]*min-height:156px/);
+  assert.match(frontendSource, /workflowx-dmx-filename\{[^}]*overflow-wrap:anywhere/);
+  assert.match(frontendSource, /body\.append\(filename, name, path, meta\)/);
+});
+
+test("picker cards omit the redundant diffusion model type chip", () => {
+  assert.match(frontendSource, /replace\(\/\[\^a-z0-9\]\+\/g, ""\) !== "diffusionmodel"/);
+  assert.doesNotMatch(frontendSource, /\[item\.base_model, item\.sub_type, formatFileSize/);
+});

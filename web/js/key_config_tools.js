@@ -4,7 +4,7 @@ import {
   buildImportedSelectorXState,
   effectiveSelectorXModes,
   parseSelectorXState,
-} from "./config_selector_x_state.mjs";
+} from "./config_selector_x_state.mjs?workflowx=2";
 import { createSelectorXController } from "./config_selector_x_ui.js";
 import { referenceIsMuted } from "./reference_routing_state.mjs";
 

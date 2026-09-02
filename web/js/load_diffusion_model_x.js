@@ -251,12 +251,12 @@ function ensureStyles() {
     .workflowx-dmx-folder:hover,.workflowx-dmx-folder.active{background:#28303a;color:#fff}
     .workflowx-dmx-folder-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.workflowx-dmx-folder-count{margin-left:auto;color:#88919d;font-size:11px}
     .workflowx-dmx-results{overflow:auto;padding:10px;display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;align-content:start;background:#101215}
-    .workflowx-dmx-card{position:relative;min-height:122px;border:1px solid #303640;background:#1c2026;border-radius:7px;display:grid;grid-template-columns:92px 1fr;gap:10px;padding:8px;cursor:pointer;overflow:hidden;color:inherit;text-align:left}
-    .workflowx-dmx-card:hover{border-color:#6f8fd4;background:#232a34}.workflowx-dmx-thumb,.workflowx-dmx-video{width:92px;height:106px;border-radius:5px;background:#0d0f12;object-fit:cover;border:1px solid #30343b}
-    .workflowx-dmx-no-thumb{width:92px;height:106px;border-radius:5px;background:#222831;border:1px solid #30343b;display:flex;align-items:center;justify-content:center;color:#8f98a5;text-align:center;padding:4px;box-sizing:border-box}
-    .workflowx-dmx-card-body{min-width:0;padding-right:48px}.workflowx-dmx-name{font-weight:700;color:#f4f6f9;line-height:1.2;max-height:34px;overflow:hidden}.workflowx-dmx-path{color:#9fa8b4;margin-top:4px;line-height:1.25;max-height:34px;overflow:hidden}
+    .workflowx-dmx-card{position:relative;min-height:156px;border:1px solid #303640;background:#1c2026;border-radius:7px;display:grid;grid-template-columns:100px 1fr;gap:10px;padding:8px;cursor:pointer;overflow:hidden;color:inherit;text-align:left}
+    .workflowx-dmx-card:hover{border-color:#6f8fd4;background:#232a34}.workflowx-dmx-thumb,.workflowx-dmx-video{width:100px;height:140px;border-radius:5px;background:#0d0f12;object-fit:cover;border:1px solid #30343b}
+    .workflowx-dmx-no-thumb{width:100px;height:140px;border-radius:5px;background:#222831;border:1px solid #30343b;display:flex;align-items:center;justify-content:center;color:#8f98a5;text-align:center;padding:4px;box-sizing:border-box}
+    .workflowx-dmx-card-body{min-width:0;padding-bottom:31px}.workflowx-dmx-filename{font-weight:700;color:#f4f6f9;line-height:1.25;overflow-wrap:anywhere;word-break:break-word}.workflowx-dmx-name{color:#cbd4df;line-height:1.2;margin-top:5px;max-height:32px;overflow:hidden}.workflowx-dmx-path{color:#9fa8b4;margin-top:5px;font-size:11px;line-height:1.25;max-height:30px;overflow:hidden;overflow-wrap:anywhere}
     .workflowx-dmx-meta{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}.workflowx-dmx-chip{font-size:11px;line-height:18px;padding:0 6px;border-radius:4px;background:#2a3440;color:#cdd5df;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .workflowx-dmx-view{position:absolute;right:8px;top:8px;height:25px;font-size:11px;padding:0 7px}.workflowx-dmx-empty{grid-column:1/-1;color:#a7afba;padding:32px;text-align:center}
+    .workflowx-dmx-view{position:absolute;right:8px;bottom:8px;height:25px;font-size:11px;padding:0 7px}.workflowx-dmx-empty{grid-column:1/-1;color:#a7afba;padding:32px;text-align:center}
     .workflowx-dmx-detail{width:min(900px,calc(100vw - 64px));max-height:min(780px,calc(100vh - 64px));background:#17191d;color:#e8ebef;border:1px solid #4b5563;border-radius:8px;box-shadow:0 24px 90px rgba(0,0,0,.62);display:grid;grid-template-rows:auto 1fr auto;overflow:hidden;font:13px system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
     .workflowx-dmx-detail-head{display:flex;gap:12px;align-items:flex-start;padding:14px 16px;border-bottom:1px solid #30343b;background:#202328}.workflowx-dmx-detail-title{font-size:18px;font-weight:750}.workflowx-dmx-detail-sub{margin-top:4px;color:#a7afba;word-break:break-word}
     .workflowx-dmx-detail-body{overflow:auto;padding:14px 16px;display:grid;grid-template-columns:minmax(220px,300px) 1fr;gap:16px}.workflowx-dmx-detail-preview{width:100%;max-height:360px;border-radius:7px;background:#0d0f12;border:1px solid #30343b;object-fit:cover}.workflowx-dmx-detail-grid{display:grid;grid-template-columns:120px 1fr;gap:8px 12px;align-content:start}.workflowx-dmx-detail-label{color:#98a3b1}.workflowx-dmx-detail-value{color:#eef2f6;word-break:break-word}.workflowx-dmx-description{grid-column:1/-1;white-space:pre-wrap;border-top:1px solid #30343b;padding-top:10px;line-height:1.42}.workflowx-dmx-description.rich{white-space:normal}.workflowx-dmx-description.rich :is(h1,h2,h3,h4,h5,h6,p,pre,blockquote,ul,ol){margin:0 0 9px}.workflowx-dmx-description.rich :is(ul,ol){padding-left:22px}.workflowx-dmx-description.rich a{color:#8db8ff}.workflowx-dmx-description.rich pre,.workflowx-dmx-description.rich code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}.workflowx-dmx-description.rich pre{overflow:auto;background:#101318;border:1px solid #30343b;border-radius:5px;padding:8px}
@@ -459,16 +459,21 @@ function createCard(item, onSelect, onView) {
   card.appendChild(previewElement(item));
   const body = document.createElement("div");
   body.className = "workflowx-dmx-card-body";
+  const filename = document.createElement("div");
+  filename.className = "workflowx-dmx-filename"; filename.textContent = item.filename || normalizePath(item.load_name).split("/").pop() || item.load_name;
   const name = document.createElement("div");
   name.className = "workflowx-dmx-name"; name.textContent = item.display_name || item.file_stem || item.load_name;
   const path = document.createElement("div");
   path.className = "workflowx-dmx-path"; path.textContent = item.load_name;
   const meta = document.createElement("div");
   meta.className = "workflowx-dmx-meta";
-  for (const value of [item.base_model, item.sub_type, formatFileSize(item.file_size), ...(item.tags || [])].filter(Boolean).slice(0, 5)) {
+  const chips = [item.base_model, formatFileSize(item.file_size), ...(item.tags || [])]
+    .filter((value) => value && lower(value).replace(/[^a-z0-9]+/g, "") !== "diffusionmodel")
+    .slice(0, 5);
+  for (const value of chips) {
     const chip = document.createElement("span"); chip.className = "workflowx-dmx-chip"; chip.textContent = value; meta.appendChild(chip);
   }
-  body.append(name, path, meta); card.appendChild(body);
+  body.append(filename, name, path, meta); card.appendChild(body);
   const view = document.createElement("button");
   view.className = "workflowx-dmx-view"; view.textContent = "View"; view.type = "button";
   view.addEventListener("click", (event) => { event.preventDefault(); event.stopPropagation(); onView(item); });

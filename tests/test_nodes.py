@@ -509,7 +509,7 @@ def test_group_scopes_rejects_invalid_scope_names():
 
 def test_config_selectorx_accepts_versioned_state_and_console_choice():
     state = selectorx_state(
-        [{"name": "Speed", "modes": {"Draft": "Active"}}],
+        [{"name": "Speed", "enabled": False, "modes": {"Draft": "Active"}}],
         {"Draft": "Group Configurator"},
     )
     encoded = json.dumps(state)
@@ -528,6 +528,10 @@ def test_config_selectorx_rejects_invalid_state_shapes():
         (
             {**valid, "configs": [{"name": 1, "modes": {"Draft": "Active"}}]},
             "names must be strings",
+        ),
+        (
+            {**valid, "configs": [{"name": "Speed", "enabled": "yes", "modes": {"Draft": "Active"}}]},
+            "enabled values must be booleans",
         ),
         ({**valid, "configs": [*valid["configs"], valid["configs"][0]]}, "must be unique"),
         (selectorx_state([{"name": "Speed", "modes": {"Draft": "Disable"}}], valid["scopes"]), "invalid mode"),
