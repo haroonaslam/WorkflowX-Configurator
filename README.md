@@ -4,13 +4,13 @@
 
 WorkflowX is a production toolkit for building, configuring, editing, organizing, and reusing ComfyUI workflows. It combines image and video nodes, model and LoRA controls, structured prompting, remote image APIs, reusable workflow libraries, scoped configuration, and canvas utilities in one package.
 
-> **Short project brief:** WorkflowX adds 40 active ComfyUI nodes plus XFlows, XPrompts, XNodes, and package-wide right-click utilities. Use it to build configurable workflows, manage LoRA stacks and VRAM, load, preview, and edit image/video media, create structured prompts, call supported image APIs, save video, store reusable graph fragments, group selections, and replace nodes without rebuilding compatible links.
+> **Short project brief:** WorkflowX adds 41 active ComfyUI nodes plus XFlows, XPrompts, XNodes, and package-wide right-click utilities. Use it to build configurable workflows, manage LoRA stacks and VRAM, load, repair, convert, preview, and edit image/video/audio media, create structured prompts, call supported image APIs, save video, store reusable graph fragments, group selections, and replace nodes without rebuilding compatible links.
 
 ## Capabilities
 
 | Area | What WorkflowX adds | Jump to |
 |---|---|---|
-| Media input | Thumbnail browsing, masks, visual video trimming/cropping, dimensions, advanced geometry controls | [Image and media loading](#image-and-media-loading) |
+| Media input | Thumbnail browsing, masks, visual video trimming/cropping, audio repair/conversion, dimensions, advanced geometry controls | [Image and media loading](#image-and-media-loading) |
 | Models | Ordered LoRA stacks and explicit model-component unloading | [Model and LoRA management](#model-and-lora-management) |
 | Prompting | Multi-backend prompt composition and structured JsonX tools | [Prompting and JsonX](#prompting-and-jsonx) |
 | APIs | Gemini/NanoBanana, Kie, and Atlas image generation/editing | [Remote image APIs](#remote-image-apis) |
@@ -94,6 +94,22 @@ The serialized state travels with the workflow; source files do not. See the [ad
 | `height` | `INT` | Final output height. |
 
 The node face provides the full Load ImageX Adv geometry toolset and reflows when mode-specific controls appear. ComfyUI's native video player is the only node-face preview, with a transparent crop overlay attached directly to it; the video picture is reserved for crop interaction and playback starts from the native play control. **Open Timeline** creates a graph-following, canvas-layer-aware floating player with a thumbnail filmstrip, large in/out handles, draggable selection, separate playhead scrubber, editable selection seconds, selection playback, frame/time readouts, lock, minimize, resize, and fullscreen controls. Media outputs are processed only when connected, so width/height-only graphs remain metadata-only. See the [Load VideoX Adv guide](docs/LOAD_VIDEO_X_ADV.md).
+
+### Load AudioX
+
+**Node ID / category:** `WorkflowX_LoadAudioX` · `WorkflowX/Audio`
+
+| Inputs and state | Type | Required | Behavior |
+|---|---|---:|---|
+| `seconds` | `FLOAT` | No | Locks the processed output to a wired duration, using silence padding or looping when needed. |
+| `LoadAudioXState` | `STRING` | UI-managed | Versioned file, trim, conversion, recovery, effect, and destination state. |
+
+| Outputs | Type | Behavior |
+|---|---|---|
+| `audio` | `AUDIO` | Trimmed and processed float32 PCM master for normal ComfyUI audio nodes. |
+| `converted_path` | `STRING` | Absolute path to the MP3 or WAV encoded from that same master. |
+
+The compact face keeps file selection, waveform playback, draggable trim, duration mode, output format, depth/bitrate, channel layout, sample rate, and Repair controls directly on the node. The gear popup holds bounded recovery diagnostics, cleanup presets, gain/normalization/limiting, silence trim, fades, and permanent-save settings. It accepts common audio containers and the first audio stream of video, tolerantly salvages isolated damaged MP3 frames, and applies a narrowly verified recovery for audio-only AAC M4A files whose `stsz` table is truncated but whose metadata and payload prove an exact reconstruction. The source file is never modified. See the [Load AudioX guide](docs/LOAD_AUDIO_X.md).
 
 ### Working example
 

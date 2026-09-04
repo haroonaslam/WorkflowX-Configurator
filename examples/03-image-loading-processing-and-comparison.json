@@ -1,7 +1,7 @@
 {
   "id": "workflowx-image-loading-processing-and-comparison",
   "revision": 0,
-  "last_node_id": 12,
+  "last_node_id": 13,
   "last_link_id": 11,
   "nodes": [
     {
@@ -547,6 +547,52 @@
         false,
         "WorkflowX/example-preview"
       ]
+    },
+    {
+      "id": 13,
+      "type": "WorkflowX_LoadAudioX",
+      "pos": [
+        2640,
+        100
+      ],
+      "size": [
+        420,
+        650
+      ],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "seconds",
+          "type": "FLOAT",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "audio",
+          "type": "AUDIO",
+          "links": []
+        },
+        {
+          "name": "converted_path",
+          "type": "STRING",
+          "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "WorkflowX_LoadAudioX",
+        "workflowxLoadAudioXState": {
+          "version": 1,
+          "file": "",
+          "format": "wav",
+          "wav_depth": "16-bit",
+          "channels": "Source",
+          "sample_rate": "Source"
+        }
+      },
+      "widgets_values": []
     }
   ],
   "links": [
@@ -691,14 +737,27 @@
       "color": "#6c5b7b",
       "font_size": 24,
       "flags": {}
+    },
+    {
+      "id": 5,
+      "title": "Audio loading and repair",
+      "bounding": [
+        2600,
+        50,
+        500,
+        750
+      ],
+      "color": "#9b3a58",
+      "font_size": 24,
+      "flags": {}
     }
   ],
   "config": {},
   "extra": {
     "frontendVersion": "1.43.17",
     "workflowx_example": {
-      "title": "Image and video loading, processing, and comparison",
-      "requirements": "Select two local input images and an optional local input video.",
+      "title": "Image, video, and audio loading, processing, and comparison",
+      "requirements": "Select two local input images and optional local video/audio media.",
       "status": "Locally runnable; Image Compare Edit X is the terminal interactive output.",
       "privacy": "No media, credentials, personal paths, model-library names, or prompts are bundled."
     }

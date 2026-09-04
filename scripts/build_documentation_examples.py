@@ -513,7 +513,7 @@ def build_local_generation() -> Workflow:
 
 
 def build_image_tools() -> Workflow:
-    w = Workflow("image-loading-processing-and-comparison", "Image and video loading, processing, and comparison", "Select two local input images and an optional local input video.", "Locally runnable; Image Compare Edit X is the terminal interactive output.")
+    w = Workflow("image-loading-processing-and-comparison", "Image, video, and audio loading, processing, and comparison", "Select two local input images and optional local video/audio media.", "Locally runnable; Image Compare Edit X is the terminal interactive output.")
     basic = load_image_x(w, "WorkflowX_LoadImageX", 40, 100)
     advanced = load_image_x(w, "WorkflowX_LoadImageXAdv", 40, 500)
     mask = w.node("MaskToImage", 450, 540, size=(220, 90), inputs=[socket("mask", "MASK")], outputs=[port("IMAGE", "IMAGE")])
@@ -530,6 +530,12 @@ def build_image_tools() -> Workflow:
     video = load_video_x_adv(w, 1760, 100)
     video_preview = preview(w, 2220, 180, "Trimmed/cropped video frame batch")
     native_video_preview = preview_video_x(w, 2220, 470)
+    audio = w.node(
+        "WorkflowX_LoadAudioX", 2640, 100, size=(420, 650),
+        inputs=[socket("seconds", "FLOAT")],
+        outputs=[port("audio", "AUDIO"), port("converted_path", "STRING")],
+    )
+    audio["properties"]["workflowxLoadAudioXState"] = {"version": 1, "file": "", "format": "wav", "wav_depth": "16-bit", "channels": "Source", "sample_rate": "Source"}
     w.connect(basic, 0, processor, 0)
     w.connect(advanced, 0, processor, 4)
     w.connect(advanced, 1, mask, 0)
@@ -545,6 +551,7 @@ def build_image_tools() -> Workflow:
     w.group("Processor and mask outputs", 410, 60, 800, 1020, "#2f6f62")
     w.group("Interactive comparison", 1220, 100, 500, 500, "#8a6d3b")
     w.group("Visual video loading", 1730, 50, 850, 750, "#6c5b7b")
+    w.group("Audio loading and repair", 2600, 50, 500, 750, "#9b3a58")
     return w
 
 

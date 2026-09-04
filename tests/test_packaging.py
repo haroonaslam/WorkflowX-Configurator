@@ -90,7 +90,7 @@ def _load_package():
 
 def test_combined_package_exports_workflowx_and_afj_nodes():
     module = _load_package()
-    assert len(module.NODE_CLASS_MAPPINGS) == 44
+    assert len(module.NODE_CLASS_MAPPINGS) == 45
     assert "KVGC_GroupConfigurator" in module.NODE_CLASS_MAPPINGS
     assert "KVGC_ConfigSelectorAdvanced" in module.NODE_CLASS_MAPPINGS
     assert "KVGC_ConfigSelectorX" in module.NODE_CLASS_MAPPINGS
@@ -135,6 +135,10 @@ def test_combined_package_exports_workflowx_and_afj_nodes():
     assert module.NODE_DISPLAY_NAME_MAPPINGS["WorkflowX_LoadVideoXAdv"] == "Load VideoX Adv"
     assert module.NODE_CLASS_MAPPINGS["WorkflowX_LoadVideoXAdv"].CATEGORY == "WorkflowX/Video"
     assert module.NODE_CLASS_MAPPINGS["WorkflowX_LoadVideoXAdv"].RETURN_TYPES == ("VIDEO", "IMAGE", "AUDIO", "INT", "INT")
+    assert "WorkflowX_LoadAudioX" in module.NODE_CLASS_MAPPINGS
+    assert module.NODE_DISPLAY_NAME_MAPPINGS["WorkflowX_LoadAudioX"] == "Load AudioX"
+    assert module.NODE_CLASS_MAPPINGS["WorkflowX_LoadAudioX"].CATEGORY == "WorkflowX/Audio"
+    assert module.NODE_CLASS_MAPPINGS["WorkflowX_LoadAudioX"].RETURN_TYPES == ("AUDIO", "STRING")
     assert "WorkflowX_PreviewVideoX" in module.NODE_CLASS_MAPPINGS
     assert module.NODE_DISPLAY_NAME_MAPPINGS["WorkflowX_PreviewVideoX"] == "Preview Video X"
     assert module.NODE_CLASS_MAPPINGS["WorkflowX_PreviewVideoX"].CATEGORY == "WorkflowX/Video"

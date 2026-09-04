@@ -46,6 +46,11 @@ from .load_video_x import (
     NODE_DISPLAY_NAME_MAPPINGS as LOAD_VIDEO_X_NODE_DISPLAY_NAME_MAPPINGS,
     register_routes as _register_load_video_x_routes_on_app,
 )
+from .load_audio_x import (
+    NODE_CLASS_MAPPINGS as LOAD_AUDIO_X_NODE_CLASS_MAPPINGS,
+    NODE_DISPLAY_NAME_MAPPINGS as LOAD_AUDIO_X_NODE_DISPLAY_NAME_MAPPINGS,
+    register_routes as _register_load_audio_x_routes_on_app,
+)
 from .preview_video_x import (
     NODE_CLASS_MAPPINGS as PREVIEW_VIDEO_X_NODE_CLASS_MAPPINGS,
     NODE_DISPLAY_NAME_MAPPINGS as PREVIEW_VIDEO_X_NODE_DISPLAY_NAME_MAPPINGS,
@@ -78,6 +83,7 @@ NODE_CLASS_MAPPINGS = {
     **REMOTE_IMAGE_API_NODE_CLASS_MAPPINGS,
     **LOAD_IMAGE_X_NODE_CLASS_MAPPINGS,
     **LOAD_VIDEO_X_NODE_CLASS_MAPPINGS,
+    **LOAD_AUDIO_X_NODE_CLASS_MAPPINGS,
     **PREVIEW_VIDEO_X_NODE_CLASS_MAPPINGS,
     **SAVE_VIDEO_X_NODE_CLASS_MAPPINGS,
     **IMAGE_PROCESSOR_X_NODE_CLASS_MAPPINGS,
@@ -93,6 +99,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     **REMOTE_IMAGE_API_NODE_DISPLAY_NAME_MAPPINGS,
     **LOAD_IMAGE_X_NODE_DISPLAY_NAME_MAPPINGS,
     **LOAD_VIDEO_X_NODE_DISPLAY_NAME_MAPPINGS,
+    **LOAD_AUDIO_X_NODE_DISPLAY_NAME_MAPPINGS,
     **PREVIEW_VIDEO_X_NODE_DISPLAY_NAME_MAPPINGS,
     **SAVE_VIDEO_X_NODE_DISPLAY_NAME_MAPPINGS,
     **IMAGE_PROCESSOR_X_NODE_DISPLAY_NAME_MAPPINGS,
@@ -562,6 +569,26 @@ def _register_load_video_x_routes() -> None:
 
 
 _register_load_video_x_routes()
+
+
+def _register_load_audio_x_routes() -> None:
+    try:
+        from server import PromptServer
+    except Exception as exc:
+        logger.warning("[Load AudioX] Could not import PromptServer: %s", exc)
+        return
+
+    prompt_server = getattr(PromptServer, "instance", None)
+    app = getattr(prompt_server, "app", None)
+    if app is None:
+        return
+    try:
+        _register_load_audio_x_routes_on_app(app)
+    except Exception as exc:
+        logger.warning("[Load AudioX] Could not register routes: %s", exc)
+
+
+_register_load_audio_x_routes()
 
 
 def _register_image_processor_x_routes() -> None:
