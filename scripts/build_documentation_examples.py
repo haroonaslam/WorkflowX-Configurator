@@ -536,6 +536,17 @@ def build_image_tools() -> Workflow:
         outputs=[port("audio", "AUDIO"), port("converted_path", "STRING")],
     )
     audio["properties"]["workflowxLoadAudioXState"] = {"version": 1, "file": "", "format": "wav", "wav_depth": "16-bit", "channels": "Source", "sample_rate": "Source"}
+    voice = w.node(
+        "WorkflowX_VoiceChangerX", 3120, 100, size=(360, 470),
+        inputs=[socket("source_audio", "AUDIO"), socket("reference_audio", "AUDIO")],
+        outputs=[port("audio", "AUDIO")], widgets=[0, 0, 0, 0, 100, 0],
+    )
+    audition = w.node("PreviewAudio", 3540, 100, size=(360, 160), inputs=[socket("audio", "AUDIO")], outputs=[port("audio", "AUDIO")])
+    reference_audio = w.node("LoadAudio", 3120, 650, size=(360, 190), title="Reference voice — select a file",
+                             inputs=[socket("audio", "COMBO", widget=True)], outputs=[port("AUDIO", "AUDIO")], widgets=[""])
+    w.connect(audio, 0, voice, 0)
+    w.connect(reference_audio, 0, voice, 1)
+    w.connect(voice, 0, audition, 0)
     w.connect(basic, 0, processor, 0)
     w.connect(advanced, 0, processor, 4)
     w.connect(advanced, 1, mask, 0)
@@ -551,7 +562,7 @@ def build_image_tools() -> Workflow:
     w.group("Processor and mask outputs", 410, 60, 800, 1020, "#2f6f62")
     w.group("Interactive comparison", 1220, 100, 500, 500, "#8a6d3b")
     w.group("Visual video loading", 1730, 50, 850, 750, "#6c5b7b")
-    w.group("Audio loading and repair", 2600, 50, 500, 750, "#9b3a58")
+    w.group("Audio loading, reference matching and preview", 2600, 50, 1340, 830, "#9b3a58")
     return w
 
 

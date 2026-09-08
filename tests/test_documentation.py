@@ -1,4 +1,5 @@
 import json
+import os
 import pathlib
 import re
 import subprocess
@@ -59,7 +60,7 @@ def _heading_slug(text):
 def test_readme_is_the_complete_active_node_reference():
     text = README.read_text(encoding="utf-8")
     active = _active_node_ids()
-    assert len(active) == 41
+    assert len(active) == 42
     missing = sorted(node_id for node_id in active if f"`{node_id}`" not in text)
     assert missing == [], missing
     for heading in (
@@ -218,14 +219,15 @@ def test_referenced_screenshots_are_normalized_and_manifested():
 
 def test_live_object_info_contains_example_node_types_when_comfyui_is_running():
     try:
-        with urllib.request.urlopen("http://127.0.0.1:8188/object_info", timeout=10) as response:
+        base_url = os.environ.get("WORKFLOWX_TEST_COMFY_URL", "http://127.0.0.1:8188").rstrip("/")
+        with urllib.request.urlopen(f"{base_url}/object_info", timeout=10) as response:
             object_info = json.load(response)
     except (OSError, urllib.error.URLError):
         return
 
     package_ids = set(_package().NODE_CLASS_MAPPINGS)
     assert package_ids <= set(object_info)
-    assert len(package_ids) == 45
+    assert len(package_ids) == 46
     example_types = {
         node["type"]
         for document in _example_documents().values()

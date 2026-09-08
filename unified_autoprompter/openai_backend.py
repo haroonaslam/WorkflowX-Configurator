@@ -411,7 +411,7 @@ def _generate_lm_studio_native(
     body = {
         "model": model,
         "input": input_value,
-        "system_prompt": system_prompt,
+        **({"system_prompt": system_prompt} if system_prompt else {}),
         "stream": False,
         "store": False,
     }
@@ -474,7 +474,7 @@ def generate(
             "model": model,
             "stream": False,
             "messages": [
-                {"role": "system", "content": system_prompt},
+                *([{"role": "system", "content": system_prompt}] if system_prompt else []),
                 {"role": "user", "content": _chat_content(user_prompt, images)},
             ],
         }

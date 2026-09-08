@@ -1378,8 +1378,10 @@ def _call_provider(data: dict[str, Any], system_prompt: str, user_prompt: str, i
             )
         else:
             raise ValueError(f"Unsupported JsonX backend: {backend}")
-    except Exception:
+    except Exception as exc:
         _raise_if_cancelled(data)
+        from ..generation_errors import log_generation_error
+        log_generation_error(exc, backend)
         raise
     _raise_if_cancelled(data)
     diagnostics = getattr(result, "diagnostics", None)

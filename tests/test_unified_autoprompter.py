@@ -2166,7 +2166,8 @@ def test_unified_jsonx_profile_editor_shows_effective_packaged_instructions():
         "Adaptive Balanced", "Adaptive Polished", "Adaptive Max",
         "Template Flex", "Template Catalog", "Custom",
     ]
-    setup_positions = [source.index(f'"{name}"') for name in setup_names]
+    setup_source = source[source.index("const setupPresets ="):source.index("const matchingSetupPreset =")]
+    setup_positions = [setup_source.index(f'"{name}"') for name in setup_names]
     assert setup_positions == sorted(setup_positions)
     assert 'overviewField("JsonX setup preset", setupPreset)' in source
     assert 'setupPreset.value = "custom"' in source
@@ -2213,6 +2214,23 @@ def test_unified_preview_and_bbox_docks_follow_canvas_widget_stacking():
     assert "if (!canvasLayer && dock.parentElement !== document.body)" in source
     assert "if (canvasLayer) return" in source
     assert "node.__workflowXUapRoot = wrap" in source
+
+
+def test_unified_frontend_defers_custom_ui_until_workflow_state_is_configured():
+    source = (ROOT / "web" / "js" / "unified_autoprompter.js").read_text(encoding="utf-8")
+    registration = source.split("app.registerExtension({", 1)[1]
+    created = registration.split('chainCallback(nodeType.prototype, "onNodeCreated"', 1)[1].split(
+        'chainCallback(nodeType.prototype, "onConfigure"', 1
+    )[0]
+    configured = registration.split('chainCallback(nodeType.prototype, "onConfigure"', 1)[1]
+
+    assert "setTimeout(() => setupUnifiedAutoprompter(this), 0)" in created
+    assert "this.__workflowXUapRestoreState?.()" in configured
+    assert "else setupUnifiedAutoprompter(this)" in configured
+    assert "setupUnifiedAutoprompter(this);" not in created
+    assert "function restoreWorkflowStateFromWidgets()" in source
+    assert "Object.assign(state, defaultState(node), runtimeState)" in source
+    assert "node.__workflowXUapRestoreState = restoreWorkflowStateFromWidgets" in source
 
 
 def test_unified_frontend_exposes_provider_aware_openai_controls_and_discovery():

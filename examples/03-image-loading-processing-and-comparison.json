@@ -1,8 +1,8 @@
 {
   "id": "workflowx-image-loading-processing-and-comparison",
   "revision": 0,
-  "last_node_id": 13,
-  "last_link_id": 11,
+  "last_node_id": 16,
+  "last_link_id": 14,
   "nodes": [
     {
       "id": 1,
@@ -41,8 +41,8 @@
           "name": "image",
           "type": "IMAGE",
           "links": [
-            1,
-            8
+            4,
+            11
           ]
         },
         {
@@ -96,21 +96,21 @@
           "name": "image",
           "type": "IMAGE",
           "links": [
-            2
+            5
           ]
         },
         {
           "name": "mask",
           "type": "MASK",
           "links": [
-            3
+            6
           ]
         },
         {
           "name": "inverted_mask",
           "type": "MASK",
           "links": [
-            4
+            7
           ]
         },
         {
@@ -150,7 +150,7 @@
         {
           "name": "mask",
           "type": "MASK",
-          "link": 3
+          "link": 6
         }
       ],
       "outputs": [
@@ -158,7 +158,7 @@
           "name": "IMAGE",
           "type": "IMAGE",
           "links": [
-            5
+            8
           ]
         }
       ],
@@ -185,7 +185,7 @@
         {
           "name": "mask",
           "type": "MASK",
-          "link": 4
+          "link": 7
         }
       ],
       "outputs": [
@@ -193,7 +193,7 @@
           "name": "IMAGE",
           "type": "IMAGE",
           "links": [
-            6
+            9
           ]
         }
       ],
@@ -220,7 +220,7 @@
         {
           "name": "images",
           "type": "IMAGE",
-          "link": 5
+          "link": 8
         }
       ],
       "outputs": [],
@@ -248,7 +248,7 @@
         {
           "name": "images",
           "type": "IMAGE",
-          "link": 6
+          "link": 9
         }
       ],
       "outputs": [],
@@ -276,7 +276,7 @@
         {
           "name": "image1",
           "type": "IMAGE",
-          "link": 1
+          "link": 4
         },
         {
           "name": "operation_mode",
@@ -305,7 +305,7 @@
         {
           "name": "image2",
           "type": "IMAGE",
-          "link": 2
+          "link": 5
         }
       ],
       "outputs": [
@@ -313,8 +313,8 @@
           "name": "image",
           "type": "IMAGE",
           "links": [
-            7,
-            9
+            10,
+            12
           ]
         }
       ],
@@ -345,7 +345,7 @@
         {
           "name": "images",
           "type": "IMAGE",
-          "link": 7
+          "link": 10
         }
       ],
       "outputs": [],
@@ -373,12 +373,12 @@
         {
           "name": "image1",
           "type": "IMAGE",
-          "link": 8
+          "link": 11
         },
         {
           "name": "image2",
           "type": "IMAGE",
-          "link": 9
+          "link": 12
         }
       ],
       "outputs": [],
@@ -429,14 +429,14 @@
           "name": "video",
           "type": "VIDEO",
           "links": [
-            11
+            14
           ]
         },
         {
           "name": "video_frames",
           "type": "IMAGE",
           "links": [
-            10
+            13
           ]
         },
         {
@@ -481,7 +481,7 @@
         {
           "name": "images",
           "type": "IMAGE",
-          "link": 10
+          "link": 13
         }
       ],
       "outputs": [],
@@ -509,7 +509,7 @@
         {
           "name": "video",
           "type": "VIDEO",
-          "link": 11
+          "link": 14
         },
         {
           "name": "save_output",
@@ -573,7 +573,9 @@
         {
           "name": "audio",
           "type": "AUDIO",
-          "links": []
+          "links": [
+            1
+          ]
         },
         {
           "name": "converted_path",
@@ -593,11 +595,156 @@
         }
       },
       "widgets_values": []
+    },
+    {
+      "id": 14,
+      "type": "WorkflowX_VoiceChangerX",
+      "pos": [
+        3120,
+        100
+      ],
+      "size": [
+        360,
+        470
+      ],
+      "flags": {},
+      "order": 13,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "source_audio",
+          "type": "AUDIO",
+          "link": 1
+        },
+        {
+          "name": "reference_audio",
+          "type": "AUDIO",
+          "link": 2
+        }
+      ],
+      "outputs": [
+        {
+          "name": "audio",
+          "type": "AUDIO",
+          "links": [
+            3
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "WorkflowX_VoiceChangerX"
+      },
+      "widgets_values": [
+        0,
+        0,
+        0,
+        0,
+        100,
+        0
+      ]
+    },
+    {
+      "id": 15,
+      "type": "PreviewAudio",
+      "pos": [
+        3540,
+        100
+      ],
+      "size": [
+        360,
+        160
+      ],
+      "flags": {},
+      "order": 14,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "audio",
+          "type": "AUDIO",
+          "link": 3
+        }
+      ],
+      "outputs": [
+        {
+          "name": "audio",
+          "type": "AUDIO",
+          "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "PreviewAudio"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 16,
+      "type": "LoadAudio",
+      "pos": [
+        3120,
+        650
+      ],
+      "size": [
+        360,
+        190
+      ],
+      "flags": {},
+      "order": 15,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "audio",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "audio"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "AUDIO",
+          "type": "AUDIO",
+          "links": [
+            2
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LoadAudio"
+      },
+      "widgets_values": [
+        ""
+      ],
+      "title": "Reference voice — select a file"
     }
   ],
   "links": [
     [
       1,
+      13,
+      0,
+      14,
+      0,
+      "AUDIO"
+    ],
+    [
+      2,
+      16,
+      0,
+      14,
+      1,
+      "AUDIO"
+    ],
+    [
+      3,
+      14,
+      0,
+      15,
+      0,
+      "AUDIO"
+    ],
+    [
+      4,
       1,
       0,
       7,
@@ -605,7 +752,7 @@
       "IMAGE"
     ],
     [
-      2,
+      5,
       2,
       0,
       7,
@@ -613,7 +760,7 @@
       "IMAGE"
     ],
     [
-      3,
+      6,
       2,
       1,
       3,
@@ -621,7 +768,7 @@
       "MASK"
     ],
     [
-      4,
+      7,
       2,
       2,
       4,
@@ -629,7 +776,7 @@
       "MASK"
     ],
     [
-      5,
+      8,
       3,
       0,
       5,
@@ -637,7 +784,7 @@
       "IMAGE"
     ],
     [
-      6,
+      9,
       4,
       0,
       6,
@@ -645,7 +792,7 @@
       "IMAGE"
     ],
     [
-      7,
+      10,
       7,
       0,
       8,
@@ -653,7 +800,7 @@
       "IMAGE"
     ],
     [
-      8,
+      11,
       1,
       0,
       9,
@@ -661,7 +808,7 @@
       "IMAGE"
     ],
     [
-      9,
+      12,
       7,
       0,
       9,
@@ -669,7 +816,7 @@
       "IMAGE"
     ],
     [
-      10,
+      13,
       10,
       1,
       11,
@@ -677,7 +824,7 @@
       "IMAGE"
     ],
     [
-      11,
+      14,
       10,
       0,
       12,
@@ -740,12 +887,12 @@
     },
     {
       "id": 5,
-      "title": "Audio loading and repair",
+      "title": "Audio loading, reference matching and preview",
       "bounding": [
         2600,
         50,
-        500,
-        750
+        1340,
+        830
       ],
       "color": "#9b3a58",
       "font_size": 24,

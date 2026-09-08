@@ -239,6 +239,18 @@ def _float(
     return number
 
 
+def reasoning_budget_args(options: dict[str, Any]) -> list[str]:
+    if normalize_reasoning_mode(options.get("reasoning")) == "off":
+        return []
+    value = options.get("reasoning_budget")
+    if value is None or value == "" or value == "default":
+        return []
+    if isinstance(value, bool) or not str(value).isdigit() or int(value) <= 0:
+        raise ValueError("Thinking token budget must be a positive integer or Default.")
+    return ["--reasoning-budget", str(int(value))]
+
+
+
 def build_command(
     *,
     model_path: Path,
@@ -291,6 +303,7 @@ def build_command(
             "--single-turn",
             "--reasoning", normalize_reasoning_mode(options.get("reasoning")),
         ]
+        command.extend(reasoning_budget_args(options))
         if use_mtp:
             command.extend(
                 [

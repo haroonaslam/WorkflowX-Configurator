@@ -6,7 +6,6 @@ import hashlib
 import io
 import json
 import threading
-import traceback
 from typing import Any
 
 from aiohttp import web
@@ -14,6 +13,8 @@ from PIL import Image
 
 from . import deepseek_backend, gemini_backend, grok_backend, local_llama_backend, ollama_backend, openai_backend
 from .folder_registry import model_catalog
+from . import general
+from .generation_errors import log_generation_error
 from .profile_config import profile_config_payload, reset_config, save_config
 from .profiles import (
     effective_generation_image_count,
@@ -167,6 +168,147 @@ def _json_error(message: str, status: int = 400):
     return web.json_response({"error": message}, status=status)
 
 
+async def dispatch_provider(data, system_prompt, user_prompt, pil_images, prompt_format, cancel_event):
+    """Dispatch already-built messages; profile and General assembly stay separate."""
+    backend = str(data.get("backend") or "gemini")
+    timeout = _timeout_seconds(data.get("timeout"))
+    loop = asyncio.get_event_loop()
+    pil_image = pil_images[0] if pil_images else None
+    if backend == "gemini":
+        raw = await loop.run_in_executor(
+            None,
+            lambda: gemini_backend.generate(
+                (data.get("api_key") or "").strip(),
+                data.get("model") or "",
+                system_prompt,
+                user_prompt,
+                prompt_format=prompt_format,
+                pil_image=pil_image,
+                pil_images=pil_images,
+                safety_settings=data.get("gemini_safety") if isinstance(data.get("gemini_safety"), dict) else None,
+                timeout=timeout,
+            ),
+        )
+    elif backend in {"openai", "lm_studio", "unsloth"}:
+        server_type = {
+            "openai": "generic",
+            "lm_studio": "lm_studio",
+            "unsloth": "unsloth",
+        }[backend]
+        model_capabilities = data.get("model_capabilities") if isinstance(data.get("model_capabilities"), dict) else {}
+        if pil_images and backend in {"lm_studio", "unsloth"} and model_capabilities.get("vision") is False:
+            raise ValueError(f"The selected {backend.replace('_', ' ').title()} model does not accept image input.")
+        raw = await loop.run_in_executor(
+            None,
+            lambda: openai_backend.generate(
+                data.get("base_url") or "",
+                (data.get("api_key") or "").strip(),
+                data.get("model") or "",
+                system_prompt,
+                user_prompt,
+                pil_image=pil_image,
+                pil_images=pil_images,
+                timeout=timeout,
+                unload_after=(
+                    bool(data.get("unload_after"))
+                    if "openai_lifecycle" not in data and "unload_after" in data
+                    else None
+                ),
+                server_type=server_type,
+                lifecycle=str(data.get("openai_lifecycle") or "server_managed"),
+                reasoning_effort=str(data.get("openai_reasoning_effort") or "default"),
+                provider_options=data.get("provider_options") if isinstance(data.get("provider_options"), dict) else None,
+            ),
+        )
+    elif backend == "grok":
+        model_capabilities = data.get("model_capabilities") if isinstance(data.get("model_capabilities"), dict) else {}
+        if pil_images and model_capabilities.get("vision") is False:
+            raise ValueError("The selected Grok model does not accept image input.")
+        raw = await loop.run_in_executor(
+            None,
+            lambda: grok_backend.generate(
+                str(data.get("api_key") or "").strip(),
+                str(data.get("model") or ""),
+                system_prompt,
+                user_prompt,
+                pil_images=pil_images,
+                timeout=timeout,
+                prompt_format=prompt_format,
+                max_output_tokens=_provider_default_number(data.get("grok_max_output_tokens"), integer=True),
+                temperature=_provider_default_number(data.get("grok_temperature")),
+                top_p=_provider_default_number(data.get("grok_top_p")),
+                reasoning_effort=str(data.get("grok_reasoning_effort") or "default"),
+                prompt_cache_key=_prompt_cache_key(data, system_prompt),
+            ),
+        )
+    elif backend == "deepseek":
+        if pil_images and not deepseek_backend.is_vision_model(str(data.get("model") or "")):
+            raise ValueError(f"The selected DeepSeek model '{data.get('model') or ''}' does not accept image input.")
+        raw = await loop.run_in_executor(
+            None,
+            lambda: deepseek_backend.generate(
+                str(data.get("api_key") or "").strip(),
+                str(data.get("model") or ""),
+                system_prompt,
+                user_prompt,
+                pil_images=pil_images,
+                timeout=timeout,
+                prompt_format=prompt_format,
+                max_tokens=_provider_default_number(data.get("deepseek_max_tokens"), integer=True),
+                thinking=str(data.get("deepseek_thinking") or "default"),
+                reasoning_effort=str(data.get("deepseek_reasoning_effort") or "default"),
+                temperature=_provider_default_number(data.get("deepseek_temperature")),
+                top_p=_provider_default_number(data.get("deepseek_top_p")),
+                image_detail=str(data.get("deepseek_image_detail") or "default"),
+            ),
+        )
+    elif backend == "ollama":
+        raw = await loop.run_in_executor(
+            None,
+            lambda: ollama_backend.generate(
+                data.get("host") or "",
+                data.get("model") or "",
+                system_prompt,
+                user_prompt,
+                pil_image=pil_image,
+                pil_images=pil_images,
+                think=bool(data.get("think", False)),
+                unload_after=bool(data.get("unload_after", True)),
+                timeout=timeout,
+                options=data.get("ollama_options") if isinstance(data.get("ollama_options"), dict) else None,
+            ),
+        )
+    elif backend == "local":
+        local_options = data.get("local_options")
+        local_options = local_options if isinstance(local_options, dict) else {}
+        local_options.setdefault("timeout", timeout)
+        if pil_images and str(data.get("mmproj") or "none").strip().lower() in {"", "none"}:
+            raise ValueError(
+                "Connected authoring images require a vision mmproj for the selected local GGUF model. "
+                "Select a compatible mmproj or disconnect the images."
+            )
+        raw = await loop.run_in_executor(
+            None,
+            lambda: local_llama_backend.generate(
+                model=data.get("model") or "",
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                pil_image=pil_image,
+                pil_images=pil_images,
+                mmproj=data.get("mmproj") or "none",
+                system_prompt_preset=data.get("system_prompt_preset") or "none",
+                additional_model_paths=data.get("additional_model_paths"),
+                options=local_options,
+                cancel_event=cancel_event,
+            ),
+        )
+    else:
+        raise ValueError(f"Unsupported backend: {backend}")
+
+    return raw
+
+
+
 def register_routes(app=None) -> None:
     try:
         from server import PromptServer
@@ -181,7 +323,71 @@ def register_routes(app=None) -> None:
 
     @routes.get(f"{ROUTE_PREFIX}/profiles")
     async def workflowx_unified_profiles(request):
-        return web.json_response(profiles_payload())
+        return web.json_response({**profiles_payload(), "general_schema_version": general.GENERAL_SCHEMA_VERSION})
+
+    @routes.get(f"{ROUTE_PREFIX}/general/presets")
+    async def general_presets(request):
+        return web.json_response({"presets": general.list_presets(), "general_schema_version": general.GENERAL_SCHEMA_VERSION})
+
+    async def general_request(request, *, preview=False):
+        data = {}
+        generation_id = ""
+        cancel_event = None
+        try:
+            data = await request.json()
+            if not isinstance(data, dict):
+                raise general.GeneralInputError("Invalid General request.")
+            if data.get("general_schema_version") != general.GENERAL_SCHEMA_VERSION or data.get("schema_version") != SCHEMA_VERSION:
+                raise general.GeneralInputError("General frontend/backend mismatch. Restart ComfyUI and hard-refresh the browser.")
+            values = _raw_image_values(data)
+            system, user = general.build_inputs(data, len(values))
+            images = _decode_image_values(values)
+            if len(images) != len(values):
+                raise general.GeneralInputError("A connected image could not be read. Refresh or run its source node and try again.")
+            # A caller cannot activate a legacy fallback or profile format here.
+            provider_data = {**data, "system_prompt_preset": "none", "target_model": "general", "prompt_format": "natural", "generation_type": ""}
+            if images:
+                backend = str(data.get("backend") or "")
+                capabilities = data.get("model_capabilities") or {}
+                if isinstance(capabilities, dict) and capabilities.get("vision") is False:
+                    raise general.GeneralInputError("The selected model cannot accept images. Choose a vision-capable model or disconnect the images.")
+                if backend == "local" and str(data.get("mmproj") or "none").strip().lower() in {"", "none"}:
+                    raise general.GeneralInputError("Connected images require a compatible vision mmproj. Select one or disconnect the images.")
+                if backend == "deepseek" and not deepseek_backend.is_vision_model(str(data.get("model") or "")):
+                    raise general.GeneralInputError("Choose a vision-capable DeepSeek model or disconnect the images.")
+            if preview:
+                return web.json_response({
+                    "system_prompt": system, "user_prompt": user, "images_b64": values,
+                    "general_schema_version": general.GENERAL_SCHEMA_VERSION,
+                    "local_routing": {"preset": str(data.get("preset") or "none"), "image_count": len(values)},
+                })
+            generation_id = str(data.get("generation_id") or "")
+            cancel_event = CancellationRegistry.begin(generation_id)
+            if data.get("refresh_vram"):
+                await asyncio.get_running_loop().run_in_executor(None, refresh_comfy_vram)
+            raw = await dispatch_provider(provider_data, system, user, images, "natural", cancel_event)
+            if cancel_event.is_set():
+                raise GenerationCancelled("Generation cancelled.")
+            return web.json_response({"prompt": str(raw), "positive": str(raw), "negative": "", "target_model": "general", "prompt_format": "natural"})
+        except GenerationCancelled:
+            return _json_error("Generation cancelled. Previous output kept.", status=409)
+        except general.GeneralInputError as exc:
+            return _json_error(str(exc))
+        except Exception as exc:
+            if cancel_event is not None and cancel_event.is_set():
+                return _json_error("Generation cancelled. Previous output kept.", status=409)
+            return _json_error(log_generation_error(exc, str(data.get("backend") or "")))
+        finally:
+            if generation_id:
+                CancellationRegistry.finish(generation_id)
+
+    @routes.post(f"{ROUTE_PREFIX}/general/preview")
+    async def general_preview(request):
+        return await general_request(request, preview=True)
+
+    @routes.post(f"{ROUTE_PREFIX}/general/generate")
+    async def general_generate(request):
+        return await general_request(request)
 
     @routes.post(f"{ROUTE_PREFIX}/preview")
     async def workflowx_unified_preview(request):
@@ -429,6 +635,8 @@ def register_routes(app=None) -> None:
                 "Unified PrompterX reference schema mismatch. Restart ComfyUI and hard-refresh the browser."
             )
         target_model = str(data.get("target_model") or "ideogram4")
+        if target_model == "general":
+            return _json_error("General must use the General generation route. Hard-refresh the browser.")
         if get_profile(target_model).engine != "standard":
             return _json_error("JsonX profiles must use the isolated Unified JsonX generation route.")
         prompt_format = normalize_format(target_model, str(data.get("prompt_format") or ""))
@@ -473,137 +681,7 @@ def register_routes(app=None) -> None:
                 raise GenerationCancelled("Generation cancelled.")
             if bool(data.get("refresh_vram", False)):
                 await loop.run_in_executor(None, refresh_comfy_vram)
-            if backend == "gemini":
-                raw = await loop.run_in_executor(
-                    None,
-                    lambda: gemini_backend.generate(
-                        (data.get("api_key") or "").strip(),
-                        data.get("model") or "",
-                        system_prompt,
-                        user_prompt,
-                        prompt_format=prompt_format,
-                        pil_image=pil_image,
-                        pil_images=pil_images,
-                        safety_settings=data.get("gemini_safety") if isinstance(data.get("gemini_safety"), dict) else None,
-                        timeout=timeout,
-                    ),
-                )
-            elif backend in {"openai", "lm_studio", "unsloth"}:
-                server_type = {
-                    "openai": "generic",
-                    "lm_studio": "lm_studio",
-                    "unsloth": "unsloth",
-                }[backend]
-                model_capabilities = data.get("model_capabilities") if isinstance(data.get("model_capabilities"), dict) else {}
-                if pil_images and backend in {"lm_studio", "unsloth"} and model_capabilities.get("vision") is False:
-                    raise ValueError(f"The selected {backend.replace('_', ' ').title()} model does not accept image input.")
-                raw = await loop.run_in_executor(
-                    None,
-                    lambda: openai_backend.generate(
-                        data.get("base_url") or "",
-                        (data.get("api_key") or "").strip(),
-                        data.get("model") or "",
-                        system_prompt,
-                        user_prompt,
-                        pil_image=pil_image,
-                        pil_images=pil_images,
-                        timeout=timeout,
-                        unload_after=(
-                            bool(data.get("unload_after"))
-                            if "openai_lifecycle" not in data and "unload_after" in data
-                            else None
-                        ),
-                        server_type=server_type,
-                        lifecycle=str(data.get("openai_lifecycle") or "server_managed"),
-                        reasoning_effort=str(data.get("openai_reasoning_effort") or "default"),
-                        provider_options=data.get("provider_options") if isinstance(data.get("provider_options"), dict) else None,
-                    ),
-                )
-            elif backend == "grok":
-                model_capabilities = data.get("model_capabilities") if isinstance(data.get("model_capabilities"), dict) else {}
-                if pil_images and model_capabilities.get("vision") is False:
-                    raise ValueError("The selected Grok model does not accept image input.")
-                raw = await loop.run_in_executor(
-                    None,
-                    lambda: grok_backend.generate(
-                        str(data.get("api_key") or "").strip(),
-                        str(data.get("model") or ""),
-                        system_prompt,
-                        user_prompt,
-                        pil_images=pil_images,
-                        timeout=timeout,
-                        prompt_format=prompt_format,
-                        max_output_tokens=_provider_default_number(data.get("grok_max_output_tokens"), integer=True),
-                        temperature=_provider_default_number(data.get("grok_temperature")),
-                        top_p=_provider_default_number(data.get("grok_top_p")),
-                        reasoning_effort=str(data.get("grok_reasoning_effort") or "default"),
-                        prompt_cache_key=_prompt_cache_key(data, system_prompt),
-                    ),
-                )
-            elif backend == "deepseek":
-                if pil_images and not deepseek_backend.is_vision_model(str(data.get("model") or "")):
-                    raise ValueError(f"The selected DeepSeek model '{data.get('model') or ''}' does not accept image input.")
-                raw = await loop.run_in_executor(
-                    None,
-                    lambda: deepseek_backend.generate(
-                        str(data.get("api_key") or "").strip(),
-                        str(data.get("model") or ""),
-                        system_prompt,
-                        user_prompt,
-                        pil_images=pil_images,
-                        timeout=timeout,
-                        prompt_format=prompt_format,
-                        max_tokens=_provider_default_number(data.get("deepseek_max_tokens"), integer=True),
-                        thinking=str(data.get("deepseek_thinking") or "default"),
-                        reasoning_effort=str(data.get("deepseek_reasoning_effort") or "default"),
-                        temperature=_provider_default_number(data.get("deepseek_temperature")),
-                        top_p=_provider_default_number(data.get("deepseek_top_p")),
-                        image_detail=str(data.get("deepseek_image_detail") or "default"),
-                    ),
-                )
-            elif backend == "ollama":
-                raw = await loop.run_in_executor(
-                    None,
-                    lambda: ollama_backend.generate(
-                        data.get("host") or "",
-                        data.get("model") or "",
-                        system_prompt,
-                        user_prompt,
-                        pil_image=pil_image,
-                        pil_images=pil_images,
-                        think=bool(data.get("think", False)),
-                        unload_after=bool(data.get("unload_after", True)),
-                        timeout=timeout,
-                        options=data.get("ollama_options") if isinstance(data.get("ollama_options"), dict) else None,
-                    ),
-                )
-            elif backend == "local":
-                local_options = data.get("local_options")
-                local_options = local_options if isinstance(local_options, dict) else {}
-                local_options.setdefault("timeout", timeout)
-                if pil_images and str(data.get("mmproj") or "none").strip().lower() in {"", "none"}:
-                    raise ValueError(
-                        "Connected authoring images require a vision mmproj for the selected local GGUF model. "
-                        "Select a compatible mmproj or disconnect the images."
-                    )
-                raw = await loop.run_in_executor(
-                    None,
-                    lambda: local_llama_backend.generate(
-                        model=data.get("model") or "",
-                        system_prompt=system_prompt,
-                        user_prompt=user_prompt,
-                        pil_image=pil_image,
-                        pil_images=pil_images,
-                        mmproj=data.get("mmproj") or "none",
-                        system_prompt_preset=data.get("system_prompt_preset") or "none",
-                        additional_model_paths=data.get("additional_model_paths"),
-                        options=local_options,
-                        cancel_event=cancel_event,
-                    ),
-                )
-            else:
-                return _json_error(f"Unsupported backend: {backend}")
-
+            raw = await dispatch_provider(data, system_prompt, user_prompt, pil_images, prompt_format, cancel_event)
             if cancel_event.is_set():
                 raise GenerationCancelled("Generation cancelled.")
             parsed = parse_generation_response(target_model, prompt_format, str(raw), negative_enabled)
@@ -632,8 +710,7 @@ def register_routes(app=None) -> None:
         except GenerationCancelled as exc:
             return _json_error(str(exc), status=409)
         except Exception as exc:
-            traceback.print_exc()
-            return _json_error(str(exc))
+            return _json_error(log_generation_error(exc, backend))
         finally:
             CancellationRegistry.finish(generation_id)
 

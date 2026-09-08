@@ -6,6 +6,7 @@ from typing import Any
 
 import requests
 from PIL import Image
+from .generation_errors import ProviderHTTPError
 
 
 API_ROOT = "https://api.x.ai/v1"
@@ -54,7 +55,7 @@ def list_models(api_key: str, timeout: float = 120) -> list[dict[str, Any]]:
     headers = _headers(api_key)
     language_response = requests.get(f"{API_ROOT}/language-models", headers=headers, timeout=timeout)
     if language_response.status_code != 200:
-        raise ValueError(f"xAI API {language_response.status_code}: {_safe_error(language_response)}")
+        raise ProviderHTTPError(language_response.status_code, _safe_error(language_response), "grok")
     context_by_id: dict[str, int] = {}
     try:
         model_response = requests.get(f"{API_ROOT}/models", headers=headers, timeout=timeout)
@@ -108,6 +109,8 @@ def _extract_text(payload: dict[str, Any]) -> str:
         for content in item.get("content", []):
             if isinstance(content, dict) and content.get("type") == "output_text":
                 chunks.append(str(content.get("text") or ""))
+            elif isinstance(content, dict) and content.get("type") == "refusal":
+                chunks.append(str(content.get("refusal") or ""))
     text = "".join(chunks).strip()
     if not text:
         error = payload.get("error")
@@ -168,7 +171,7 @@ def generate(
     body: dict[str, Any] = {
         "model": str(model).strip(),
         "input": [
-            {"role": "system", "content": system_prompt},
+            *([{"role": "system", "content": system_prompt}] if system_prompt else []),
             {"role": "user", "content": content},
         ],
         "store": False,
@@ -193,6 +196,6 @@ def generate(
         timeout=timeout,
     )
     if response.status_code != 200:
-        raise ValueError(f"xAI API {response.status_code}: {_safe_error(response)}")
+        raise ProviderHTTPError(response.status_code, _safe_error(response), "grok")
     payload = response.json()
     return GrokResponse(_extract_text(payload), _usage_diagnostics(payload))

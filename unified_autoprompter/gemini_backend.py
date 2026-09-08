@@ -95,7 +95,7 @@ def generate(
     if str(prompt_format or "").strip().lower() == "json":
         generation_config["responseMimeType"] = "application/json"
     body = {
-        "systemInstruction": {"parts": [{"text": system_prompt}]},
+        **({"systemInstruction": {"parts": [{"text": system_prompt}]}} if system_prompt else {}),
         "contents": [{"role": "user", "parts": parts}],
     }
     if generation_config:

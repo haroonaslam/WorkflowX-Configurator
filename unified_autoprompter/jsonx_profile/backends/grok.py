@@ -6,6 +6,7 @@ from typing import Any
 
 import requests
 from PIL import Image
+from ...generation_errors import ProviderHTTPError
 
 from .errors import JsonXProviderError
 
@@ -57,7 +58,7 @@ def list_models(api_key: str, timeout: float = 120) -> list[dict[str, Any]]:
     response = requests.get(f"{API_ROOT}/language-models", headers=headers, timeout=timeout)
     if response.status_code != 200:
         raise JsonXProviderError(
-            f"xAI API {response.status_code}: {_safe_error(response)}",
+            str(ProviderHTTPError(response.status_code, _safe_error(response), "grok")),
             provider="grok",
             diagnostics={"event": "model_list_error", "http_status": response.status_code},
         )
@@ -108,6 +109,8 @@ def _extract_text(payload: dict[str, Any]) -> str:
         for content in item.get("content", []):
             if isinstance(content, dict) and content.get("type") == "output_text":
                 chunks.append(str(content.get("text") or ""))
+            elif isinstance(content, dict) and content.get("type") == "refusal":
+                chunks.append(str(content.get("refusal") or ""))
     text = "".join(chunks).strip()
     if not text:
         raise JsonXProviderError(
@@ -187,7 +190,7 @@ def generate(
     response = requests.post(f"{API_ROOT}/responses", headers=_headers(api_key), json=body, timeout=timeout)
     if response.status_code != 200:
         raise JsonXProviderError(
-            f"xAI API {response.status_code}: {_safe_error(response)}",
+            str(ProviderHTTPError(response.status_code, _safe_error(response), "grok")),
             provider="grok",
             diagnostics={"event": "generation_http_error", "http_status": response.status_code},
         )

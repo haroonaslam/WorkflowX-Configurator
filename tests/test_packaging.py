@@ -90,7 +90,13 @@ def _load_package():
 
 def test_combined_package_exports_workflowx_and_afj_nodes():
     module = _load_package()
-    assert len(module.NODE_CLASS_MAPPINGS) == 45
+    assert len(module.NODE_CLASS_MAPPINGS) == 46
+    voice = module.NODE_CLASS_MAPPINGS["WorkflowX_VoiceChangerX"]
+    assert module.NODE_DISPLAY_NAME_MAPPINGS["WorkflowX_VoiceChangerX"] == "Voice ChangerX"
+    assert voice.CATEGORY == "WorkflowX/Audio"
+    assert voice.RETURN_TYPES == ("AUDIO",)
+    assert voice.INPUT_TYPES()["required"]["source_audio"][0] == "AUDIO"
+    assert voice.INPUT_TYPES()["optional"]["reference_audio"][0] == "AUDIO"
     assert "KVGC_GroupConfigurator" in module.NODE_CLASS_MAPPINGS
     assert "KVGC_ConfigSelectorAdvanced" in module.NODE_CLASS_MAPPINGS
     assert "KVGC_ConfigSelectorX" in module.NODE_CLASS_MAPPINGS

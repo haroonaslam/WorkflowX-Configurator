@@ -4,7 +4,7 @@
 
 WorkflowX is a production toolkit for building, configuring, editing, organizing, and reusing ComfyUI workflows. It combines image and video nodes, model and LoRA controls, structured prompting, remote image APIs, reusable workflow libraries, scoped configuration, and canvas utilities in one package.
 
-> **Short project brief:** WorkflowX adds 41 active ComfyUI nodes plus XFlows, XPrompts, XNodes, and package-wide right-click utilities. Use it to build configurable workflows, manage LoRA stacks and VRAM, load, repair, convert, preview, and edit image/video/audio media, create structured prompts, call supported image APIs, save video, store reusable graph fragments, group selections, and replace nodes without rebuilding compatible links.
+> **Short project brief:** WorkflowX adds 42 active ComfyUI nodes plus XFlows, XPrompts, XNodes, and package-wide right-click utilities. Use it to build configurable workflows, manage LoRA stacks and VRAM, load, repair, convert, preview, and edit image/video/audio media, transform voices, create structured prompts, call supported image APIs, save video, store reusable graph fragments, group selections, and replace nodes without rebuilding compatible links.
 
 ## Capabilities
 
@@ -94,6 +94,14 @@ The serialized state travels with the workflow; source files do not. See the [ad
 | `height` | `INT` | Final output height. |
 
 The node face provides the full Load ImageX Adv geometry toolset and reflows when mode-specific controls appear. ComfyUI's native video player is the only node-face preview, with a transparent crop overlay attached directly to it; the video picture is reserved for crop interaction and playback starts from the native play control. **Open Timeline** creates a graph-following, canvas-layer-aware floating player with a thumbnail filmstrip, large in/out handles, draggable selection, separate playhead scrubber, editable selection seconds, selection playback, frame/time readouts, lock, minimize, resize, and fullscreen controls. Media outputs are processed only when connected, so width/height-only graphs remain metadata-only. See the [Load VideoX Adv guide](docs/LOAD_VIDEO_X_ADV.md).
+
+### Voice ChangerX
+
+**Node ID / category:** `WorkflowX_VoiceChangerX` · `WorkflowX/Audio`
+
+Transforms a single spoken voice with independent pitch, formant, brightness, breathiness, pitch-variation, and gain controls. Every control has a slider and numeric box, with fine decimal adjustment and Reset all. The only sockets are **source audio**, optional **reference audio**, and the audio output. **Match Reference** compares the connected voices and fills the editable sliders with approximate acoustic matching settings. It queues only the source/reference dependencies and this node. Connect the output to ComfyUI **Preview Audio** and run the workflow to audition. Normal runs use the sliders without rematching. Neutral settings return the original source exactly; transformed output preserves sample rate, duration, batch and channel counts.
+
+Uses local CPU processing through PyWORLD; no model downloads or online services. See the [Voice ChangerX guide](docs/VOICE_CHANGER_X.md) for ranges, installation, and tuning.
 
 ### Load AudioX
 

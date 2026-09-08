@@ -68,7 +68,7 @@ class UnifiedAutoprompterX:
     def INPUT_TYPES(cls) -> dict:
         return {
             "required": {
-                "target_model": (profile_options(), {"default": "ideogram4"}),
+                "target_model": (["general", *profile_options()], {"default": "ideogram4"}),
                 "prompt_format": (format_options(), {"default": FORMAT_JSON}),
                 "negative_enabled": ("BOOLEAN", {"default": False}),
                 "generation_type": (ALL_GENERATION_TYPES, {"default": GENERATION_TEXT_TO_IMAGE}),
@@ -128,6 +128,9 @@ class UnifiedAutoprompterX:
         ui_state: str = "{}",
         **kwargs: Any,
     ) -> tuple[str, str, str]:
+        if target_model == "general":
+            text = final_prompt if final_prompt != "" else generated_positive
+            return text, text, ""
         prompt_format = normalize_format(target_model, prompt_format)
         return build_outputs(
             target_model=target_model,

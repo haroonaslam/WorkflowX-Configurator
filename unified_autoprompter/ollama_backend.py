@@ -50,7 +50,7 @@ def generate(
         "model": model,
         "stream": False,
         "messages": [
-            {"role": "system", "content": system_prompt},
+            *([{"role": "system", "content": system_prompt}] if system_prompt else []),
             {"role": "user", "content": user_prompt},
         ],
     }
