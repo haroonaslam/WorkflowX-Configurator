@@ -1,10 +1,13 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
+import { applyIdentity, itemFileSize, itemSha256, normalizeSha256, sortedHashMatches } from "./lorax_identity.js";
 import { compactArray, creatorName, itemMatchesQuery, normalizePath, trainedWords } from "./lorax_search.js";
 
 const NODE_TYPE = "KVGC_LoraX";
 const EXTENSION_NAME = "workflowx.lorax";
 const LORAX_ROUTE = "/workflowx_configurator/lorax/loras";
+const LORAX_HASH_ROUTE = "/workflowx_configurator/lorax/hash";
+const LORAX_REMAP_ROUTE = "/workflowx_configurator/lorax/remap";
 const LORA_MANAGER_LIST_ROUTE = "/api/lm/loras/list";
 const LORA_MANAGER_TREE_ROUTE = "/api/lm/loras/unified-folder-tree";
 const LORA_MANAGER_SCAN_ROUTE = "/api/lm/loras/scan";
@@ -17,6 +20,8 @@ const MIN_W = 560;
 const STRENGTH_W = 130;
 const REMOVE_W = 28;
 const CONTROL_GAP = 8;
+const REMAP_X = 122;
+const REMAP_W = 26;
 const MAX_MANAGER_PAGES = 200;
 const LORA_EXT_RE = /\.(safetensors|ckpt|pt|bin)$/i;
 const VIDEO_EXT_RE = /\.(mp4|webm|mov)(?:[?#].*)?$/i;
@@ -31,10 +36,20 @@ function markDirty(node) {
   app.graph?.setDirtyCanvas?.(true, true);
 }
 
-async function fetchJson(path) {
-  const response = api?.fetchApi ? await api.fetchApi(path, { cache: "no-store" }) : await fetch(path, { cache: "no-store" });
-  if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-  return response.json();
+async function fetchJson(path, options = {}) {
+  const requestOptions = { cache: "no-store", ...options };
+  const response = api?.fetchApi ? await api.fetchApi(path, requestOptions) : await fetch(path, requestOptions);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data?.error || `${response.status} ${response.statusText}`);
+  return data;
+}
+
+function postJson(path, payload) {
+  return fetchJson(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
 }
 
 function stripExt(value) {
@@ -90,6 +105,8 @@ function normalizeCanonical(item) {
     filename: normalizePath(item.filename || loadName.split("/").pop()),
     file_stem: fileStem,
     full_path: normalizePath(item.full_path),
+    file_size: itemFileSize(item),
+    sha256: itemSha256(item),
     canonical_display_name: fileStem,
     display_name: fileStem,
   };
@@ -133,6 +150,8 @@ function mergeCatalog(canonicalItems, managerItems) {
       update_available: Boolean(manager?.update_available),
       sub_type: normalizePath(manager?.sub_type),
       creator: creatorName(manager),
+      sha256: itemSha256(manager) || item.sha256,
+      file_size: itemFileSize(manager) || item.file_size,
       metadata: manager || null,
     };
   });
@@ -245,6 +264,23 @@ async function refreshCatalog() {
   return loadCatalog();
 }
 
+async function ensureItemIdentity(item) {
+  const sha256 = itemSha256(item);
+  const fileSize = itemFileSize(item);
+  if (sha256) return { ...item, sha256, file_size: fileSize };
+  const identity = await postJson(LORAX_HASH_ROUTE, { load_name: item?.load_name });
+  const calculatedHash = itemSha256(identity);
+  if (!calculatedHash) throw new Error("The backend did not return a valid SHA-256 identity.");
+  return {
+    ...item,
+    ...identity,
+    display_name: item?.display_name || identity?.file_stem || identity?.load_name,
+    metadata: item?.metadata || null,
+    sha256: calculatedHash,
+    file_size: itemFileSize(identity),
+  };
+}
+
 function itemMatchesFolder(item, folder) {
   if (!folder) return true;
   return item.folder === folder || item.folder.startsWith(`${folder}/`);
@@ -277,6 +313,7 @@ function ensureStyles() {
     .workflowx-lorax-folder-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .workflowx-lorax-folder-count{margin-left:auto;color:#88919d;font-size:11px}
     .workflowx-lorax-results{overflow:auto;padding:10px;display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;align-content:start;background:#101215}
+    .workflowx-lorax-results[aria-busy="true"]{opacity:.55;pointer-events:none;cursor:progress}
     .workflowx-lorax-card{position:relative;min-height:156px;border:1px solid #303640;background:#1c2026;border-radius:7px;display:grid;grid-template-columns:100px 1fr;gap:10px;padding:8px;cursor:pointer;overflow:hidden;color:inherit;text-align:left}
     .workflowx-lorax-card:hover{border-color:#6f8fd4;background:#232a34}
     .workflowx-lorax-thumb,.workflowx-lorax-video{width:100px;height:140px;border-radius:5px;background:#0d0f12;object-fit:cover;border:1px solid #30343b}
@@ -320,6 +357,8 @@ function ensureStyles() {
     .workflowx-lorax-detail-actions{display:flex;gap:8px;justify-content:flex-end;padding:12px 16px;border-top:1px solid #30343b;background:#202328}
     .workflowx-lorax-detail-actions button,.workflowx-lorax-detail-actions a{height:32px;border-radius:6px;border:1px solid #4e5560;background:#252d37;color:#e8eef7;padding:0 12px;text-decoration:none;display:inline-flex;align-items:center;cursor:pointer}
     .workflowx-lorax-detail-actions .primary{background:#315a94;border-color:#5783c4;color:#fff}
+    .workflowx-lorax-toast{position:fixed;z-index:10003;left:50%;bottom:32px;transform:translateX(-50%);max-width:min(560px,calc(100vw - 32px));padding:9px 14px;border:1px solid #536174;border-radius:6px;background:#20262f;color:#edf2f8;box-shadow:0 8px 28px rgba(0,0,0,.45);font:13px system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    .workflowx-lorax-toast.error{border-color:#9b5050;background:#3a2224;color:#ffe4e4}
     @media (max-width:760px){
       .workflowx-lorax-body{grid-template-columns:1fr}
       .workflowx-lorax-top{grid-template-columns:1fr auto auto}
@@ -329,6 +368,16 @@ function ensureStyles() {
     }
   `;
   document.head.appendChild(style);
+}
+
+function showLoraXToast(message, isError = false) {
+  ensureStyles();
+  document.querySelector(".workflowx-lorax-toast")?.remove();
+  const toast = document.createElement("div");
+  toast.className = `workflowx-lorax-toast${isError ? " error" : ""}`;
+  toast.textContent = String(message || "");
+  document.body.appendChild(toast);
+  window.setTimeout(() => toast.remove(), isError ? 6000 : 3600);
 }
 
 function countFolderItems(items, folder) {
@@ -700,9 +749,11 @@ async function openDetailsModal(item, onSelect) {
     select.className = "primary";
     select.type = "button";
     select.textContent = "Select";
-    select.addEventListener("click", () => {
-      onSelect(item);
-      closeDetails();
+    select.addEventListener("click", async () => {
+      select.disabled = true;
+      const selected = await onSelect(item);
+      if (selected !== false) closeDetails();
+      else select.disabled = false;
     });
     actions.appendChild(select);
   }
@@ -800,6 +851,7 @@ async function openPicker(onSelect) {
   let allItems = [];
   let treeRoot = createTreeRoot();
   let selectedFolder = "";
+  let selectionBusy = false;
   const expandedFolders = new Set([""]);
 
   function closePicker() {
@@ -807,9 +859,31 @@ async function openPicker(onSelect) {
     if (activePicker === backdrop) activePicker = null;
   }
 
-  function selectAndClose(item) {
-    onSelect(item);
-    closePicker();
+  async function selectAndClose(item) {
+    if (selectionBusy) return false;
+    selectionBusy = true;
+    search.disabled = true;
+    strictSearch.disabled = true;
+    refresh.disabled = true;
+    close.disabled = true;
+    results.setAttribute("aria-busy", "true");
+    try {
+      const identified = await ensureItemIdentity(item);
+      await onSelect(identified);
+      closePicker();
+      return true;
+    } catch (error) {
+      console.warn("[WorkflowX LoraX] Failed to identify selected LoRA", error);
+      showLoraXToast(`Could not hash LoRA: ${error.message || error}`, true);
+      return false;
+    } finally {
+      selectionBusy = false;
+      search.disabled = false;
+      strictSearch.disabled = false;
+      refresh.disabled = false;
+      close.disabled = false;
+      results.removeAttribute("aria-busy");
+    }
   }
 
   function render() {
@@ -900,6 +974,8 @@ function defaultRowValue(item = null) {
     lora: item?.load_name || null,
     display_name: item?.display_name || item?.file_stem || item?.load_name || null,
     path: item?.folder || null,
+    sha256: itemSha256(item),
+    file_size: itemFileSize(item),
     strength: 1,
     metadata: item
       ? {
@@ -925,6 +1001,8 @@ function sanitizeRowValue(value) {
   row.lora = loadName;
   row.display_name = value.display_name || value.displayName || value.model_name || value.name || loadName;
   row.path = value.path || value.folder || null;
+  row.sha256 = normalizeSha256(value.sha256 || value.hash || value.metadata?.sha256);
+  row.file_size = itemFileSize(value);
   const strength = Number(value.strength ?? value.modelStrength ?? value.model_strength ?? value.strength_model ?? 1);
   row.strength = Number.isFinite(strength) ? strength : 1;
   row.metadata = value.metadata && typeof value.metadata === "object" ? value.metadata : {};
@@ -944,6 +1022,8 @@ function rowDetailsFallback(value) {
     filename,
     file_stem: fileStem,
     full_path: normalizePath(metadata.file_path),
+    sha256: row.sha256,
+    file_size: row.file_size,
     canonical_display_name: fileStem,
     display_name: row.display_name || metadata.model_name || fileStem,
     model_name: normalizePath(metadata.model_name),
@@ -1088,15 +1168,35 @@ function createHeaderWidget() {
       ctx.textAlign = "left";
       ctx.textBaseline = "middle";
       ctx.fillText("Toggle All", 38, y + HEADER_H / 2);
+      drawTextBox(ctx, REMAP_X, y - 1, REMAP_W, node.__loraxRemapping ? "..." : "\u21bb");
       ctx.textAlign = "center";
       ctx.fillText("Strength", width - 124, y + HEADER_H / 2);
       ctx.fillText("Remove", width - 28, y + HEADER_H / 2);
+      if (node.__loraxRemapHover) {
+        const tooltip = "Remap moved LoRAs";
+        ctx.font = "12px sans-serif";
+        const tooltipWidth = ctx.measureText(tooltip).width + 16;
+        ctx.fillStyle = "#11151a";
+        ctx.strokeStyle = "#596270";
+        ctx.beginPath();
+        ctx.roundRect?.(REMAP_X, y + HEADER_H + 2, tooltipWidth, 24, 5);
+        if (!ctx.roundRect) ctx.rect(REMAP_X, y + HEADER_H + 2, tooltipWidth, 24);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = "#eef2f6";
+        ctx.textAlign = "left";
+        ctx.fillText(tooltip, REMAP_X + 8, y + HEADER_H + 14);
+      }
       ctx.restore();
     },
     mouse(event, pos, node) {
       if (event.type !== "pointerdown" && event.type !== "mousedown") return false;
-      if (pos[0] < 140) {
+      if (pos[0] < 112) {
         toggleAllRows(node);
+        return true;
+      }
+      if (pos[0] >= REMAP_X && pos[0] <= REMAP_X + REMAP_W) {
+        remapRows(node);
         return true;
       }
       return false;
@@ -1180,6 +1280,108 @@ function createRowWidget(name, value) {
 
 function rowWidgets(node) {
   return (node.widgets || []).filter((widget) => widget.__loraxRow);
+}
+
+function catalogItemByLoadName(items, loadName) {
+  const key = lower(loadName);
+  return (items || []).find((item) => lower(item?.load_name) === key) || null;
+}
+
+function updateRowIdentity(row, entry, catalogItems) {
+  if (!row?.value || !entry) return;
+  const old = sanitizeRowValue(row.value);
+  const catalogItem = catalogItemByLoadName(catalogItems, entry.load_name);
+  let next = applyIdentity(old, catalogItem || entry);
+  if (catalogItem) {
+    const fresh = defaultRowValue(catalogItem);
+    next = {
+      ...next,
+      display_name: fresh.display_name,
+      path: fresh.path,
+      metadata: fresh.metadata,
+      sha256: fresh.sha256 || next.sha256,
+      file_size: fresh.file_size || next.file_size,
+    };
+  }
+  next.on = old.on;
+  next.strength = old.strength;
+  next.trigger_words = old.trigger_words?.length ? old.trigger_words : catalogItem?.trained_words || [];
+  row.value = Object.assign(row.value, next);
+}
+
+async function remapRows(node) {
+  if (node.__loraxRemapping) return;
+  const rows = rowWidgets(node);
+  if (!rows.length) {
+    showLoraXToast("No LoRAs to remap");
+    return;
+  }
+
+  const originalSize = node.size ? [Number(node.size[0]), Number(node.size[1])] : null;
+  node.__loraxRemapping = true;
+  node.__loraxRemapHover = false;
+  markDirty(node);
+  try {
+    const catalog = await refreshCatalog();
+    const items = catalog.items || [];
+    const pending = [];
+    const counts = { remapped: 0, unchanged: 0, unresolved: 0, duplicates: 0 };
+
+    for (const row of rows) {
+      const value = sanitizeRowValue(row.value);
+      const current = catalogItemByLoadName(items, value.load_name);
+      const storedHash = normalizeSha256(value.sha256);
+      if (storedHash) {
+        const matches = sortedHashMatches(items, storedHash);
+        const currentHash = itemSha256(current);
+        const currentMatches = Boolean(currentHash && currentHash === storedHash);
+        const chosen = currentMatches ? current : !current ? matches[0] : null;
+        if (chosen) {
+          updateRowIdentity(row, chosen, items);
+          counts[currentMatches ? "unchanged" : "remapped"] += 1;
+          counts.duplicates += Math.max(0, matches.length - 1);
+          continue;
+        }
+      } else if (current && itemSha256(current)) {
+        updateRowIdentity(row, current, items);
+        counts.unchanged += 1;
+        continue;
+      }
+      pending.push({
+        row,
+        request: {
+          row_id: row.name,
+          load_name: value.load_name,
+          sha256: storedHash,
+          file_size: value.file_size,
+        },
+      });
+    }
+
+    if (pending.length) {
+      const response = await postJson(LORAX_REMAP_ROUTE, { items: pending.map((item) => item.request) });
+      const byRowId = new Map(pending.map((item) => [item.request.row_id, item.row]));
+      for (const result of response.items || []) {
+        const status = ["remapped", "unchanged", "unresolved"].includes(result.status) ? result.status : "unresolved";
+        counts[status] += 1;
+        counts.duplicates += Math.max(0, Number(result.duplicate_count || 0) - 1);
+        if (result.entry && status !== "unresolved") updateRowIdentity(byRowId.get(result.row_id), result.entry, items);
+      }
+    }
+
+    const duplicateText = counts.duplicates ? `, ${counts.duplicates} duplicate match${counts.duplicates === 1 ? "" : "es"}` : "";
+    showLoraXToast(`${counts.remapped} remapped, ${counts.unchanged} unchanged, ${counts.unresolved} unresolved${duplicateText}`);
+  } catch (error) {
+    console.warn("[WorkflowX LoraX] Remapping failed", error);
+    showLoraXToast(`LoRA remapping failed: ${error.message || error}`, true);
+  } finally {
+    node.__loraxRemapping = false;
+    if (originalSize && node.size) {
+      node.size[0] = originalSize[0];
+      node.size[1] = originalSize[1];
+    }
+    markDirty(node);
+  }
 }
 
 function nodeWidth(node) {
@@ -1354,15 +1556,31 @@ function rowMenu(node, row, event) {
   );
 }
 
-function handleRowClick(node, event, pos) {
-  let localX = Number(pos?.[0] || 0);
-  let localY = Number(pos?.[1] || 0);
+function nodeLocalPosition(node, pos) {
+  let x = Number(pos?.[0] || 0);
+  let y = Number(pos?.[1] || 0);
   const width = node.size?.[0] || MIN_W;
   const height = node.size?.[1] || 0;
-  if (node.pos && (localX > width || localY > height)) {
-    localX -= node.pos[0];
-    localY -= node.pos[1];
+  if (node.pos && (x > width || y > height)) {
+    x -= node.pos[0];
+    y -= node.pos[1];
   }
+  return [x, y];
+}
+
+function updateRemapHover(node, pos) {
+  const header = (node.widgets || []).find((widget) => widget.name === "lorax_header");
+  if (!header || header.last_y == null) return;
+  const [x, y] = nodeLocalPosition(node, pos);
+  const hover = x >= REMAP_X && x <= REMAP_X + REMAP_W && y >= header.last_y && y <= header.last_y + HEADER_H;
+  if (hover === Boolean(node.__loraxRemapHover)) return;
+  node.__loraxRemapHover = hover;
+  markDirty(node);
+}
+
+function handleRowClick(node, event, pos) {
+  let [localX, localY] = nodeLocalPosition(node, pos);
+  const width = node.size?.[0] || MIN_W;
 
   for (const widget of node.widgets || []) {
     if (!widget.__lorax || widget.last_y == null) continue;
@@ -1371,8 +1589,12 @@ function handleRowClick(node, event, pos) {
     if (localY < y || localY > y + h) continue;
 
     if (widget.name === "lorax_header") {
-      if (localX < 140) {
+      if (localX < 112) {
         toggleAllRows(node);
+        return true;
+      }
+      if (localX >= REMAP_X && localX <= REMAP_X + REMAP_W) {
+        remapRows(node);
         return true;
       }
       return false;
@@ -1440,6 +1662,21 @@ app.registerExtension({
     nodeType.prototype.onMouseDown = function workflowXLoraXMouseDown(event, pos) {
       if (handleRowClick(this, event, pos || app.canvas?.graph_mouse || [0, 0])) return true;
       return originalMouseDown?.apply(this, arguments);
+    };
+
+    const originalMouseMove = nodeType.prototype.onMouseMove;
+    nodeType.prototype.onMouseMove = function workflowXLoraXMouseMove(event, pos) {
+      updateRemapHover(this, pos || app.canvas?.graph_mouse || [0, 0]);
+      return originalMouseMove?.apply(this, arguments);
+    };
+
+    const originalMouseLeave = nodeType.prototype.onMouseLeave;
+    nodeType.prototype.onMouseLeave = function workflowXLoraXMouseLeave() {
+      if (this.__loraxRemapHover) {
+        this.__loraxRemapHover = false;
+        markDirty(this);
+      }
+      return originalMouseLeave?.apply(this, arguments);
     };
   },
 });

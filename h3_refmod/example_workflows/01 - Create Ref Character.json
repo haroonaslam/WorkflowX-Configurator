@@ -1,0 +1,557 @@
+{
+  "id": "6d76fe76-3646-49aa-b5fc-fe3a6d08a558",
+  "revision": 3,
+  "last_node_id": 120,
+  "last_link_id": 21,
+  "nodes": [
+    {
+      "id": 119,
+      "type": "VAELoader",
+      "pos": [
+        40,
+        90
+      ],
+      "size": [
+        510,
+        90
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "vae_name",
+          "name": "vae_name",
+          "type": "COMBO",
+          "widget": {
+            "name": "vae_name"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "VAE",
+          "name": "VAE",
+          "type": "VAE",
+          "links": [
+            3
+          ]
+        }
+      ],
+      "title": "Video VAE | Reads references and decodes video",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "VAELoader",
+        "models": [
+          {
+            "name": "minimax_h3_video_vae_fp16.safetensors",
+            "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_video_vae_fp16.safetensors",
+            "directory": "vae"
+          }
+        ],
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [
+        "minimax_h3_video_vae_fp16.safetensors"
+      ],
+      "widgets_values_named": {
+        "vae_name": "minimax_h3_video_vae_fp16.safetensors"
+      },
+      "color": "#273a49",
+      "bgcolor": "#202b32"
+    },
+    {
+      "id": 120,
+      "type": "VAELoader",
+      "pos": [
+        40,
+        300
+      ],
+      "size": [
+        510,
+        90
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "vae_name",
+          "name": "vae_name",
+          "type": "COMBO",
+          "widget": {
+            "name": "vae_name"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "VAE",
+          "name": "VAE",
+          "type": "VAE",
+          "links": [
+            4
+          ]
+        }
+      ],
+      "title": "Audio VAE | Decodes generated sound",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "VAELoader",
+        "models": [
+          {
+            "name": "minimax_h3_audio_vae_fp32.safetensors",
+            "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_audio_vae_fp32.safetensors",
+            "directory": "vae"
+          }
+        ],
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [
+        "minimax_h3_audio_vae_fp32.safetensors"
+      ],
+      "widgets_values_named": {
+        "vae_name": "minimax_h3_audio_vae_fp32.safetensors"
+      },
+      "color": "#273a49",
+      "bgcolor": "#202b32"
+    },
+    {
+      "id": 2,
+      "type": "H3RCCreateFromFolder",
+      "pos": [
+        530,
+        100
+      ],
+      "size": [
+        490,
+        640
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "vae",
+          "name": "vae",
+          "shape": 7,
+          "type": "VAE",
+          "link": 3
+        },
+        {
+          "localized_name": "audio_vae",
+          "name": "audio_vae",
+          "shape": 7,
+          "type": "VAE",
+          "link": 4
+        },
+        {
+          "localized_name": "folder",
+          "name": "folder",
+          "type": "STRING",
+          "widget": {
+            "name": "folder"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "display_name",
+          "name": "display_name",
+          "type": "STRING",
+          "widget": {
+            "name": "display_name"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "package_name",
+          "name": "package_name",
+          "type": "STRING",
+          "widget": {
+            "name": "package_name"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "prompt_alias",
+          "name": "prompt_alias",
+          "type": "STRING",
+          "widget": {
+            "name": "prompt_alias"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "descriptor",
+          "name": "descriptor",
+          "type": "STRING",
+          "widget": {
+            "name": "descriptor"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "description",
+          "name": "description",
+          "type": "STRING",
+          "widget": {
+            "name": "description"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "profiles",
+          "name": "profiles",
+          "type": "STRING",
+          "widget": {
+            "name": "profiles"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "sample_frames",
+          "name": "sample_frames",
+          "type": "INT",
+          "widget": {
+            "name": "sample_frames"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "voice_duration_limit",
+          "name": "voice_duration_limit",
+          "type": "COMBO",
+          "widget": {
+            "name": "voice_duration_limit"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "maximum_total_voice_duration",
+          "name": "maximum_total_voice_duration",
+          "type": "FLOAT",
+          "widget": {
+            "name": "maximum_total_voice_duration"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "video_duration_limit",
+          "name": "video_duration_limit",
+          "type": "COMBO",
+          "widget": {
+            "name": "video_duration_limit"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "maximum_total_video_duration",
+          "name": "maximum_total_video_duration",
+          "type": "FLOAT",
+          "widget": {
+            "name": "maximum_total_video_duration"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "source_ranges",
+          "name": "source_ranges",
+          "type": "STRING",
+          "widget": {
+            "name": "source_ranges"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "character",
+          "name": "character",
+          "type": "H3RC_CHARACTER",
+          "links": []
+        },
+        {
+          "localized_name": "manifest_path",
+          "name": "manifest_path",
+          "type": "STRING",
+          "links": []
+        },
+        {
+          "localized_name": "decoded_image",
+          "name": "decoded_image",
+          "type": "IMAGE",
+          "links": [
+            20
+          ]
+        },
+        {
+          "localized_name": "created_paths",
+          "name": "created_paths",
+          "type": "STRING",
+          "links": [
+            21
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "H3RCCreateFromFolder",
+        "h3rcUI": {
+          "text:description": 64,
+          "group:Catalog notes": false,
+          "creation-result": false,
+          "creation-report-height": 120
+        }
+      },
+      "widgets_values": [
+        "",
+        "My Character",
+        "",
+        "my_character",
+        "",
+        "",
+        "{\"picture\": [{\"id\": \"1024\", \"name\": \"1024 short edge\", \"size\": 1024, \"enabled\": true, \"downsize\": \"Lanczos\", \"smaller\": \"Keep size\", \"model\": \"\", \"framing\": \"Fit whole image\", \"budget\": 0}], \"video\": [{\"id\": \"1024\", \"name\": \"1024 short edge\", \"size\": 1024, \"enabled\": true, \"downsize\": \"Lanczos\", \"smaller\": \"Keep size\", \"model\": \"\", \"framing\": \"Fit whole image\", \"budget\": 0}], \"combined\": [{\"id\": \"1024\", \"name\": \"1024 short edge\", \"size\": 1024, \"enabled\": true, \"downsize\": \"Lanczos\", \"smaller\": \"Pad to target\", \"model\": \"\", \"framing\": \"Fit whole image\", \"budget\": 0}]}",
+        16,
+        "Unlimited",
+        10,
+        "Unlimited",
+        15,
+        "[]",
+        "",
+        ""
+      ],
+      "widgets_values_named": {
+        "folder": "",
+        "display_name": "My Character",
+        "package_name": "",
+        "prompt_alias": "my_character",
+        "descriptor": "",
+        "description": "",
+        "profiles": "{\"picture\": [{\"id\": \"1024\", \"name\": \"1024 short edge\", \"size\": 1024, \"enabled\": true, \"downsize\": \"Lanczos\", \"smaller\": \"Keep size\", \"model\": \"\", \"framing\": \"Fit whole image\", \"budget\": 0}], \"video\": [{\"id\": \"1024\", \"name\": \"1024 short edge\", \"size\": 1024, \"enabled\": true, \"downsize\": \"Lanczos\", \"smaller\": \"Keep size\", \"model\": \"\", \"framing\": \"Fit whole image\", \"budget\": 0}], \"combined\": [{\"id\": \"1024\", \"name\": \"1024 short edge\", \"size\": 1024, \"enabled\": true, \"downsize\": \"Lanczos\", \"smaller\": \"Pad to target\", \"model\": \"\", \"framing\": \"Fit whole image\", \"budget\": 0}]}",
+        "sample_frames": 16,
+        "voice_duration_limit": "Unlimited",
+        "maximum_total_voice_duration": 10,
+        "video_duration_limit": "Unlimited",
+        "maximum_total_video_duration": 15,
+        "source_ranges": "[]",
+        "creation_controls": "",
+        "source_range_editor": ""
+      },
+      "title": "Create a character from a folder",
+      "color": "#283d49",
+      "bgcolor": "#172932"
+    },
+    {
+      "id": 3,
+      "type": "MarkdownNote",
+      "title": "Create a character",
+      "pos": [
+        40,
+        540
+      ],
+      "size": [
+        400,
+        320
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "MarkdownNote"
+      },
+      "widgets_values": [
+        "Create from original media. Set Source folder, Display name, Prompt alias and Descriptor. Edit source media shows thumbnails, ranges and ordering.\n\nPicture, Video and Combined video profiles each default to 1024 short edge. Add profiles for choices you want available during generation. Each profile is encoded directly from originals."
+      ],
+      "color": "#283d49",
+      "bgcolor": "#172932"
+    },
+    {
+      "id": 4,
+      "type": "MarkdownNote",
+      "title": "Saved package and token budget",
+      "pos": [
+        530,
+        850
+      ],
+      "size": [
+        490,
+        260
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "MarkdownNote"
+      },
+      "widgets_values": [
+        "One visual safetensors file stores the profiles; voice is in a separate optional audio file. Metadata records sources, dimensions and costs. Existing packages are never overwritten.\n\nConnect decoded_image to Preview Image; created_paths lists files.\n\nGeneration selects saved profiles without resizing or re-encoding. Earlier custom packages need recreation."
+      ],
+      "color": "#283d49",
+      "bgcolor": "#172932"
+    },
+    {
+      "id": 20,
+      "type": "PreviewImage",
+      "title": "Decoded saved visual",
+      "pos": [
+        1130,
+        100
+      ],
+      "size": [
+        430,
+        410
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 20
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "PreviewImage"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 21,
+      "type": "H3RCInspectText",
+      "pos": [
+        1130,
+        580
+      ],
+      "size": [
+        550,
+        400
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "text",
+          "name": "text",
+          "type": "STRING",
+          "link": 21
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "STRING",
+          "name": "STRING",
+          "type": "STRING",
+          "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "H3RCInspectText"
+      },
+      "widgets_values": [
+        ""
+      ],
+      "widgets_values_named": {
+        "text_preview": ""
+      },
+      "title": "Created file paths"
+    }
+  ],
+  "links": [
+    [
+      3,
+      119,
+      0,
+      2,
+      0,
+      "VAE"
+    ],
+    [
+      4,
+      120,
+      0,
+      2,
+      1,
+      "VAE"
+    ],
+    [
+      20,
+      2,
+      2,
+      20,
+      0,
+      "IMAGE"
+    ],
+    [
+      21,
+      2,
+      3,
+      21,
+      0,
+      "STRING"
+    ]
+  ],
+  "groups": [
+    {
+      "title": "Load H3 encoders",
+      "bounding": [
+        20,
+        20,
+        430,
+        880
+      ],
+      "color": "#416575",
+      "font_size": 24
+    },
+    {
+      "title": "Directory and creation settings",
+      "bounding": [
+        500,
+        20,
+        550,
+        1120
+      ],
+      "color": "#416575",
+      "font_size": 24
+    },
+    {
+      "title": "Inspect the saved result",
+      "bounding": [
+        1100,
+        20,
+        620,
+        1010
+      ],
+      "color": "#416575",
+      "font_size": 24
+    }
+  ],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 0.5,
+      "offset": [
+        30,
+        60
+      ]
+    }
+  },
+  "version": 0.4
+}

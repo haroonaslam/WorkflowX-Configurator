@@ -14,6 +14,21 @@ const finite = (value, fallback, low, high) => {
 };
 const milliseconds = (value, fallback, low, high) => Math.round(finite(value, fallback, low, high) * 1000) / 1000;
 
+// Keep serialized positions in seconds; timecode is only an editing interface.
+export function startTimeParts(value) {
+  const total = Math.round(milliseconds(value, 0, 0, 86400) * 1000);
+  return [Math.floor(total / 3600000), Math.floor(total / 60000) % 60, (total % 60000) / 1000];
+}
+
+export function startTimeSeconds(hours, minutes, seconds) {
+  return milliseconds(
+    Math.floor(finite(hours, 0, 0, 24)) * 3600
+      + Math.floor(finite(minutes, 0, 0, 59)) * 60
+      + finite(seconds, 0, 0, 59.999),
+    0, 0, 86400,
+  );
+}
+
 export function normalizeAudioXState(value) {
   let raw = value;
   if (typeof raw === "string") {

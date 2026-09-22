@@ -1,9 +1,13 @@
+import asyncio
 import base64
+from collections import OrderedDict
+import hashlib
 import io
 import json
 import logging
 import os
 import re
+import threading
 
 from .voice_changer_x import (
     NODE_CLASS_MAPPINGS as VOICE_CHANGER_X_NODE_CLASS_MAPPINGS,
@@ -75,8 +79,16 @@ DEBUG_LOG_ROUTE = "/workflowx_configurator/debug_log"
 IMAGE_COMPARE_EDIT_SAVE_ROUTE = "/workflowx_configurator/image_compare_edit_x/save"
 IMAGE_COMPARE_EDIT_PREPARE_ROUTE = "/workflowx_configurator/image_compare_edit_x/prepare"
 LORAX_LORAS_ROUTE = "/workflowx_configurator/lorax/loras"
+LORAX_HASH_ROUTE = "/workflowx_configurator/lorax/hash"
+LORAX_REMAP_ROUTE = "/workflowx_configurator/lorax/remap"
 LOAD_DIFFUSION_MODEL_X_ROUTE = "/workflowx_configurator/load_diffusion_model_x/models"
+LOAD_DIFFUSION_MODEL_X_HASH_ROUTE = "/workflowx_configurator/load_diffusion_model_x/hash"
+LOAD_DIFFUSION_MODEL_X_REMAP_ROUTE = "/workflowx_configurator/load_diffusion_model_x/remap"
 logger = logging.getLogger("WorkflowX_Configurator")
+
+_WORKFLOWX_HASH_CACHE_MAX = 512
+_WORKFLOWX_HASH_CACHE: OrderedDict[tuple[str, int, int], str] = OrderedDict()
+_WORKFLOWX_HASH_CACHE_LOCK = threading.Lock()
 
 NODE_CLASS_MAPPINGS = {
     **VOICE_CHANGER_X_NODE_CLASS_MAPPINGS,
@@ -286,6 +298,54 @@ def _normalize_lorax_path(path: object) -> str:
     return str(path or "").replace("\\", "/")
 
 
+def _normalize_sha256(value: object) -> str:
+    digest = str(value or "").strip().lower()
+    return digest if re.fullmatch(r"[0-9a-f]{64}", digest) else ""
+
+
+def _lorax_resolve_load_name(load_name: object, folder_paths_module) -> tuple[str, str]:
+    normalized_name = _normalize_lorax_path(load_name).strip()
+    parts = [part for part in normalized_name.split("/") if part not in ("", ".")]
+    if (
+        not normalized_name
+        or normalized_name.startswith("/")
+        or normalized_name.startswith("//")
+        or re.match(r"^[A-Za-z]:/", normalized_name)
+        or ".." in parts
+    ):
+        raise ValueError("A canonical ComfyUI LoRA load name is required.")
+
+    try:
+        resolved = folder_paths_module.get_full_path("loras", normalized_name)
+    except Exception as exc:
+        raise ValueError(f"Could not resolve LoRA '{normalized_name}'.") from exc
+    if not resolved or not os.path.isfile(resolved):
+        raise FileNotFoundError(f"LoRA '{normalized_name}' was not found.")
+    return normalized_name, os.path.abspath(resolved)
+
+
+def _workflowx_hash_file(path: str) -> tuple[str, int]:
+    stat = os.stat(path)
+    cache_key = (os.path.normcase(os.path.abspath(path)), int(stat.st_size), int(stat.st_mtime_ns))
+    with _WORKFLOWX_HASH_CACHE_LOCK:
+        cached = _WORKFLOWX_HASH_CACHE.get(cache_key)
+        if cached:
+            _WORKFLOWX_HASH_CACHE.move_to_end(cache_key)
+            return cached, int(stat.st_size)
+
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(8 * 1024 * 1024), b""):
+            digest.update(chunk)
+    value = digest.hexdigest()
+    with _WORKFLOWX_HASH_CACHE_LOCK:
+        _WORKFLOWX_HASH_CACHE[cache_key] = value
+        _WORKFLOWX_HASH_CACHE.move_to_end(cache_key)
+        while len(_WORKFLOWX_HASH_CACHE) > _WORKFLOWX_HASH_CACHE_MAX:
+            _WORKFLOWX_HASH_CACHE.popitem(last=False)
+    return value, int(stat.st_size)
+
+
 def _lorax_lora_entry(load_name: object, folder_paths_module) -> dict[str, object]:
     normalized_name = _normalize_lorax_path(load_name).strip()
     folder = _normalize_lorax_path(os.path.dirname(normalized_name)).strip("./")
@@ -297,8 +357,13 @@ def _lorax_lora_entry(load_name: object, folder_paths_module) -> dict[str, objec
         resolved = folder_paths_module.get_full_path("loras", normalized_name)
     except Exception:
         resolved = None
+    file_size = 0
     if resolved:
         full_path = _normalize_lorax_path(resolved)
+        try:
+            file_size = int(os.path.getsize(resolved))
+        except OSError:
+            file_size = 0
 
     return {
         "load_name": normalized_name,
@@ -307,7 +372,16 @@ def _lorax_lora_entry(load_name: object, folder_paths_module) -> dict[str, objec
         "file_stem": file_stem,
         "extension": extension,
         "full_path": full_path,
+        "file_size": file_size,
     }
+
+
+def _lorax_hash_load_name(load_name: object, folder_paths_module) -> dict[str, object]:
+    normalized_name, resolved = _lorax_resolve_load_name(load_name, folder_paths_module)
+    digest, file_size = _workflowx_hash_file(resolved)
+    entry = _lorax_lora_entry(normalized_name, folder_paths_module)
+    entry.update({"sha256": digest, "file_size": file_size})
+    return entry
 
 
 def _lorax_search_terms(query: object) -> list[str]:
@@ -345,6 +419,95 @@ def _build_lorax_lora_entries(folder_paths_module, query: object = "") -> list[d
     return sorted(entries, key=lambda item: str(item.get("load_name", "")).lower())
 
 
+def _remap_catalog_items(items: object, catalog: list[dict[str, object]]) -> dict[str, object]:
+    requests = items if isinstance(items, list) else []
+    by_name = {
+        str(entry["load_name"]).lower(): entry
+        for entry in catalog
+        if entry.get("load_name") and entry.get("full_path")
+    }
+    identity_cache: dict[str, tuple[str, int]] = {}
+
+    def identity(entry: dict[str, object]) -> tuple[str, int]:
+        load_name = str(entry.get("load_name", ""))
+        if load_name not in identity_cache:
+            identity_cache[load_name] = _workflowx_hash_file(str(entry["full_path"]))
+        return identity_cache[load_name]
+
+    results: list[dict[str, object]] = []
+    for index, raw in enumerate(requests):
+        request = raw if isinstance(raw, dict) else {}
+        row_id = str(request.get("row_id") or request.get("id") or index)
+        load_name = _normalize_lorax_path(request.get("load_name")).strip()
+        stored_hash = _normalize_sha256(request.get("sha256"))
+        try:
+            stored_size = max(0, int(request.get("file_size") or 0))
+        except (TypeError, ValueError):
+            stored_size = 0
+        current = by_name.get(load_name.lower())
+
+        if not stored_hash:
+            if current is None:
+                results.append({"row_id": row_id, "status": "unresolved", "reason": "missing_hash"})
+                continue
+            digest, file_size = identity(current)
+            entry = dict(current)
+            entry.update({"sha256": digest, "file_size": file_size})
+            results.append({"row_id": row_id, "status": "unchanged", "entry": entry, "duplicate_count": 1})
+            continue
+
+        if current is not None:
+            current_hash, current_size = identity(current)
+            if current_hash == stored_hash:
+                entry = dict(current)
+                entry.update({"sha256": current_hash, "file_size": current_size})
+                results.append({"row_id": row_id, "status": "unchanged", "entry": entry, "duplicate_count": 1})
+                continue
+
+        candidates = catalog
+        if stored_size:
+            candidates = [entry for entry in candidates if int(entry.get("file_size") or 0) == stored_size]
+        matches: list[dict[str, object]] = []
+        for candidate in candidates:
+            try:
+                digest, file_size = identity(candidate)
+            except OSError:
+                continue
+            if digest != stored_hash:
+                continue
+            entry = dict(candidate)
+            entry.update({"sha256": digest, "file_size": file_size})
+            matches.append(entry)
+
+        matches.sort(key=lambda entry: str(entry.get("load_name", "")).lower())
+        if not matches:
+            reason = "hash_mismatch" if current is not None else "no_hash_match"
+            results.append({"row_id": row_id, "status": "unresolved", "reason": reason})
+            continue
+
+        chosen = matches[0]
+        status = "unchanged" if chosen.get("load_name") == load_name else "remapped"
+        results.append(
+            {
+                "row_id": row_id,
+                "status": status,
+                "entry": chosen,
+                "duplicate_count": len(matches),
+            }
+        )
+
+    summary = {
+        status: sum(1 for result in results if result.get("status") == status)
+        for status in ("remapped", "unchanged", "unresolved")
+    }
+    summary["duplicates"] = sum(max(0, int(result.get("duplicate_count") or 0) - 1) for result in results)
+    return {"items": results, "summary": summary}
+
+
+def _lorax_remap_items(items: object, folder_paths_module) -> dict[str, object]:
+    return _remap_catalog_items(items, _build_lorax_lora_entries(folder_paths_module))
+
+
 def _register_lorax_routes() -> None:
     try:
         from aiohttp import web
@@ -367,6 +530,36 @@ def _register_lorax_routes() -> None:
 
         entries = _build_lorax_lora_entries(folder_paths, query)
         return web.json_response({"items": entries, "total": len(entries)})
+
+    @prompt_server.routes.post(LORAX_HASH_ROUTE)
+    async def workflowx_lorax_hash(request):
+        try:
+            payload = await request.json()
+            entry = await asyncio.to_thread(
+                _lorax_hash_load_name,
+                payload.get("load_name") if isinstance(payload, dict) else None,
+                folder_paths,
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+        except Exception as exc:
+            logger.exception("LoraX could not hash a LoRA")
+            return web.json_response({"error": f"Hashing failed: {exc}"}, status=500)
+        return web.json_response(entry)
+
+    @prompt_server.routes.post(LORAX_REMAP_ROUTE)
+    async def workflowx_lorax_remap(request):
+        try:
+            payload = await request.json()
+            result = await asyncio.to_thread(
+                _lorax_remap_items,
+                payload.get("items") if isinstance(payload, dict) else None,
+                folder_paths,
+            )
+        except Exception as exc:
+            logger.exception("LoraX remapping failed")
+            return web.json_response({"error": f"Remapping failed: {exc}"}, status=500)
+        return web.json_response(result)
 
     prompt_server._workflowx_lorax_routes = True
 
@@ -444,6 +637,39 @@ def _build_diffusion_model_entries(folder_paths_module, query: object = "") -> l
     return sorted(entries, key=lambda item: str(item.get("load_name", "")).lower())
 
 
+def _resolve_diffusion_model_load_name(load_name: object, folder_paths_module) -> tuple[str, str]:
+    normalized_name = _normalize_diffusion_model_path(load_name).strip()
+    parts = [part for part in normalized_name.split("/") if part not in ("", ".")]
+    if (
+        not normalized_name
+        or normalized_name.startswith("/")
+        or normalized_name.startswith("//")
+        or re.match(r"^[A-Za-z]:/", normalized_name)
+        or ".." in parts
+    ):
+        raise ValueError("A canonical ComfyUI diffusion-model load name is required.")
+
+    try:
+        resolved = folder_paths_module.get_full_path("diffusion_models", normalized_name)
+    except Exception as exc:
+        raise ValueError(f"Could not resolve diffusion model '{normalized_name}'.") from exc
+    if not resolved or not os.path.isfile(resolved):
+        raise FileNotFoundError(f"Diffusion model '{normalized_name}' was not found.")
+    return normalized_name, os.path.abspath(resolved)
+
+
+def _hash_diffusion_model_load_name(load_name: object, folder_paths_module) -> dict[str, object]:
+    normalized_name, resolved = _resolve_diffusion_model_load_name(load_name, folder_paths_module)
+    digest, file_size = _workflowx_hash_file(resolved)
+    entry = _diffusion_model_entry(normalized_name, folder_paths_module)
+    entry.update({"sha256": digest, "file_size": file_size})
+    return entry
+
+
+def _remap_diffusion_model_items(items: object, folder_paths_module) -> dict[str, object]:
+    return _remap_catalog_items(items, _build_diffusion_model_entries(folder_paths_module))
+
+
 def _register_load_diffusion_model_x_route() -> None:
     try:
         from aiohttp import web
@@ -466,6 +692,36 @@ def _register_load_diffusion_model_x_route() -> None:
 
         entries = _build_diffusion_model_entries(folder_paths, query)
         return web.json_response({"items": entries, "total": len(entries)})
+
+    @prompt_server.routes.post(LOAD_DIFFUSION_MODEL_X_HASH_ROUTE)
+    async def workflowx_load_diffusion_model_x_hash(request):
+        try:
+            payload = await request.json()
+            entry = await asyncio.to_thread(
+                _hash_diffusion_model_load_name,
+                payload.get("load_name") if isinstance(payload, dict) else None,
+                folder_paths,
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+        except Exception as exc:
+            logger.exception("Load Diffusion Model X could not hash a model")
+            return web.json_response({"error": f"Hashing failed: {exc}"}, status=500)
+        return web.json_response(entry)
+
+    @prompt_server.routes.post(LOAD_DIFFUSION_MODEL_X_REMAP_ROUTE)
+    async def workflowx_load_diffusion_model_x_remap(request):
+        try:
+            payload = await request.json()
+            result = await asyncio.to_thread(
+                _remap_diffusion_model_items,
+                payload.get("items") if isinstance(payload, dict) else None,
+                folder_paths,
+            )
+        except Exception as exc:
+            logger.exception("Load Diffusion Model X remapping failed")
+            return web.json_response({"error": f"Remapping failed: {exc}"}, status=500)
+        return web.json_response(result)
 
     prompt_server._workflowx_load_diffusion_model_x_route = True
 
@@ -617,3 +873,36 @@ def _register_image_processor_x_routes() -> None:
 _register_image_processor_x_routes()
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]
+
+
+# AuK is an isolated addition. Missing optional audio dependencies must not
+# prevent the existing WorkflowX registry or routes from loading.
+try:
+    from .auk import (
+        NODE_CLASS_MAPPINGS as AUK_NODE_CLASS_MAPPINGS,
+        NODE_DISPLAY_NAME_MAPPINGS as AUK_NODE_DISPLAY_NAME_MAPPINGS,
+        register_routes as register_auk_routes,
+    )
+    if NODE_CLASS_MAPPINGS.keys() & AUK_NODE_CLASS_MAPPINGS.keys():
+        raise RuntimeError("WorkflowX AuK node ID collision")
+    register_auk_routes()
+    NODE_CLASS_MAPPINGS.update(AUK_NODE_CLASS_MAPPINGS)
+    NODE_DISPLAY_NAME_MAPPINGS.update(AUK_NODE_DISPLAY_NAME_MAPPINGS)
+except Exception:
+    logger.exception("WorkflowX AuK could not load; existing WorkflowX nodes remain available")
+
+
+# H3 RefMod retains its public node IDs, media types and HTTP routes so existing
+# workflows and saved character packages continue to work after consolidation.
+# H3 requires native MiniMax support; isolate its import on older ComfyUI builds.
+try:
+    from .h3_refmod import (
+        NODE_CLASS_MAPPINGS as H3_REFMOD_NODE_CLASS_MAPPINGS,
+        NODE_DISPLAY_NAME_MAPPINGS as H3_REFMOD_NODE_DISPLAY_NAME_MAPPINGS,
+    )
+    if NODE_CLASS_MAPPINGS.keys() & H3_REFMOD_NODE_CLASS_MAPPINGS.keys():
+        raise RuntimeError("WorkflowX H3 RefMod node ID collision")
+    NODE_CLASS_MAPPINGS.update(H3_REFMOD_NODE_CLASS_MAPPINGS)
+    NODE_DISPLAY_NAME_MAPPINGS.update(H3_REFMOD_NODE_DISPLAY_NAME_MAPPINGS)
+except Exception:
+    logger.exception("WorkflowX H3 RefMod could not load; existing WorkflowX nodes remain available")

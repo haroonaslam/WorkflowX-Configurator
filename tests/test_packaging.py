@@ -1,7 +1,9 @@
 import importlib.util
 import asyncio
 import base64
+import hashlib
 import json
+import os
 import pathlib
 import shutil
 import sys
@@ -90,7 +92,7 @@ def _load_package():
 
 def test_combined_package_exports_workflowx_and_afj_nodes():
     module = _load_package()
-    assert len(module.NODE_CLASS_MAPPINGS) == 46
+    assert len(module.NODE_CLASS_MAPPINGS) == 65
     voice = module.NODE_CLASS_MAPPINGS["WorkflowX_VoiceChangerX"]
     assert module.NODE_DISPLAY_NAME_MAPPINGS["WorkflowX_VoiceChangerX"] == "Voice ChangerX"
     assert voice.CATEGORY == "WorkflowX/Audio"
@@ -246,6 +248,127 @@ def test_lorax_route_helpers_build_canonical_entries_and_token_search():
     assert module._build_lorax_lora_entries(FolderPaths, "pussy sdxl zimage") == []
 
 
+def test_lorax_hash_identity_is_deterministic_validated_and_cache_aware():
+    module = _load_package()
+    module._WORKFLOWX_HASH_CACHE.clear()
+    with tempfile.TemporaryDirectory() as directory:
+        root = pathlib.Path(directory)
+        lora_path = root / "folder" / "sample.safetensors"
+        lora_path.parent.mkdir()
+        lora_path.write_bytes(b"first-value")
+
+        class FolderPaths:
+            @staticmethod
+            def get_full_path(folder_name, filename):
+                assert folder_name == "loras"
+                path = root / filename
+                return str(path) if path.is_file() else None
+
+        first = module._lorax_hash_load_name("folder/sample.safetensors", FolderPaths)
+        assert first["sha256"] == hashlib.sha256(b"first-value").hexdigest()
+        assert first["file_size"] == len(b"first-value")
+        assert module._lorax_hash_load_name("folder/sample.safetensors", FolderPaths) == first
+
+        previous_mtime = lora_path.stat().st_mtime_ns
+        lora_path.write_bytes(b"other-value")
+        os.utime(lora_path, ns=(previous_mtime + 10_000_000, previous_mtime + 10_000_000))
+        second = module._lorax_hash_load_name("folder/sample.safetensors", FolderPaths)
+        assert second["sha256"] == hashlib.sha256(b"other-value").hexdigest()
+        assert second["sha256"] != first["sha256"]
+
+        try:
+            module._lorax_hash_load_name("../sample.safetensors", FolderPaths)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("path traversal should be rejected")
+
+
+def test_lorax_remap_handles_moves_mismatches_duplicates_and_legacy_rows():
+    module = _load_package()
+    module._WORKFLOWX_HASH_CACHE.clear()
+    with tempfile.TemporaryDirectory() as directory:
+        root = pathlib.Path(directory)
+        files = {
+            "A/duplicate.safetensors": b"original",
+            "Z/duplicate.safetensors": b"original",
+            "Current/replaced.safetensors": b"replacement",
+            "Keep/original.safetensors": b"keep",
+            "Legacy/present.safetensors": b"legacy",
+        }
+        for relative, content in files.items():
+            path = root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(content)
+
+        class FolderPaths:
+            @staticmethod
+            def get_filename_list(folder_name):
+                assert folder_name == "loras"
+                return list(files)
+
+            @staticmethod
+            def get_full_path(folder_name, filename):
+                assert folder_name == "loras"
+                path = root / filename
+                return str(path) if path.is_file() else None
+
+        original_hash = hashlib.sha256(b"original").hexdigest()
+        result = module._lorax_remap_items(
+            [
+                {
+                    "row_id": "moved",
+                    "load_name": "Old/missing.safetensors",
+                    "sha256": original_hash,
+                    "file_size": len(b"original"),
+                },
+                {
+                    "row_id": "replaced",
+                    "load_name": "Current/replaced.safetensors",
+                    "sha256": original_hash,
+                    "file_size": len(b"original"),
+                },
+                {
+                    "row_id": "kept",
+                    "load_name": "Keep/original.safetensors",
+                    "sha256": hashlib.sha256(b"keep").hexdigest(),
+                    "file_size": len(b"keep"),
+                },
+                {"row_id": "legacy", "load_name": "Legacy/present.safetensors"},
+                {"row_id": "unresolved", "load_name": "Missing/no-hash.safetensors"},
+                {
+                    "row_id": "no-match",
+                    "load_name": "Missing/removed.safetensors",
+                    "sha256": hashlib.sha256(b"gone").hexdigest(),
+                    "file_size": len(b"gone"),
+                },
+            ],
+            FolderPaths,
+        )
+        by_id = {item["row_id"]: item for item in result["items"]}
+
+        assert by_id["moved"]["status"] == "remapped"
+        assert by_id["moved"]["entry"]["load_name"] == "A/duplicate.safetensors"
+        assert by_id["moved"]["duplicate_count"] == 2
+        assert by_id["replaced"]["status"] == "remapped"
+        assert by_id["replaced"]["entry"]["load_name"] == "A/duplicate.safetensors"
+        assert by_id["kept"]["status"] == "unchanged"
+        assert by_id["kept"]["entry"]["load_name"] == "Keep/original.safetensors"
+        assert by_id["legacy"]["status"] == "unchanged"
+        assert by_id["legacy"]["entry"]["sha256"] == hashlib.sha256(b"legacy").hexdigest()
+        assert by_id["unresolved"] == {
+            "row_id": "unresolved",
+            "status": "unresolved",
+            "reason": "missing_hash",
+        }
+        assert by_id["no-match"] == {
+            "row_id": "no-match",
+            "status": "unresolved",
+            "reason": "no_hash_match",
+        }
+        assert result["summary"] == {"remapped": 2, "unchanged": 2, "unresolved": 2, "duplicates": 2}
+
+
 def test_load_diffusion_model_x_route_helpers_build_catalog_and_search():
     module = _load_package()
     with tempfile.TemporaryDirectory() as directory:
@@ -277,6 +400,67 @@ def test_load_diffusion_model_x_route_helpers_build_catalog_and_search():
             "Flux/Example Model.safetensors"
         ]
         assert module._build_diffusion_model_entries(FolderPaths, "missing") == []
+
+
+def test_load_diffusion_model_x_hashes_and_remaps_canonical_models():
+    module = _load_package()
+    module._WORKFLOWX_HASH_CACHE.clear()
+    with tempfile.TemporaryDirectory() as directory:
+        root = pathlib.Path(directory)
+        files = {
+            "A/model.gguf": b"diffusion-model",
+            "Z/model.gguf": b"diffusion-model",
+            "Legacy/current.safetensors": b"legacy-model",
+        }
+        for relative, content in files.items():
+            path = root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(content)
+
+        class FolderPaths:
+            @staticmethod
+            def get_filename_list(folder_name):
+                assert folder_name == "diffusion_models"
+                return list(files)
+
+            @staticmethod
+            def get_full_path(folder_name, filename):
+                assert folder_name == "diffusion_models"
+                path = root / filename
+                return str(path) if path.is_file() else None
+
+        identity = module._hash_diffusion_model_load_name("A/model.gguf", FolderPaths)
+        model_hash = hashlib.sha256(b"diffusion-model").hexdigest()
+        assert identity["sha256"] == model_hash
+        assert identity["file_size"] == len(b"diffusion-model")
+
+        result = module._remap_diffusion_model_items(
+            [
+                {
+                    "row_id": "moved",
+                    "load_name": "Old/model.gguf",
+                    "sha256": model_hash,
+                    "file_size": len(b"diffusion-model"),
+                },
+                {"row_id": "legacy", "load_name": "Legacy/current.safetensors"},
+                {"row_id": "missing", "load_name": "Missing/no-hash.safetensors"},
+            ],
+            FolderPaths,
+        )
+        by_id = {item["row_id"]: item for item in result["items"]}
+        assert by_id["moved"]["status"] == "remapped"
+        assert by_id["moved"]["entry"]["load_name"] == "A/model.gguf"
+        assert by_id["moved"]["duplicate_count"] == 2
+        assert by_id["legacy"]["status"] == "unchanged"
+        assert by_id["legacy"]["entry"]["sha256"] == hashlib.sha256(b"legacy-model").hexdigest()
+        assert by_id["missing"]["reason"] == "missing_hash"
+
+        try:
+            module._hash_diffusion_model_load_name("../model.gguf", FolderPaths)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("path traversal should be rejected")
 
 
 def test_xflows_hidden_auto_tags_survive_metadata_merge():

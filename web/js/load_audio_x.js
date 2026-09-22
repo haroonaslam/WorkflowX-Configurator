@@ -1,5 +1,7 @@
 import { app } from "/scripts/app.js";
-import { injectAudioXState, LOAD_AUDIO_X_DEFAULTS, movedRangeStart, normalizeAudioXState, selectedRange, timelineDragMode } from "./load_audio_x_state.mjs";
+// Version the dependency when adding exports: browsers may retain the old .mjs
+// even when ComfyUI reloads this extension's .js entry point.
+import { injectAudioXState, LOAD_AUDIO_X_DEFAULTS, movedRangeStart, normalizeAudioXState, selectedRange, startTimeParts, startTimeSeconds, timelineDragMode } from "./load_audio_x_state.mjs?v=2";
 
 const NODE = "WorkflowX_LoadAudioX";
 const API = "/workflowx_configurator/load_audio_x";
@@ -21,6 +23,11 @@ function installCSS() {
   .workflowx-lax-wave{position:relative;height:112px;min-height:84px;border:1px solid #413b46;border-radius:6px;background:#0b0d12;overflow:hidden;touch-action:none}.workflowx-lax-wave canvas{display:block;width:100%;height:100%}.workflowx-lax-wave audio{position:absolute;isolation:isolate;left:6px;right:6px;bottom:4px;width:calc(100% - 12px);height:27px;opacity:1;background:#383838;border-radius:999px;box-shadow:0 0 0 4px #0b0d12}
   .workflowx-lax-time{display:grid;grid-template-columns:auto minmax(72px,160px) auto minmax(72px,160px);gap:4px;align-items:center;justify-content:start}.workflowx-lax-time label,.workflowx-lax-label{color:#9992a0}.workflowx-lax-time input{width:100%;padding:0 6px}.workflowx-lax-mode{display:grid;grid-template-columns:repeat(3,max-content);gap:4px;justify-content:center}.workflowx-lax-mode button{padding:0 12px}.workflowx-lax-mode button.active{border-color:${ACCENT};background:#6b263a}.workflowx-lax-convert{display:grid;grid-template-columns:repeat(2,minmax(140px,250px));gap:4px;justify-content:start}.workflowx-lax-field{display:grid;grid-template-columns:58px minmax(0,1fr);align-items:center;gap:4px}.workflowx-lax-field select{width:100%;padding:0 5px}
   .workflowx-lax-status{height:38px;min-height:38px;max-height:38px;padding:5px 7px;border:1px solid #37333d;border-radius:5px;background:#18161b;color:#aeb4c0;line-height:1.3;overflow:auto;white-space:pre-wrap;scrollbar-width:thin}.workflowx-lax-status.warn{border-color:#796225;color:#ffd166}.workflowx-lax-status.error{border-color:#853448;color:#ff8fab}
+  .workflowx-lax-time{grid-template-columns:auto minmax(126px,160px) auto minmax(48px,160px)}
+  .workflowx-lax-timecode{display:grid;grid-template-columns:minmax(24px,1fr) auto minmax(24px,1fr) auto minmax(48px,2fr);gap:1px;align-items:center;min-width:0}
+  .workflowx-lax-timecode input{padding:0 2px;text-align:center;font-variant-numeric:tabular-nums;appearance:textfield;-moz-appearance:textfield}
+  .workflowx-lax-timecode input::-webkit-inner-spin-button,.workflowx-lax-timecode input::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+  .workflowx-lax-timecode input:focus-visible{outline:1px solid ${ACCENT};outline-offset:0}
   .workflowx-lax-popup{position:fixed;z-index:100001;width:min(390px,calc(100vw - 20px));max-height:min(680px,calc(100vh - 20px));overflow:auto;padding:10px;border:1px solid #5b505e;border-radius:8px;background:#211e24;color:#eee;box-shadow:0 18px 60px #000b;font:12px ui-sans-serif,system-ui,sans-serif}.workflowx-lax-popup[hidden]{display:none}.workflowx-lax-popup details{border:1px solid #423c46;border-radius:5px;margin:0 0 7px;background:#19171c}.workflowx-lax-popup summary{padding:8px;cursor:pointer;color:#ff8fab;font-weight:700}.workflowx-lax-popup-body{display:grid;gap:7px;padding:0 8px 9px}.workflowx-lax-popup-row{display:grid;grid-template-columns:126px minmax(0,1fr);gap:8px;align-items:center}.workflowx-lax-popup input,.workflowx-lax-popup select{width:100%;height:28px;border:1px solid #4b4650;border-radius:4px;background:#28242b;color:#eee;padding:0 6px}.workflowx-lax-checks{display:grid;grid-template-columns:1fr 1fr;gap:5px}.workflowx-lax-checks label{display:flex;gap:5px;align-items:center}.workflowx-lax-checks input{width:auto;height:auto}.workflowx-lax-detail{white-space:pre-wrap;color:#aaa;font:10px ui-monospace,monospace}.workflowx-lax-wired{color:#70d6ff;font-size:10px}
   @container (max-width:280px){.workflowx-lax-top{grid-template-columns:minmax(0,1fr) auto auto}.workflowx-lax-repair{grid-column:1/-1}.workflowx-lax-convert{grid-template-columns:1fr}.workflowx-lax-time{grid-template-columns:auto minmax(0,1fr)}.workflowx-lax-mode{grid-template-columns:repeat(3,minmax(0,1fr))}.workflowx-lax-mode button{padding:0 3px}.workflowx-lax-wave{height:100px}}
   `;
@@ -148,7 +155,17 @@ function createUI(node) {
   const top = element("div", "workflowx-lax-top"), picker = document.createElement("select"), upload = element("button", "", "Upload"), gear = element("button", "", "⚙"), repair = element("button", "workflowx-lax-repair", "Repair");
   picker.title = "Select audio or video from ComfyUI input"; top.append(picker, upload, gear, repair);
   const wave = element("div", "workflowx-lax-wave"), canvas = document.createElement("canvas"), player = document.createElement("audio"); player.controls = true; player.preload = "metadata"; wave.append(canvas, player); ui.canvas = canvas; ui.player = player;
-  const time = element("div", "workflowx-lax-time"), start = numeric(ui.state.start, 0, 86400, .001, (value) => ui.commit({ ...ui.state, start: value })), length = numeric(ui.state.length, 0, 86400, .001, (value) => ui.commit({ ...ui.state, length: value }));
+  const time = element("div", "workflowx-lax-time"), start = element("div", "workflowx-lax-timecode"), length = numeric(ui.state.length, 0, 86400, .001, (value) => ui.commit({ ...ui.state, length: value }));
+  start.setAttribute("role", "group"); start.setAttribute("aria-label", "Start time (hours:minutes:seconds)");
+  const startFields = ["hours", "minutes", "seconds"].map((unit, index) => {
+    const input = numeric(0, 0, [24, 59, 59.999][index], index === 2 ? .001 : 1, () => {
+      ui.commit({ ...ui.state, start: startTimeSeconds(...startFields.map((field) => field.value)) });
+    });
+    input.setAttribute("aria-label", `Start ${unit}`); input.title = `Start ${unit}${index === 2 ? " (up to 3 decimal places)" : ""}`;
+    if (index) start.append(element("span", "", ":"));
+    start.append(input); return input;
+  });
+  length.title = "Length in seconds"; length.setAttribute("aria-label", "Length in seconds");
   time.append(element("label", "", "Start"), start, element("label", "", "Length"), length); ui.start = start; ui.length = length;
   const mode = element("div", "workflowx-lax-mode"), whole = element("button", "", "Whole file"), fixed = element("button", "", "Use length"), short = element("button", "", "Short: silence"); mode.append(whole, fixed, short);
   const convert = element("div", "workflowx-lax-convert");
@@ -182,7 +199,10 @@ function createUI(node) {
 
   ui.commit = (next, render = true) => { ui.state = normalizeAudioXState(next); node.properties.workflowxLoadAudioXState = ui.state; node.graph?.change?.(); node.graph?.setDirtyCanvas?.(true, true); if (render) ui.render(); ui.draw(); };
   ui.render = () => {
-    start.value = displaySeconds(ui.state.start); length.value = displaySeconds(ui.state.length);
+    startTimeParts(ui.state.start).forEach((value, index) => {
+      startFields[index].value = index === 2 ? value.toFixed(3).padStart(6, "0") : String(value).padStart(2, "0");
+    });
+    length.value = displaySeconds(ui.state.length);
     const wired = upstreamSeconds(node); length.disabled = wired !== null || ui.state.when_unwired === "whole";
     whole.classList.toggle("active", ui.state.when_unwired === "whole" && wired === null); fixed.classList.toggle("active", ui.state.when_unwired === "length" && wired === null);
     fixed.textContent = wired !== null ? `Wired: ${wired.toFixed(3)} s` : "Use length";

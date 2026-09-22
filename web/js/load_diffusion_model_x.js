@@ -3,16 +3,24 @@ import { api } from "../../scripts/api.js";
 import { itemMatchesQuery, normalizePath } from "./load_diffusion_model_x_search.js";
 import {
   activateModelRow,
+  applyModelIdentity,
   defaultModelRow,
+  modelItemFileSize,
+  modelItemSha256,
   normalizeModelRow,
+  normalizeSha256,
   removeModelRow,
   restoreModelRows,
+  sortedModelHashMatches,
 } from "./load_diffusion_model_x_state.mjs";
 
 const NODE_TYPE = "KVGC_LoadDiffusionModelX";
 const EXTENSION_NAME = "workflowx.load_diffusion_model_x";
 const CATALOG_ROUTE = "/workflowx_configurator/load_diffusion_model_x/models";
+const HASH_ROUTE = "/workflowx_configurator/load_diffusion_model_x/hash";
+const REMAP_ROUTE = "/workflowx_configurator/load_diffusion_model_x/remap";
 const MANAGER_LIST_ROUTE = "/api/lm/checkpoints/list";
+const MANAGER_SCAN_ROUTE = "/api/lm/checkpoints/scan";
 const MANAGER_METADATA_ROUTE = "/api/lm/checkpoints/metadata";
 const MANAGER_DESCRIPTION_ROUTE = "/api/lm/checkpoints/model-description";
 const STYLE_ID = "workflowx-load-diffusion-model-x-styles";
@@ -20,6 +28,8 @@ const ROW_H = 28;
 const HEADER_H = 24;
 const MIN_W = 560;
 const REMOVE_W = 30;
+const REMAP_X = 104;
+const REMAP_W = 28;
 const MAX_MANAGER_PAGES = 200;
 const VIDEO_EXT_RE = /\.(mp4|webm|mov)(?:[?#].*)?$/i;
 
@@ -32,12 +42,22 @@ function markDirty(node) {
   app.graph?.setDirtyCanvas?.(true, true);
 }
 
-async function fetchJson(path) {
+async function fetchJson(path, options = {}) {
+  const requestOptions = { cache: "no-store", ...options };
   const response = api?.fetchApi
-    ? await api.fetchApi(path, { cache: "no-store" })
-    : await fetch(path, { cache: "no-store" });
-  if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-  return response.json();
+    ? await api.fetchApi(path, requestOptions)
+    : await fetch(path, requestOptions);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data?.error || `${response.status} ${response.statusText}`);
+  return data;
+}
+
+function postJson(path, payload) {
+  return fetchJson(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
 }
 
 function lower(value) {
@@ -68,7 +88,8 @@ function normalizeCanonical(item) {
     file_stem: fileStem,
     display_name: item?.display_name || fileStem || loadName,
     full_path: normalizePath(item?.full_path),
-    file_size: Number(item?.file_size || 0),
+    file_size: modelItemFileSize(item),
+    sha256: modelItemSha256(item),
     sub_type: item?.sub_type || "diffusion_model",
     tags: Array.isArray(item?.tags) ? item.tags : [],
   };
@@ -114,7 +135,8 @@ function mergeCatalog(canonicalItems, managerItems) {
       favorite: Boolean(manager.favorite),
       update_available: Boolean(manager.update_available),
       sub_type: manager.sub_type || item.sub_type,
-      file_size: Number(manager.file_size || item.file_size || 0),
+      file_size: modelItemFileSize(manager) || item.file_size,
+      sha256: modelItemSha256(manager) || item.sha256,
       metadata: manager,
     };
   });
@@ -156,6 +178,28 @@ async function loadCatalog(force = false) {
     });
   }
   return catalogPromise;
+}
+
+async function refreshCatalog() {
+  await fetchJson(`${MANAGER_SCAN_ROUTE}?full_rebuild=false`).catch(() => null);
+  return loadCatalog(true);
+}
+
+async function ensureModelIdentity(item) {
+  const sha256 = modelItemSha256(item);
+  const fileSize = modelItemFileSize(item);
+  if (sha256) return { ...item, sha256, file_size: fileSize };
+  const identity = await postJson(HASH_ROUTE, { load_name: item?.load_name });
+  const calculatedHash = modelItemSha256(identity);
+  if (!calculatedHash) throw new Error("The backend did not return a valid SHA-256 identity.");
+  return {
+    ...item,
+    ...identity,
+    display_name: item?.display_name || identity?.file_stem || identity?.load_name,
+    metadata: item?.metadata || null,
+    sha256: calculatedHash,
+    file_size: modelItemFileSize(identity),
+  };
 }
 
 function createTreeRoot() {
@@ -251,6 +295,7 @@ function ensureStyles() {
     .workflowx-dmx-folder:hover,.workflowx-dmx-folder.active{background:#28303a;color:#fff}
     .workflowx-dmx-folder-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.workflowx-dmx-folder-count{margin-left:auto;color:#88919d;font-size:11px}
     .workflowx-dmx-results{overflow:auto;padding:10px;display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;align-content:start;background:#101215}
+    .workflowx-dmx-results[aria-busy="true"]{opacity:.55;pointer-events:none;cursor:progress}
     .workflowx-dmx-card{position:relative;min-height:156px;border:1px solid #303640;background:#1c2026;border-radius:7px;display:grid;grid-template-columns:100px 1fr;gap:10px;padding:8px;cursor:pointer;overflow:hidden;color:inherit;text-align:left}
     .workflowx-dmx-card:hover{border-color:#6f8fd4;background:#232a34}.workflowx-dmx-thumb,.workflowx-dmx-video{width:100px;height:140px;border-radius:5px;background:#0d0f12;object-fit:cover;border:1px solid #30343b}
     .workflowx-dmx-no-thumb{width:100px;height:140px;border-radius:5px;background:#222831;border:1px solid #30343b;display:flex;align-items:center;justify-content:center;color:#8f98a5;text-align:center;padding:4px;box-sizing:border-box}
@@ -261,9 +306,20 @@ function ensureStyles() {
     .workflowx-dmx-detail-head{display:flex;gap:12px;align-items:flex-start;padding:14px 16px;border-bottom:1px solid #30343b;background:#202328}.workflowx-dmx-detail-title{font-size:18px;font-weight:750}.workflowx-dmx-detail-sub{margin-top:4px;color:#a7afba;word-break:break-word}
     .workflowx-dmx-detail-body{overflow:auto;padding:14px 16px;display:grid;grid-template-columns:minmax(220px,300px) 1fr;gap:16px}.workflowx-dmx-detail-preview{width:100%;max-height:360px;border-radius:7px;background:#0d0f12;border:1px solid #30343b;object-fit:cover}.workflowx-dmx-detail-grid{display:grid;grid-template-columns:120px 1fr;gap:8px 12px;align-content:start}.workflowx-dmx-detail-label{color:#98a3b1}.workflowx-dmx-detail-value{color:#eef2f6;word-break:break-word}.workflowx-dmx-description{grid-column:1/-1;white-space:pre-wrap;border-top:1px solid #30343b;padding-top:10px;line-height:1.42}.workflowx-dmx-description.rich{white-space:normal}.workflowx-dmx-description.rich :is(h1,h2,h3,h4,h5,h6,p,pre,blockquote,ul,ol){margin:0 0 9px}.workflowx-dmx-description.rich :is(ul,ol){padding-left:22px}.workflowx-dmx-description.rich a{color:#8db8ff}.workflowx-dmx-description.rich pre,.workflowx-dmx-description.rich code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}.workflowx-dmx-description.rich pre{overflow:auto;background:#101318;border:1px solid #30343b;border-radius:5px;padding:8px}
     .workflowx-dmx-detail-actions{display:flex;gap:8px;justify-content:flex-end;padding:12px 16px;border-top:1px solid #30343b;background:#202328}.workflowx-dmx-detail-actions button{height:32px;border-radius:6px;border:1px solid #4e5560;background:#252d37;color:#e8eef7;padding:0 12px;cursor:pointer}.workflowx-dmx-detail-actions .primary{background:#315a94;border-color:#5783c4;color:#fff}
+    .workflowx-dmx-toast{position:fixed;z-index:10003;left:50%;bottom:32px;transform:translateX(-50%);max-width:min(560px,calc(100vw - 32px));padding:9px 14px;border:1px solid #536174;border-radius:6px;background:#20262f;color:#edf2f8;box-shadow:0 8px 28px rgba(0,0,0,.45);font:13px system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.workflowx-dmx-toast.error{border-color:#9b5050;background:#3a2224;color:#ffe4e4}
     @media(max-width:760px){.workflowx-dmx-body{grid-template-columns:1fr}.workflowx-dmx-tree{max-height:190px;border-right:0;border-bottom:1px solid #30343b}.workflowx-dmx-detail-body{grid-template-columns:1fr}}
   `;
   document.head.appendChild(style);
+}
+
+function showDmxToast(message, isError = false) {
+  ensureStyles();
+  document.querySelector(".workflowx-dmx-toast")?.remove();
+  const toast = document.createElement("div");
+  toast.className = `workflowx-dmx-toast${isError ? " error" : ""}`;
+  toast.textContent = String(message || "");
+  document.body.appendChild(toast);
+  window.setTimeout(() => toast.remove(), isError ? 6000 : 3600);
 }
 
 function formatFileSize(size) {
@@ -425,7 +481,12 @@ async function openDetails(item, onSelect) {
   actions.className = "workflowx-dmx-detail-actions";
   const select = document.createElement("button");
   select.className = "primary"; select.textContent = "Select";
-  select.addEventListener("click", () => { onSelect(item); close(); });
+  select.addEventListener("click", async () => {
+    select.disabled = true;
+    const selected = await onSelect(item);
+    if (selected !== false) close();
+    else select.disabled = false;
+  });
   actions.appendChild(select);
   modal.append(head, body, actions);
 
@@ -511,9 +572,27 @@ async function openPicker(onSelect) {
   let items = [];
   let treeRoot = createTreeRoot();
   let selectedFolder = "";
+  let selectionBusy = false;
   const expanded = new Set([""]);
   const closePicker = () => { backdrop.remove(); if (activePicker === backdrop) activePicker = null; };
-  const selectAndClose = (item) => { onSelect(item); closePicker(); };
+  const selectAndClose = async (item) => {
+    if (selectionBusy) return false;
+    selectionBusy = true;
+    search.disabled = true; refresh.disabled = true; close.disabled = true; results.setAttribute("aria-busy", "true");
+    try {
+      const identified = await ensureModelIdentity(item);
+      await onSelect(identified);
+      closePicker();
+      return true;
+    } catch (error) {
+      console.warn("[WorkflowX Load Diffusion Model X] Failed to identify selected model", error);
+      showDmxToast(`Could not hash diffusion model: ${error.message || error}`, true);
+      return false;
+    } finally {
+      selectionBusy = false;
+      search.disabled = false; refresh.disabled = false; close.disabled = false; results.removeAttribute("aria-busy");
+    }
+  };
   const render = () => {
     const filtered = items.filter((item) => itemMatchesFolder(item, selectedFolder)).filter((item) => itemMatchesQuery(item, search.value));
     const visible = filtered.slice(0, 500);
@@ -529,7 +608,7 @@ async function openPicker(onSelect) {
   };
   const reload = async (force = false) => {
     results.innerHTML = '<div class="workflowx-dmx-empty">Loading diffusion models...</div>';
-    try { items = await loadCatalog(force); treeRoot = buildTree(items); }
+    try { items = force ? await refreshCatalog() : await loadCatalog(false); treeRoot = buildTree(items); }
     catch (error) { console.warn("[WorkflowX Load Diffusion Model X] Catalog load failed", error); items = []; treeRoot = createTreeRoot(); }
     render();
   };
@@ -573,13 +652,120 @@ function createHeaderWidget() {
     draw(ctx, node, width, y) {
       this.last_y = y; ctx.save(); ctx.globalAlpha = app.canvas?.editor_alpha ?? 1;
       ctx.fillStyle = "#aeb6c1"; ctx.textBaseline = "middle"; ctx.textAlign = "left";
-      ctx.fillText("Active model", 18, y + HEADER_H / 2); ctx.textAlign = "center"; ctx.fillText("Remove", width - 30, y + HEADER_H / 2); ctx.restore();
+      ctx.fillText("Active model", 18, y + HEADER_H / 2);
+      drawBox(ctx, REMAP_X, y - 2, REMAP_W, node.__dmxRemapping ? "..." : "\u21bb", false);
+      ctx.textAlign = "center"; ctx.fillText("Remove", width - 30, y + HEADER_H / 2);
+      if (node.__dmxRemapHover) {
+        const tooltip = "Remap moved diffusion models";
+        ctx.font = "12px sans-serif";
+        const tooltipWidth = ctx.measureText(tooltip).width + 16;
+        ctx.fillStyle = "#11151a"; ctx.strokeStyle = "#596270"; ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(REMAP_X, y + HEADER_H + 2, tooltipWidth, 24, 5); else ctx.rect(REMAP_X, y + HEADER_H + 2, tooltipWidth, 24);
+        ctx.fill(); ctx.stroke(); ctx.fillStyle = "#eef2f6"; ctx.textAlign = "left";
+        ctx.fillText(tooltip, REMAP_X + 8, y + HEADER_H + 14);
+      }
+      ctx.restore();
+    },
+    mouse(event, pos, node) {
+      if (event.type !== "pointerdown" && event.type !== "mousedown") return false;
+      if (pos[0] >= REMAP_X && pos[0] <= REMAP_X + REMAP_W) { remapModelRows(node); return true; }
+      return false;
     },
   };
 }
 
 function rowWidgets(node) {
   return (node.widgets || []).filter((widget) => widget.__dmxRow);
+}
+
+function catalogModelByLoadName(items, loadName) {
+  const key = lower(loadName);
+  return (items || []).find((item) => lower(item?.load_name) === key) || null;
+}
+
+function updateModelRowIdentity(row, entry, catalogItems) {
+  if (!row?.value || !entry) return;
+  const old = normalizeModelRow(row.value);
+  const catalogItem = catalogModelByLoadName(catalogItems, entry.load_name);
+  let next = applyModelIdentity(old, catalogItem || entry);
+  if (catalogItem) {
+    const fresh = defaultModelRow(catalogItem, old.on);
+    next = {
+      ...next,
+      display_name: fresh.display_name,
+      path: fresh.path,
+      metadata: fresh.metadata,
+      sha256: fresh.sha256 || next.sha256,
+      file_size: fresh.file_size || next.file_size,
+    };
+  }
+  next.on = old.on;
+  row.value = Object.assign(row.value, next);
+}
+
+async function remapModelRows(node) {
+  if (node.__dmxRemapping) return;
+  const rows = rowWidgets(node);
+  if (!rows.length) { showDmxToast("No diffusion models to remap"); return; }
+
+  const originalSize = node.size ? [Number(node.size[0]), Number(node.size[1])] : null;
+  node.__dmxRemapping = true; node.__dmxRemapHover = false; markDirty(node);
+  try {
+    const items = await refreshCatalog();
+    const pending = [];
+    const counts = { remapped: 0, unchanged: 0, unresolved: 0, duplicates: 0 };
+    for (const row of rows) {
+      const value = normalizeModelRow(row.value);
+      const current = catalogModelByLoadName(items, value.load_name);
+      const storedHash = normalizeSha256(value.sha256);
+      if (storedHash) {
+        const matches = sortedModelHashMatches(items, storedHash);
+        const currentHash = modelItemSha256(current);
+        const currentMatches = Boolean(currentHash && currentHash === storedHash);
+        const chosen = currentMatches ? current : !current ? matches[0] : null;
+        if (chosen) {
+          updateModelRowIdentity(row, chosen, items);
+          counts[currentMatches ? "unchanged" : "remapped"] += 1;
+          counts.duplicates += Math.max(0, matches.length - 1);
+          continue;
+        }
+      } else if (current && modelItemSha256(current)) {
+        updateModelRowIdentity(row, current, items);
+        counts.unchanged += 1;
+        continue;
+      }
+      pending.push({
+        row,
+        request: {
+          row_id: row.name,
+          load_name: value.load_name,
+          sha256: storedHash,
+          file_size: value.file_size,
+        },
+      });
+    }
+
+    if (pending.length) {
+      const response = await postJson(REMAP_ROUTE, { items: pending.map((item) => item.request) });
+      const byRowId = new Map(pending.map((item) => [item.request.row_id, item.row]));
+      for (const result of response.items || []) {
+        const status = ["remapped", "unchanged", "unresolved"].includes(result.status) ? result.status : "unresolved";
+        counts[status] += 1;
+        counts.duplicates += Math.max(0, Number(result.duplicate_count || 0) - 1);
+        if (result.entry && status !== "unresolved") updateModelRowIdentity(byRowId.get(result.row_id), result.entry, items);
+      }
+    }
+
+    const duplicateText = counts.duplicates ? `, ${counts.duplicates} duplicate match${counts.duplicates === 1 ? "" : "es"}` : "";
+    showDmxToast(`${counts.remapped} remapped, ${counts.unchanged} unchanged, ${counts.unresolved} unresolved${duplicateText}`);
+  } catch (error) {
+    console.warn("[WorkflowX Load Diffusion Model X] Remapping failed", error);
+    showDmxToast(`Diffusion-model remapping failed: ${error.message || error}`, true);
+  } finally {
+    node.__dmxRemapping = false;
+    if (originalSize && node.size) { node.size[0] = originalSize[0]; node.size[1] = originalSize[1]; }
+    markDirty(node);
+  }
 }
 
 function activateRow(node, row) {
@@ -692,7 +878,8 @@ function openRowDetails(node, row) {
   const loadName = normalizePath(value.load_name); const filename = loadName.split("/").pop() || loadName;
   openDetails({
     load_name: loadName, filename, file_stem: stripExtension(filename), display_name: stripExtension(filename),
-    folder: normalizePath(value.path), full_path: normalizePath(value.metadata?.file_path), file_size: Number(value.metadata?.file_size || 0),
+    folder: normalizePath(value.path), full_path: normalizePath(value.metadata?.file_path), sha256: value.sha256,
+    file_size: modelItemFileSize(value),
     preview_url: normalizePath(value.metadata?.preview_url), base_model: value.metadata?.base_model || "", sub_type: value.metadata?.sub_type || "diffusion_model",
     tags: Array.isArray(value.metadata?.tags) ? value.metadata.tags : [], metadata: value.metadata || {},
   }, (item) => setRowFromItem(node, row, item));
@@ -708,18 +895,40 @@ function rowMenu(node, row, event) {
   ], { event, title: "Load Diffusion Model X" });
 }
 
-function handleRowClick(node, event, pos) {
-  let x = Number(pos?.[0] || 0); let y = Number(pos?.[1] || 0); const width = node.size?.[0] || MIN_W; const height = node.size?.[1] || 0;
+function dmxLocalPosition(node, pos) {
+  let x = Number(pos?.[0] || 0); let y = Number(pos?.[1] || 0);
+  const width = node.size?.[0] || MIN_W; const height = node.size?.[1] || 0;
   if (node.pos && (x > width || y > height)) { x -= node.pos[0]; y -= node.pos[1]; }
+  return [x, y];
+}
+
+function updateDmxRemapHover(node, pos) {
+  const header = (node.widgets || []).find((widget) => widget.name === "diffusion_model_header");
+  if (!header || header.last_y == null) return;
+  const [x, y] = dmxLocalPosition(node, pos);
+  const hover = x >= REMAP_X && x <= REMAP_X + REMAP_W && y >= header.last_y && y <= header.last_y + HEADER_H;
+  if (hover === Boolean(node.__dmxRemapHover)) return;
+  node.__dmxRemapHover = hover; markDirty(node);
+}
+
+function handleRowClick(node, event, pos) {
+  const [x, y] = dmxLocalPosition(node, pos); const width = node.size?.[0] || MIN_W;
   for (const widget of node.widgets || []) {
-    if (!widget.__dmxRow || widget.last_y == null || y < widget.last_y || y > widget.last_y + ROW_H) continue;
+    if (!widget.__dmx || widget.last_y == null) continue;
+    const height = widget.__dmxRow ? ROW_H : HEADER_H;
+    if (y < widget.last_y || y > widget.last_y + height) continue;
+    if (widget.name === "diffusion_model_header") {
+      if (x >= REMAP_X && x <= REMAP_X + REMAP_W) { remapModelRows(node); return true; }
+      return false;
+    }
+    if (!widget.__dmxRow) return false;
     if (event.button === 2) { rowMenu(node, widget, event); return true; }
     if (x >= width - 10 - REMOVE_W) { removeRowWidget(node, widget); return true; }
     if (x < 44) { activateRow(node, widget); return true; }
     const value = normalizeModelRow(widget.value); const loadName = normalizePath(value.load_name); const filename = loadName.split("/").pop() || loadName;
     openDetails({
       load_name: loadName, filename, file_stem: stripExtension(filename), display_name: stripExtension(filename), folder: normalizePath(value.path),
-      full_path: normalizePath(value.metadata?.file_path), file_size: Number(value.metadata?.file_size || 0), preview_url: normalizePath(value.metadata?.preview_url),
+      full_path: normalizePath(value.metadata?.file_path), sha256: value.sha256, file_size: modelItemFileSize(value), preview_url: normalizePath(value.metadata?.preview_url),
       base_model: value.metadata?.base_model || "", sub_type: value.metadata?.sub_type || "diffusion_model", tags: value.metadata?.tags || [], metadata: value.metadata || {},
     }, (item) => setRowFromItem(node, widget, item));
     return true;
@@ -747,6 +956,18 @@ app.registerExtension({
     nodeType.prototype.onMouseDown = function workflowXLoadDiffusionModelXMouseDown(event, pos) {
       if (handleRowClick(this, event, pos || app.canvas?.graph_mouse || [0, 0])) return true;
       return originalMouseDown?.apply(this, arguments);
+    };
+
+    const originalMouseMove = nodeType.prototype.onMouseMove;
+    nodeType.prototype.onMouseMove = function workflowXLoadDiffusionModelXMouseMove(event, pos) {
+      updateDmxRemapHover(this, pos || app.canvas?.graph_mouse || [0, 0]);
+      return originalMouseMove?.apply(this, arguments);
+    };
+
+    const originalMouseLeave = nodeType.prototype.onMouseLeave;
+    nodeType.prototype.onMouseLeave = function workflowXLoadDiffusionModelXMouseLeave() {
+      if (this.__dmxRemapHover) { this.__dmxRemapHover = false; markDirty(this); }
+      return originalMouseLeave?.apply(this, arguments);
     };
   },
 });

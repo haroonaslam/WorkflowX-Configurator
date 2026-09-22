@@ -1,6 +1,6 @@
 [project]
 name = "workflowx-configurator"
-version = "2.1.11"
+version = "2.1.12"
 description = "WorkflowX bundles ComfyUI configuration profile nodes with XFlows workflow management, XPrompts prompt libraries, XNodes reusable node snippets, and the JsonX prompt system."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -18,3 +18,6 @@ Documentation = "https://github.com/haroonaslam/WorkflowX-Configurator#readme"
 PublisherId = "haxzero"
 DisplayName = "WorkflowX Configurator"
 Banner = "https://raw.githubusercontent.com/haroonaslam/WorkflowX-Configurator/main/docs/images/workflowx-banner-v4.png"
+
+[project.optional-dependencies]
+auk = ["transformers>=5.3,<6", "safetensors", "PyYAML", "tqdm"]

@@ -15,6 +15,47 @@ export function modelFilenameStem(value) {
   return filename.replace(/\.[^./]+$/u, "");
 }
 
+export function normalizeSha256(value) {
+  const digest = String(value || "").trim().toLowerCase();
+  return /^[0-9a-f]{64}$/.test(digest) ? digest : "";
+}
+
+export function normalizeFileSize(value) {
+  const size = Number(value || 0);
+  return Number.isFinite(size) && size >= 0 ? Math.trunc(size) : 0;
+}
+
+export function modelItemSha256(item) {
+  return normalizeSha256(item?.sha256 || item?.metadata?.sha256);
+}
+
+export function modelItemFileSize(item) {
+  return normalizeFileSize(item?.file_size ?? item?.metadata?.file_size);
+}
+
+export function sortedModelHashMatches(items, sha256) {
+  const digest = normalizeSha256(sha256);
+  if (!digest) return [];
+  return (Array.isArray(items) ? items : [])
+    .filter((item) => modelItemSha256(item) === digest)
+    .sort((a, b) => String(a?.load_name || "").localeCompare(String(b?.load_name || ""), undefined, { sensitivity: "base" }));
+}
+
+export function applyModelIdentity(row, item) {
+  const current = row && typeof row === "object" ? row : {};
+  const identity = item && typeof item === "object" ? item : {};
+  const loadName = identity.load_name || current.load_name || current.unet_name || null;
+  return {
+    ...current,
+    load_name: loadName,
+    unet_name: loadName,
+    path: identity.folder ?? current.path ?? null,
+    display_name: modelFilenameStem(identity) || current.display_name || loadName,
+    sha256: modelItemSha256(identity) || normalizeSha256(current.sha256),
+    file_size: modelItemFileSize(identity) || normalizeFileSize(current.file_size),
+  };
+}
+
 export function defaultModelRow(item = null, active = true) {
   const loadName = item?.load_name || item?.unet_name || null;
   const filenameStem = modelFilenameStem(item) || modelFilenameStem(loadName);
@@ -24,6 +65,8 @@ export function defaultModelRow(item = null, active = true) {
     unet_name: loadName,
     display_name: filenameStem || loadName,
     path: item?.folder || null,
+    sha256: modelItemSha256(item),
+    file_size: modelItemFileSize(item),
     metadata: item
       ? {
           preview_url: item.preview_url || "",
@@ -46,6 +89,8 @@ export function normalizeModelRow(value) {
   row.unet_name = loadName;
   row.display_name = modelFilenameStem(value) || modelFilenameStem(loadName) || value.display_name || value.displayName || value.model_name || loadName;
   row.path = value.path || value.folder || null;
+  row.sha256 = normalizeSha256(value.sha256 || value.hash || value.metadata?.sha256);
+  row.file_size = modelItemFileSize(value);
   row.metadata = value.metadata && typeof value.metadata === "object" ? { ...value.metadata } : {};
   return row;
 }

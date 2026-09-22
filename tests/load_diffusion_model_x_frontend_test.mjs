@@ -4,11 +4,16 @@ import test from "node:test";
 
 import {
   activateModelRow,
+  applyModelIdentity,
   defaultModelRow,
+  modelItemFileSize,
+  modelItemSha256,
   modelFilenameStem,
   normalizeModelRow,
+  normalizeSha256,
   removeModelRow,
   restoreModelRows,
+  sortedModelHashMatches,
 } from "../web/js/load_diffusion_model_x_state.mjs";
 
 const searchSource = readFileSync(new URL("../web/js/load_diffusion_model_x_search.js", import.meta.url), "utf8");
@@ -68,6 +73,36 @@ test("activation and active-row removal preserve radio semantics", () => {
   assert.equal(remaining[0].on, true);
 });
 
+test("model identities serialize and remap without changing active state", () => {
+  const hash = "a".repeat(64);
+  assert.equal(normalizeSha256(hash.toUpperCase()), hash);
+  assert.equal(modelItemSha256({ metadata: { sha256: hash } }), hash);
+  assert.equal(modelItemFileSize({ metadata: { file_size: "123" } }), 123);
+
+  const row = defaultModelRow({ load_name: "Old/model.safetensors", sha256: hash, file_size: 123 }, true);
+  assert.equal(row.sha256, hash);
+  assert.equal(row.file_size, 123);
+  const restored = restoreModelRows([row]);
+  assert.equal(restored[0].sha256, hash);
+  assert.equal(restored[0].file_size, 123);
+  assert.equal(restored[0].on, true);
+  const remapped = applyModelIdentity(row, {
+    load_name: "New/model.safetensors",
+    folder: "New",
+    sha256: hash,
+    file_size: 123,
+  });
+  assert.equal(remapped.load_name, "New/model.safetensors");
+  assert.equal(remapped.unet_name, "New/model.safetensors");
+  assert.equal(remapped.on, true);
+
+  const matches = sortedModelHashMatches([
+    { load_name: "Z/model.safetensors", sha256: hash },
+    { load_name: "A/model.safetensors", metadata: { sha256: hash } },
+  ], hash);
+  assert.deepEqual(matches.map((item) => item.load_name), ["A/model.safetensors", "Z/model.safetensors"]);
+});
+
 test("node rows always display the real filename without its final extension", () => {
   assert.equal(modelFilenameStem("Minimax H3/minimax_h3_ref2va_pruned_bf16.safetensors"), "minimax_h3_ref2va_pruned_bf16");
   assert.equal(modelFilenameStem({ filename: "wan2.2.high.gguf" }), "wan2.2.high");
@@ -93,6 +128,8 @@ test("frontend includes native-compatible rows, enrichment fallback, and dynamic
     'import { app } from "../../scripts/app.js"',
     'const NODE_TYPE = "KVGC_LoadDiffusionModelX"',
     'const CATALOG_ROUTE = "/workflowx_configurator/load_diffusion_model_x/models"',
+    'const HASH_ROUTE = "/workflowx_configurator/load_diffusion_model_x/hash"',
+    'const REMAP_ROUTE = "/workflowx_configurator/load_diffusion_model_x/remap"',
     'const MANAGER_LIST_ROUTE = "/api/lm/checkpoints/list"',
     'model_type: "diffusion_model"',
     'return `diffusion_model_${node.__dmxCounter}`',
@@ -104,7 +141,12 @@ test("frontend includes native-compatible rows, enrichment fallback, and dynamic
     'sanitizeRichTextNode(sourceNode)',
     'function rowFilenameStem(value)',
     'refresh.addEventListener("click", () => reload(true))',
+    'const tooltip = "Remap moved diffusion models"',
+    'async function remapModelRows(node)',
   ]) assert.ok(frontendSource.includes(token), `missing ${token}`);
+
+  const remapSource = frontendSource.slice(frontendSource.indexOf("async function remapModelRows"), frontendSource.indexOf("function activateRow"));
+  assert.doesNotMatch(remapSource, /resizeNode\(|setupNode\(/);
 });
 
 test("frontend remains loadable with the pre-filename-fix state module export surface", () => {
@@ -117,10 +159,15 @@ test("frontend remains loadable with the pre-filename-fix state module export su
     .sort();
   assert.deepEqual(importedNames, [
     "activateModelRow",
+    "applyModelIdentity",
     "defaultModelRow",
+    "modelItemFileSize",
+    "modelItemSha256",
     "normalizeModelRow",
+    "normalizeSha256",
     "removeModelRow",
     "restoreModelRows",
+    "sortedModelHashMatches",
   ]);
 });
 

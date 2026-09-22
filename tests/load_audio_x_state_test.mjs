@@ -1,6 +1,19 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { injectAudioXState, LOAD_AUDIO_X_DEFAULTS, movedRangeStart, normalizeAudioXState, selectedRange, timelineDragMode } from "../web/js/load_audio_x_state.mjs";
+import { injectAudioXState, LOAD_AUDIO_X_DEFAULTS, movedRangeStart, normalizeAudioXState, selectedRange, startTimeParts, startTimeSeconds, timelineDragMode } from "../web/js/load_audio_x_state.mjs";
+
+assert.deepEqual(startTimeParts(5025.125), [1, 23, 45.125]);
+assert.equal(startTimeSeconds("01", "23", "45.125"), 5025.125);
+assert.deepEqual(startTimeParts(3599.9996), [1, 0, 0]);
+assert.deepEqual(startTimeParts(86400), [24, 0, 0]);
+assert.equal(startTimeSeconds(24, 59, 59.999), 86400);
+assert.equal(startTimeSeconds(-1, "bad", ""), 0);
+for (const position of [0, .001, 13.886, 59.999, 60, 3599.999, 3600, 5025.125, 86399.999, 86400]) {
+  const restored = normalizeAudioXState(JSON.stringify({ start: position }));
+  const edited = startTimeSeconds(...startTimeParts(restored.start));
+  assert.equal(edited, position, `Timecode must preserve saved position ${position}`);
+  assert.equal(selectedRange({ start: edited }, 86400).start, position);
+}
 
 assert.deepEqual(normalizeAudioXState("bad"), LOAD_AUDIO_X_DEFAULTS);
 assert.equal(normalizeAudioXState({ format: "MP3", mp3_bitrate: "999k", start: -4 }).format, "mp3");

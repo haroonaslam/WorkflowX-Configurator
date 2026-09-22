@@ -1,0 +1,39 @@
+.workflowx-auk-chain-controls,.workflowx-auk-chain-popover,.workflowx-auk-chain-tooltip{box-sizing:border-box;color:var(--input-text,#ddd);font:12px/1.45 var(--comfy-font,Arial,sans-serif)}
+.workflowx-auk-chain-controls{width:100%;padding:8px 6px;background:var(--comfy-menu-bg,#292929);border:1px solid var(--border-color,#454545);border-radius:8px;overflow:hidden}
+.workflowx-auk-chain-controls button,.workflowx-auk-chain-popover button,.workflowx-auk-chain-popover input,.workflowx-auk-chain-popover select{box-sizing:border-box;font:inherit;color:inherit;background:var(--comfy-input-bg,#222);border:1px solid var(--border-color,#555);border-radius:6px;padding:6px 9px;min-width:0}
+.workflowx-auk-chain-controls button,.workflowx-auk-chain-popover button{cursor:pointer}
+.workflowx-auk-chain-controls button:hover,.workflowx-auk-chain-popover button:hover{background:var(--comfy-menu-secondary-bg,#3b3b3b);border-color:var(--input-text,#aaa)}
+.workflowx-auk-chain-controls :focus-visible,.workflowx-auk-chain-popover :focus-visible{outline:2px solid var(--p-primary-color,#91b9ee);outline-offset:2px}
+.workflowx-auk-chain-controls button:disabled,.workflowx-auk-chain-popover button:disabled{opacity:.4;cursor:default}
+.workflowx-auk-chain-actions{display:flex;align-items:center;gap:6px;white-space:nowrap}
+.workflowx-auk-chain-duration{margin-left:auto;opacity:.7;font-size:11px}
+.workflowx-auk-chain-summary{display:flex;align-items:center;gap:5px;margin-top:9px;overflow-x:auto;padding:2px 0 6px;white-space:nowrap;scrollbar-width:thin}
+.workflowx-auk-chain-line{opacity:.65;font-size:11px;margin-right:2px}
+.workflowx-auk-chain-controls .workflowx-auk-chain-chip{border-radius:12px;padding:3px 8px;font-size:11px;flex-shrink:0;max-width:300px;overflow:hidden;text-overflow:ellipsis}
+.workflowx-auk-chain-controls .workflowx-auk-chain-style-chip{border-color:var(--p-primary-color,#7695bb)}
+.workflowx-auk-chain-status{font-size:11px;color:var(--error-text,#eeae7c);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.workflowx-auk-chain-popover{position:fixed;z-index:10000;width:340px;max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);overflow-y:auto;background:var(--comfy-menu-bg,#292929);border:1px solid var(--border-color,#555);border-radius:10px;box-shadow:0 12px 40px #0007;padding:12px}
+.workflowx-auk-chain-popover-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;font-size:13px}
+.workflowx-auk-chain-popover .workflowx-auk-chain-close{padding:1px 7px;font-size:19px;border-color:transparent;background:transparent}
+.workflowx-auk-chain-popover .workflowx-auk-chain-search{width:100%;margin-bottom:8px}
+.workflowx-auk-chain-choices{max-height:300px;overflow-y:auto;display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:2px}
+.workflowx-auk-chain-category{grid-column:1/-1;font-size:10px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;opacity:.7;padding:10px 2px 2px}
+.workflowx-auk-chain-popover .workflowx-auk-chain-choice{text-align:left;border-color:transparent;background:transparent}
+.workflowx-auk-chain-description{opacity:.8;margin:4px 0 14px}
+.workflowx-auk-chain-field{display:block;font-weight:600;margin-top:8px}
+.workflowx-auk-chain-parameter{display:flex;gap:6px;align-items:center;margin-top:6px;font-weight:400}
+.workflowx-auk-chain-parameter input{width:100%;flex:1}
+.workflowx-auk-chain-unit{white-space:nowrap;opacity:.75}
+.workflowx-auk-chain-footer{display:flex;gap:5px;flex-wrap:wrap;margin-top:14px}
+.workflowx-auk-chain-popover .workflowx-auk-chain-primary{margin-left:auto;border-color:var(--p-primary-color,#7695bb)}
+.workflowx-auk-chain-error{color:var(--error-text,#efaaaa);margin-top:6px}
+.workflowx-auk-chain-tooltip{position:fixed;z-index:10001;pointer-events:none;max-width:min(290px,calc(100vw - 16px));padding:8px 10px;border:1px solid var(--border-color,#666);border-radius:6px;background:var(--comfy-menu-bg,#242424);box-shadow:0 4px 16px #0007}
+.workflowx-auk-chain-actions{flex-wrap:wrap;white-space:normal}
+.workflowx-auk-chain-controls[hidden],.workflowx-auk-chain-controls [hidden]{display:none!important}
+.workflowx-auk-chain-review{display:flex;flex-direction:column;gap:7px;overflow:auto}
+.workflowx-auk-chain-review audio{width:100%;height:34px}
+.workflowx-auk-review-text{max-height:40px;overflow:auto;opacity:.85}
+
+.workflowx-auk-chain-field > input,.workflowx-auk-chain-field > select{display:block;width:100%;margin-top:4px}
+
+.workflowx-auk-chain-popover textarea{font:inherit;color:var(--input-text,#ddd);background:var(--comfy-input-bg,#222);border:1px solid var(--border-color,#555);border-radius:6px;padding:8px;margin-top:8px;resize:vertical}

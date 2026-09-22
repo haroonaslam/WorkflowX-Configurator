@@ -1,0 +1,498 @@
+{
+  "styles": [
+    {
+      "tag": "Neutral",
+      "group": "Emotion",
+      "instruction": "in a neutral tone",
+      "help": "Speak this line in a neutral tone. Replaces its current voice style.",
+      "edit_instruction": "Say this in a neutral tone, keeping the same voice.",
+      "inline_help": "Speak these words in a neutral tone.",
+      "edit_tag": "c-emotion:neutral"
+    },
+    {
+      "tag": "Happy",
+      "group": "Emotion",
+      "instruction": "in a happy tone",
+      "help": "Speak this line in a happy tone. Replaces its current voice style.",
+      "edit_instruction": "Say this in a happy tone, keeping the same voice.",
+      "inline_help": "Speak these words in a happy tone.",
+      "edit_tag": "c-emotion:happy"
+    },
+    {
+      "tag": "Sad",
+      "group": "Emotion",
+      "instruction": "in a sad tone",
+      "help": "Speak this line in a sad tone. Replaces its current voice style.",
+      "edit_instruction": "Say this in a sad tone, keeping the same voice.",
+      "inline_help": "Speak these words in a sad tone.",
+      "edit_tag": "c-emotion:sad"
+    },
+    {
+      "tag": "Angry",
+      "group": "Emotion",
+      "instruction": "in an angry tone",
+      "help": "Speak this line in an angry tone. Replaces its current voice style.",
+      "edit_instruction": "Say this in an angry tone, keeping the same voice.",
+      "inline_help": "Speak these words in an angry tone.",
+      "edit_tag": "c-emotion:angry"
+    },
+    {
+      "tag": "Excited",
+      "group": "Emotion",
+      "instruction": "in an excited tone",
+      "help": "Speak this line in an excited tone. Replaces its current voice style.",
+      "edit_instruction": "Say this in an excited tone, keeping the same voice.",
+      "inline_help": "Speak these words in an excited tone.",
+      "edit_tag": "c-emotion:excited"
+    },
+    {
+      "tag": "Shy",
+      "group": "Emotion",
+      "instruction": "in a shy tone",
+      "help": "Speak this line in a shy tone. Replaces its current voice style.",
+      "edit_instruction": "Say this in a shy tone, keeping the same voice.",
+      "inline_help": "Speak these words in a shy tone.",
+      "edit_tag": "c-emotion:shy"
+    },
+    {
+      "tag": "Nervous",
+      "group": "Emotion",
+      "instruction": "in a nervous tone",
+      "help": "Speak this line in a nervous tone. Replaces its current voice style.",
+      "edit_instruction": "Say this in a nervous tone, keeping the same voice.",
+      "inline_help": "Speak these words in a nervous tone.",
+      "edit_tag": "c-emotion:nervous"
+    },
+    {
+      "tag": "Calm",
+      "group": "Emotion",
+      "instruction": "in a calm tone",
+      "help": "Speak this line in a calm tone. Replaces its current voice style.",
+      "edit_instruction": "Say this in a calm tone, keeping the same voice.",
+      "inline_help": "Speak these words in a calm tone.",
+      "edit_tag": "c-emotion:calm"
+    },
+    {
+      "tag": "Confident",
+      "group": "Emotion",
+      "instruction": "in a confident tone",
+      "help": "Speak this line in a confident tone. Replaces its current voice style.",
+      "edit_instruction": "Say this in a confident tone, keeping the same voice.",
+      "inline_help": "Speak these words in a confident tone.",
+      "edit_tag": "c-emotion:confident"
+    },
+    {
+      "tag": "Playful",
+      "group": "Emotion",
+      "instruction": "in a playful tone",
+      "help": "Speak this line in a playful tone. Replaces its current voice style.",
+      "edit_instruction": "Say this in a playful tone, keeping the same voice.",
+      "inline_help": "Speak these words in a playful tone.",
+      "edit_tag": "c-emotion:playful"
+    },
+    {
+      "tag": "Flirty",
+      "group": "Emotion",
+      "instruction": "in a flirty tone",
+      "help": "Speak this line in a flirty tone. Replaces its current voice style.",
+      "edit_instruction": "Say this in a flirty tone, keeping the same voice.",
+      "inline_help": "Speak these words in a flirty tone.",
+      "edit_tag": "c-emotion:flirty"
+    },
+    {
+      "tag": "Horny",
+      "group": "Emotion",
+      "instruction": "in a horny tone",
+      "help": "Speak this line in a horny tone. Replaces its current voice style.",
+      "edit_instruction": "Say this in a horny tone, keeping the same voice.",
+      "inline_help": "Speak these words in a horny tone.",
+      "edit_tag": "c-emotion:horny"
+    },
+    {
+      "tag": "Affectionate",
+      "group": "Emotion",
+      "instruction": "in an affectionate tone",
+      "help": "Speak this line in an affectionate tone. Replaces its current voice style.",
+      "edit_instruction": "Say this in an affectionate tone, keeping the same voice.",
+      "inline_help": "Speak these words in an affectionate tone.",
+      "edit_tag": "c-emotion:affectionate"
+    },
+    {
+      "tag": "Sarcastic",
+      "group": "Emotion",
+      "instruction": "in a sarcastic tone",
+      "help": "Speak this line in a sarcastic tone. Replaces its current voice style.",
+      "edit_instruction": "Say this in a sarcastic tone, keeping the same voice.",
+      "inline_help": "Speak these words in a sarcastic tone.",
+      "edit_tag": "c-emotion:sarcastic"
+    },
+    {
+      "tag": "Surprised",
+      "group": "Emotion",
+      "instruction": "in a surprised tone",
+      "help": "Speak this line in a surprised tone. Replaces its current voice style.",
+      "edit_instruction": "Say this in a surprised tone, keeping the same voice.",
+      "inline_help": "Speak these words in a surprised tone.",
+      "edit_tag": "c-emotion:surprised"
+    },
+    {
+      "tag": "whispers",
+      "group": "Delivery",
+      "instruction": "while whispering",
+      "help": "Speak this line whispering. Replaces its current voice style.",
+      "edit_instruction": "Say this while whispering, keeping the same voice.",
+      "inline_help": "Speak these words whispering.",
+      "edit_tag": "c-whisper"
+    },
+    {
+      "tag": "shouts",
+      "group": "Delivery",
+      "instruction": "while shouting",
+      "help": "Speak this line shouting. Replaces its current voice style.",
+      "edit_instruction": "Say this while shouting, keeping the same voice.",
+      "inline_help": "Speak these words shouting.",
+      "edit_tag": "c-delivery:shouting"
+    },
+    {
+      "tag": "soft",
+      "group": "Delivery",
+      "instruction": "softly",
+      "help": "Speak this line speaking softly. Replaces its current voice style.",
+      "edit_instruction": "Say this softly, keeping the same voice.",
+      "inline_help": "Speak these words speaking softly.",
+      "edit_tag": "c-delivery:softly"
+    },
+    {
+      "tag": "breathy",
+      "group": "Delivery",
+      "instruction": "with a breathy delivery",
+      "help": "Speak this line with a breathy delivery. Replaces its current voice style.",
+      "edit_instruction": "Say this with a breathy delivery, keeping the same voice.",
+      "inline_help": "Speak these words with a breathy delivery.",
+      "edit_tag": "c-delivery:breathily"
+    },
+    {
+      "tag": "serious",
+      "group": "Delivery",
+      "instruction": "in a serious tone",
+      "help": "Speak this line in a serious tone. Replaces its current voice style.",
+      "edit_instruction": "Say this in a serious tone, keeping the same voice.",
+      "inline_help": "Speak these words in a serious tone.",
+      "edit_tag": "c-delivery:seriously"
+    },
+    {
+      "tag": "tired",
+      "group": "Delivery",
+      "instruction": "in a tired tone",
+      "help": "Speak this line in a tired tone. Replaces its current voice style.",
+      "edit_instruction": "Say this in a tired tone, keeping the same voice.",
+      "inline_help": "Speak these words in a tired tone.",
+      "edit_tag": "c-delivery:tired"
+    },
+    {
+      "tag": "laughs",
+      "group": "Expressive delivery",
+      "instruction": "while laughing",
+      "help": "Speak this line while laughing. Replaces its current voice style.",
+      "edit_instruction": "Say this while laughing, keeping the same voice.",
+      "inline_help": "Speak these words while laughing.",
+      "edit_tag": "c-delivery:speaking while laughing"
+    },
+    {
+      "tag": "chuckles",
+      "group": "Expressive delivery",
+      "instruction": "while chuckling",
+      "help": "Speak this line while chuckling. Replaces its current voice style.",
+      "edit_instruction": "Say this while chuckling, keeping the same voice.",
+      "inline_help": "Speak these words while chuckling.",
+      "edit_tag": "c-delivery:speaking while chuckling"
+    },
+    {
+      "tag": "cries",
+      "group": "Expressive delivery",
+      "instruction": "while crying",
+      "help": "Speak this line while crying. Replaces its current voice style.",
+      "edit_instruction": "Say this while crying, keeping the same voice.",
+      "inline_help": "Speak these words while crying.",
+      "edit_tag": "c-delivery:speaking while crying"
+    }
+  ],
+  "conversions": [
+    {
+      "tag": "c-whisper",
+      "label": "Whisper",
+      "group": "Voice",
+      "help": "Turn this line into a whisper while keeping the words and speaker.",
+      "instruction": "Convert this speech into a soft whisper while preserving the speaker and content.",
+      "duration": "same",
+      "preprocess": "Convert to whisper",
+      "effect": "whispered voice"
+    },
+    {
+      "tag": "c-normal",
+      "label": "Normal speech",
+      "group": "Voice",
+      "help": "Turn whispered speech into a normal speaking voice.",
+      "instruction": "Convert this whispered speech into a normal speaking voice while preserving the speaker and content.",
+      "duration": "same",
+      "preprocess": "Whisper to speech",
+      "effect": "normal voice"
+    },
+    {
+      "tag": "c-emotion",
+      "label": "Custom emotion…",
+      "group": "Emotion",
+      "help": "Enter your own emotion, such as desperate, relieved, or quietly disappointed.",
+      "instruction": "Change the emotion to {value}, keeping the same voice.",
+      "duration": "same",
+      "parameter": "text",
+      "field": "Emotion",
+      "default": "happy"
+    },
+    {
+      "tag": "c-delivery",
+      "label": "Delivery",
+      "group": "Voice",
+      "help": "Change how the words are spoken, such as breathily or while laughing.",
+      "instruction": "Change the delivery to {value}, keeping the same voice.",
+      "duration": "same",
+      "parameter": "text",
+      "field": "Delivery description",
+      "default": "breathy"
+    },
+    {
+      "tag": "c-timbre",
+      "label": "Change voice quality",
+      "group": "Voice",
+      "help": "Describe a different voice quality, such as low and slightly raspy. This can change how the speaker sounds.",
+      "instruction": "Keep the spoken content unchanged and change the timbre to: {quoted}, keeping the same speaker's identity.",
+      "duration": "same",
+      "parameter": "text",
+      "field": "Voice description",
+      "default": "low and slightly raspy"
+    },
+    {
+      "tag": "c-deaccent",
+      "label": "Remove accent",
+      "group": "Voice",
+      "help": "Ask for a more neutral accent while keeping the words and speaker. This does not translate the speech.",
+      "instruction": "Remove the regional accent while preserving the speaker's voice and content.",
+      "duration": "same",
+      "effect": "neutral accent"
+    },
+    {
+      "tag": "c-laugh",
+      "label": "Laugh",
+      "group": "Sounds",
+      "help": "Add a laugh at the beginning of this line. Extra sound time allows room for it.",
+      "instruction": "Add a laugh at the beginning of the speech, keeping the same voice.",
+      "duration": "sound"
+    },
+    {
+      "tag": "c-chuckle",
+      "label": "Chuckle",
+      "group": "Sounds",
+      "help": "Add a chuckle at the beginning of this line. Extra sound time allows room for it.",
+      "instruction": "Add a chuckle at the beginning of the speech, keeping the same voice.",
+      "duration": "sound"
+    },
+    {
+      "tag": "c-cough",
+      "label": "Cough",
+      "group": "Sounds",
+      "help": "Add a cough at the beginning of this line. Extra sound time allows room for it.",
+      "instruction": "Add a cough at the beginning of the speech, keeping the same voice.",
+      "duration": "sound"
+    },
+    {
+      "tag": "c-sneeze",
+      "label": "Sneeze",
+      "group": "Sounds",
+      "help": "Add a sneeze at the beginning of this line. Extra sound time allows room for it.",
+      "instruction": "Add a sneeze at the beginning of the speech, keeping the same voice.",
+      "duration": "sound"
+    },
+    {
+      "tag": "c-sigh",
+      "label": "Sigh",
+      "group": "Sounds",
+      "help": "Add a sigh at the beginning of this line. Extra sound time allows room for it.",
+      "instruction": "Add a sigh at the beginning of the speech, keeping the same voice.",
+      "duration": "sound"
+    },
+    {
+      "tag": "c-gasp",
+      "label": "Gasp",
+      "group": "Sounds",
+      "help": "Add a gasp at the beginning of this line. Extra sound time allows room for it.",
+      "instruction": "Add a gasp at the beginning of the speech, keeping the same voice.",
+      "duration": "sound"
+    },
+    {
+      "tag": "c-clears throat",
+      "label": "Clear throat",
+      "group": "Sounds",
+      "help": "Add a throat-clearing sound at the beginning of this line. Extra sound time allows room for it.",
+      "instruction": "Add a throat-clearing sound at the beginning of the speech, keeping the same voice.",
+      "duration": "sound"
+    },
+    {
+      "tag": "c-breath",
+      "label": "Breath",
+      "group": "Sounds",
+      "help": "Add a breath at the beginning of this line. Extra sound time allows room for it.",
+      "instruction": "Add a breath at the beginning of the speech, keeping the same voice.",
+      "duration": "sound"
+    },
+    {
+      "tag": "c-humming",
+      "label": "Humming",
+      "group": "Sounds",
+      "help": "Add a humming sound at the beginning of this line. Extra sound time allows room for it.",
+      "instruction": "Add a humming sound at the beginning of the speech, keeping the same voice.",
+      "duration": "sound"
+    },
+    {
+      "tag": "c-remove",
+      "label": "Remove a sound",
+      "group": "Removal",
+      "help": "Remove a sound such as humming, coughing, or laughter while keeping the spoken words.",
+      "instruction": "Remove all {value} from the audio, keeping the same voice.",
+      "duration": "same",
+      "parameter": "text",
+      "field": "Sound to remove",
+      "default": "humming"
+    },
+    {
+      "tag": "c-speed",
+      "label": "Speed",
+      "group": "Acoustics",
+      "help": "Set the pace of the original speech. Above 1 gives less speaking time; below 1 gives more. No separate speed edit is used.",
+      "instruction": "Adjust the speech speed to {value}x.",
+      "duration": "speed",
+      "parameter": "number",
+      "field": "Speed",
+      "unit": "×",
+      "default": 1,
+      "step": 0.05,
+      "neutral": 1
+    },
+    {
+      "tag": "c-volume",
+      "label": "Volume",
+      "group": "Acoustics",
+      "help": "Use a positive number to make the voice louder, or a negative number to make it quieter. The exact loudness change may vary.",
+      "instruction": "{direction} the volume by {magnitude} dB, keeping the same voice.",
+      "duration": "same",
+      "parameter": "number",
+      "field": "Volume change",
+      "unit": "dB",
+      "suffix": "db",
+      "default": 0,
+      "step": 0.5,
+      "neutral": 0
+    },
+    {
+      "tag": "c-pitch",
+      "label": "Pitch",
+      "group": "Acoustics",
+      "help": "Raise or lower the voice in semitones. Positive values raise it; negative values lower it. The exact pitch change may vary.",
+      "instruction": "{direction} the pitch by {magnitude} semitones, keeping the same voice.",
+      "duration": "same",
+      "parameter": "number",
+      "field": "Pitch change",
+      "unit": "semitones",
+      "default": 0,
+      "step": 0.5,
+      "neutral": 0
+    },
+    {
+      "tag": "c-enhance",
+      "label": "Enhance speech",
+      "group": "Cleanup",
+      "help": "Ask for clearer speech with less background noise and room echo.",
+      "instruction": "Preserve all speakers, remove noise and reverberation, and output clean speech of the same length.",
+      "duration": "same",
+      "effect": "clearer speech"
+    },
+    {
+      "tag": "c-denoise",
+      "label": "Remove noise",
+      "group": "Cleanup",
+      "help": "Reduce background noise while keeping the voice and other details.",
+      "instruction": "Remove only the background noise, preserve everything else, and output audio of the same length.",
+      "duration": "same",
+      "effect": "less noise"
+    },
+    {
+      "tag": "c-dereverb",
+      "label": "Remove room echo",
+      "group": "Cleanup",
+      "help": "Reduce room echo while keeping the words and voice.",
+      "instruction": "Remove only the room reverberation, preserve everything else, and output audio of the same length.",
+      "duration": "same",
+      "effect": "less echo"
+    },
+    {
+      "tag": "c-repair",
+      "label": "Repair quality",
+      "group": "Cleanup",
+      "help": "Describe the unwanted recording effect, such as a telephone effect or muffled sound.",
+      "instruction": "Repair the {value} and restore natural, clear speech, keeping the same voice.",
+      "duration": "same",
+      "parameter": "text",
+      "field": "Problem to repair",
+      "default": "telephone effect"
+    }
+  ],
+  "categories": {
+    "Emotion": "Choose the feeling in the original spoken line.",
+    "Delivery": "Choose how the original line is spoken.",
+    "Expressive delivery": "Choose an expressive way of speaking the original line.",
+    "Voice": "Change the finished line's delivery, emotion, or voice quality.",
+    "Sounds": "Add a sound at the beginning of the line.",
+    "Removal": "Remove an unwanted sound from the line.",
+    "Acoustics": "Adjust speaking speed, loudness, or pitch.",
+    "Cleanup": "Reduce noise, echo, or an unwanted recording effect."
+  },
+  "help": {
+    "style": "Choose the starting tone for this line. Use conversions or inline edits for further changes.",
+    "conversion": "Add a change to this line's audio. Changes are applied in the order shown.",
+    "duration": "Sets the length of the original spoken line. Speed changes and added sounds may change the final length.",
+    "rate": "Estimates the length of lines without a duration. Higher values allow less time for the same words.",
+    "gap": "Adds silence between finished lines.",
+    "extra": "Allows additional time for each laugh, cough, or other sound you add.",
+    "connected": "Edit the connected text node to change this script.",
+    "script": "Write one spoken line per row. Start with one optional voice style and any conversions. End with (3s) to choose the original length.",
+    "seed": "Keep this number and choose fixed to repeat the same random choices. Change it to try a different performance.",
+    "steps": "Controls how much refinement is used. Start with 32. More can take longer; Flash chooses its own setting.",
+    "guidance": "Controls how strongly the voice follows your request. Start with 2. Flash chooses its own setting.",
+    "sway": "Fine-tunes how the sound is refined. Leave at -1 unless you want to experiment. Flash chooses its own setting.",
+    "inline": "Select words to change their delivery or add a sound before them. Turn off to speak the words without these changes.",
+    "review": "Generate all lines and send the recording onward. Browse, regenerate, or add lines here, then Finalize to send your revised recording."
+  },
+  "inline_aliases": {
+    "whisper": "c-whisper",
+    "normal": "c-normal",
+    "emotion": "c-emotion",
+    "timbre": "c-timbre",
+    "deaccent": "c-deaccent",
+    "laugh": "c-laugh",
+    "chuckle": "c-chuckle",
+    "cough": "c-cough",
+    "sneeze": "c-sneeze",
+    "sigh": "c-sigh",
+    "gasp": "c-gasp",
+    "clears throat": "c-clears throat",
+    "breath": "c-breath",
+    "humming": "c-humming",
+    "remove": "c-remove",
+    "speed": "c-speed",
+    "volume": "c-volume",
+    "pitch": "c-pitch",
+    "enhance": "c-enhance",
+    "denoise": "c-denoise",
+    "dereverb": "c-dereverb",
+    "repair": "c-repair"
+  }
+}

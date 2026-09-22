@@ -17,6 +17,8 @@ DEPRECATED_IDS = {
     "KVGC_GroupScopes",
     "KVGC_ConfigSelector",
     "KVGC_ConfigSelectorAdvanced",
+    "WorkflowXAuKChainedCloneReviewStep",
+    "WorkflowXAuKSegmentFinalize",
 }
 DEPRECATED_NAMES = {
     "Group Configurator",
@@ -24,6 +26,7 @@ DEPRECATED_NAMES = {
     "Config Selector Advanced",
 }
 FRONTEND_ONLY_TYPES = {"Note"}
+EXAMPLE_COVERAGE_EXEMPT_IDS = {"H3RCPrepareThumbnail"}
 
 
 def _package():
@@ -45,6 +48,13 @@ def _example_documents():
     return {path: json.loads(path.read_text(encoding="utf-8")) for path in paths}
 
 
+def _example_coverage_documents():
+    paths = list(EXAMPLES.glob("*.json"))
+    paths.extend((ROOT / "auk" / "example_workflows").glob("*.json"))
+    paths.extend((ROOT / "h3_refmod" / "example_workflows").glob("*.json"))
+    return {path: json.loads(path.read_text(encoding="utf-8")) for path in sorted(paths)}
+
+
 def _overlap(left, right):
     lx, ly, lw, lh = map(float, left)
     rx, ry, rw, rh = map(float, right)
@@ -60,7 +70,7 @@ def _heading_slug(text):
 def test_readme_is_the_complete_active_node_reference():
     text = README.read_text(encoding="utf-8")
     active = _active_node_ids()
-    assert len(active) == 42
+    assert len(active) == 59
     missing = sorted(node_id for node_id in active if f"`{node_id}`" not in text)
     assert missing == [], missing
     for heading in (
@@ -83,15 +93,16 @@ def test_examples_are_reproducible_connected_and_cover_all_active_nodes():
         cwd=ROOT,
         check=True,
     )
-    documents = _example_documents()
+    coverage_documents = _example_coverage_documents()
     example_types = {
         node["type"]
-        for document in documents.values()
+        for document in coverage_documents.values()
         for node in document.get("nodes", [])
     }
-    assert _active_node_ids() <= example_types
+    assert _active_node_ids() - EXAMPLE_COVERAGE_EXEMPT_IDS <= example_types
     assert example_types.isdisjoint(DEPRECATED_IDS)
 
+    documents = _example_documents()
     for path, document in documents.items():
         assert document.get("version") == 0.4, path
         assert len(document.get("links", [])) >= 3, path
@@ -227,7 +238,7 @@ def test_live_object_info_contains_example_node_types_when_comfyui_is_running():
 
     package_ids = set(_package().NODE_CLASS_MAPPINGS)
     assert package_ids <= set(object_info)
-    assert len(package_ids) == 46
+    assert len(package_ids) == 65
     example_types = {
         node["type"]
         for document in _example_documents().values()

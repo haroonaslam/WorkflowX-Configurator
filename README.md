@@ -602,3 +602,16 @@ Some WorkflowX nodes preserve an established workflow contract while expanding, 
 - For detailed feature guides, use the [documentation index](docs/README.md).
 
 WorkflowX does not rename active node IDs or rewrite ComfyUI's workflow serialization format.
+
+
+## AuK audio nodes
+
+The customized AuK suite is included under **WorkflowX → Audio → AuK**, with names ending in **X** and node IDs beginning with `WorkflowXAuK`. It includes loaders, generation/editing, instruction tools, transcription, chained cloning, two speakers, inline edits, and temporary line review. See [the chained-clone guide](auk/docs/CHAINED_CLONE.md) and [BF16 examples](auk/example_workflows). Original AuK node IDs are not registered by WorkflowX, allowing a separate upstream installation without collisions.
+
+Registered AuK nodes: `WorkflowXAuKModelLoader`, `WorkflowXAuKEncoderLoader`, `WorkflowXAuKVAELoader`, `WorkflowXAuKInstructionEncode`, `WorkflowXAuKGenerateEdit`, `WorkflowXAuKInstructionBuilder`, `WorkflowXAuKWhisperTranscribe`, `WorkflowXAuKPromptEnhance`, and `WorkflowXAuKChainedClone`. Two deprecated internal queue targets support the segment editor and are not intended for direct workflow use.
+
+The AuK implementation and bundled tokenizer/configuration assets retain their upstream [license](auk/LICENSE). Existing model files remain in ComfyUI model folders; no extra model copies are required.
+
+## H3 RefMod nodes
+
+The bundled H3 RefMod workflow lives under **WorkflowX → Video → H3 Refmod**. Its registered nodes are `H3RCCreateFromFolder`, `H3RCPrepareThumbnail`, `H3RCCharacterPicker`, `H3RCImageReference`, `H3RCAudioReference`, `H3RCVideoReference`, `H3RCModReferenceToVideo`, and `H3RCInspectText`. See the [H3 RefMod guide](h3_refmod/README.md) and [example workflows](h3_refmod/example_workflows).
