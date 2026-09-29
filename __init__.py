@@ -73,6 +73,11 @@ from .image_processor_x import (
     NODE_DISPLAY_NAME_MAPPINGS as IMAGE_PROCESSOR_X_NODE_DISPLAY_NAME_MAPPINGS,
     register_routes as _register_image_processor_x_routes_on_app,
 )
+from .load_lora_picker_x import (
+    NODE_CLASS_MAPPINGS as LOAD_LORA_PICKER_X_NODE_CLASS_MAPPINGS,
+    NODE_DISPLAY_NAME_MAPPINGS as LOAD_LORA_PICKER_X_NODE_DISPLAY_NAME_MAPPINGS,
+    register_routes as _register_load_lora_picker_x_routes,
+)
 
 WEB_DIRECTORY = "./web/js"
 DEBUG_LOG_ROUTE = "/workflowx_configurator/debug_log"
@@ -105,6 +110,7 @@ NODE_CLASS_MAPPINGS = {
     **PREVIEW_VIDEO_X_NODE_CLASS_MAPPINGS,
     **SAVE_VIDEO_X_NODE_CLASS_MAPPINGS,
     **IMAGE_PROCESSOR_X_NODE_CLASS_MAPPINGS,
+    **LOAD_LORA_PICKER_X_NODE_CLASS_MAPPINGS,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -122,6 +128,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     **PREVIEW_VIDEO_X_NODE_DISPLAY_NAME_MAPPINGS,
     **SAVE_VIDEO_X_NODE_DISPLAY_NAME_MAPPINGS,
     **IMAGE_PROCESSOR_X_NODE_DISPLAY_NAME_MAPPINGS,
+    **LOAD_LORA_PICKER_X_NODE_DISPLAY_NAME_MAPPINGS,
 }
 
 
@@ -730,6 +737,7 @@ _register_debug_log_route()
 _register_image_compare_edit_routes()
 _register_lorax_routes()
 _register_load_diffusion_model_x_route()
+_register_load_lora_picker_x_routes()
 
 
 def _register_afj_routes() -> None:

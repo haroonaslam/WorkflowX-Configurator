@@ -1,8 +1,8 @@
 {
   "id": "workflowx-local-generation-and-model-management",
   "revision": 0,
-  "last_node_id": 13,
-  "last_link_id": 16,
+  "last_node_id": 14,
+  "last_link_id": 18,
   "nodes": [
     {
       "id": 1,
@@ -99,7 +99,7 @@
           "name": "VAE",
           "type": "VAE",
           "links": [
-            13
+            15
           ]
         }
       ],
@@ -210,14 +210,14 @@
           "name": "positive",
           "type": "STRING",
           "links": [
-            6
+            8
           ]
         },
         {
           "name": "negative",
           "type": "STRING",
           "links": [
-            7
+            9
           ]
         }
       ],
@@ -256,12 +256,12 @@
         {
           "name": "model",
           "type": "MODEL",
-          "link": 2
+          "link": 4
         },
         {
           "name": "clip",
           "type": "CLIP",
-          "link": 3
+          "link": 5
         }
       ],
       "outputs": [
@@ -269,15 +269,15 @@
           "name": "MODEL",
           "type": "MODEL",
           "links": [
-            8
+            10
           ]
         },
         {
           "name": "CLIP",
           "type": "CLIP",
           "links": [
-            4,
-            5
+            6,
+            7
           ]
         },
         {
@@ -298,47 +298,63 @@
     },
     {
       "id": 6,
-      "type": "CLIPTextEncode",
+      "type": "KVGC_LoadLoraPickerX",
       "pos": [
-        830,
-        130
+        40,
+        720
       ],
       "size": [
-        310,
-        130
+        820,
+        120
       ],
       "flags": {},
       "order": 5,
       "mode": 0,
       "inputs": [
         {
-          "name": "clip",
-          "type": "CLIP",
-          "link": 4
+          "name": "model",
+          "type": "MODEL",
+          "link": 2
         },
         {
-          "name": "text",
-          "type": "STRING",
-          "link": 6,
-          "widget": {
-            "name": "text"
-          }
+          "name": "clip",
+          "type": "CLIP",
+          "link": 3
         }
       ],
       "outputs": [
         {
-          "name": "CONDITIONING",
-          "type": "CONDITIONING",
+          "name": "MODEL",
+          "type": "MODEL",
           "links": [
-            9
+            4
           ]
+        },
+        {
+          "name": "CLIP",
+          "type": "CLIP",
+          "links": [
+            5
+          ]
+        },
+        {
+          "name": "trigger_words",
+          "type": "STRING",
+          "links": []
+        },
+        {
+          "name": "loaded_loras",
+          "type": "STRING",
+          "links": []
         }
       ],
       "properties": {
-        "Node name for S&R": "CLIPTextEncode"
+        "Node name for S&R": "KVGC_LoadLoraPickerX"
       },
       "widgets_values": [
-        "Generated positive prompt"
+        {
+          "type": "header"
+        }
       ]
     },
     {
@@ -346,7 +362,7 @@
       "type": "CLIPTextEncode",
       "pos": [
         830,
-        330
+        130
       ],
       "size": [
         310,
@@ -359,12 +375,12 @@
         {
           "name": "clip",
           "type": "CLIP",
-          "link": 5
+          "link": 6
         },
         {
           "name": "text",
           "type": "STRING",
-          "link": 7,
+          "link": 8,
           "widget": {
             "name": "text"
           }
@@ -375,7 +391,52 @@
           "name": "CONDITIONING",
           "type": "CONDITIONING",
           "links": [
-            10
+            11
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "CLIPTextEncode"
+      },
+      "widgets_values": [
+        "Generated positive prompt"
+      ]
+    },
+    {
+      "id": 8,
+      "type": "CLIPTextEncode",
+      "pos": [
+        830,
+        330
+      ],
+      "size": [
+        310,
+        130
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 7
+        },
+        {
+          "name": "text",
+          "type": "STRING",
+          "link": 9,
+          "widget": {
+            "name": "text"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "links": [
+            12
           ]
         }
       ],
@@ -387,7 +448,7 @@
       ]
     },
     {
-      "id": 8,
+      "id": 9,
       "type": "KSampler",
       "pos": [
         1210,
@@ -398,13 +459,13 @@
         300
       ],
       "flags": {},
-      "order": 7,
+      "order": 8,
       "mode": 0,
       "inputs": [
         {
           "name": "model",
           "type": "MODEL",
-          "link": 8
+          "link": 10
         },
         {
           "name": "seed",
@@ -449,17 +510,17 @@
         {
           "name": "positive",
           "type": "CONDITIONING",
-          "link": 9
+          "link": 11
         },
         {
           "name": "negative",
           "type": "CONDITIONING",
-          "link": 10
+          "link": 12
         },
         {
           "name": "latent_image",
           "type": "LATENT",
-          "link": 11
+          "link": 13
         },
         {
           "name": "denoise",
@@ -475,7 +536,7 @@
           "name": "LATENT",
           "type": "LATENT",
           "links": [
-            12
+            14
           ]
         }
       ],
@@ -493,7 +554,7 @@
       ]
     },
     {
-      "id": 9,
+      "id": 10,
       "type": "EmptyLatentImage",
       "pos": [
         850,
@@ -504,7 +565,7 @@
         110
       ],
       "flags": {},
-      "order": 8,
+      "order": 9,
       "mode": 0,
       "inputs": [
         {
@@ -537,7 +598,7 @@
           "name": "LATENT",
           "type": "LATENT",
           "links": [
-            11
+            13
           ]
         }
       ],
@@ -551,7 +612,7 @@
       ]
     },
     {
-      "id": 10,
+      "id": 11,
       "type": "VAEDecode",
       "pos": [
         1560,
@@ -562,18 +623,18 @@
         90
       ],
       "flags": {},
-      "order": 9,
+      "order": 10,
       "mode": 0,
       "inputs": [
         {
           "name": "samples",
           "type": "LATENT",
-          "link": 12
+          "link": 14
         },
         {
           "name": "vae",
           "type": "VAE",
-          "link": 13
+          "link": 15
         }
       ],
       "outputs": [
@@ -581,7 +642,7 @@
           "name": "IMAGE",
           "type": "IMAGE",
           "links": [
-            14
+            16
           ]
         }
       ],
@@ -591,7 +652,7 @@
       "widgets_values": []
     },
     {
-      "id": 11,
+      "id": 12,
       "type": "RepeatImageBatch",
       "pos": [
         1840,
@@ -602,13 +663,13 @@
         90
       ],
       "flags": {},
-      "order": 10,
+      "order": 11,
       "mode": 0,
       "inputs": [
         {
           "name": "image",
           "type": "IMAGE",
-          "link": 14
+          "link": 16
         },
         {
           "name": "amount",
@@ -624,7 +685,7 @@
           "name": "IMAGE",
           "type": "IMAGE",
           "links": [
-            15
+            17
           ]
         }
       ],
@@ -636,7 +697,7 @@
       ]
     },
     {
-      "id": 12,
+      "id": 13,
       "type": "KVGC_UnloadModelsByType",
       "pos": [
         2140,
@@ -647,7 +708,7 @@
         180
       ],
       "flags": {},
-      "order": 11,
+      "order": 12,
       "mode": 0,
       "inputs": [
         {
@@ -677,7 +738,7 @@
         {
           "name": "trigger",
           "type": "*",
-          "link": 15
+          "link": 17
         },
         {
           "name": "model",
@@ -705,7 +766,7 @@
           "name": "trigger",
           "type": "*",
           "links": [
-            16
+            18
           ]
         },
         {
@@ -744,7 +805,7 @@
       ]
     },
     {
-      "id": 13,
+      "id": 14,
       "type": "WorkflowX_SaveVideoX",
       "pos": [
         2500,
@@ -755,13 +816,13 @@
         360
       ],
       "flags": {},
-      "order": 12,
+      "order": 13,
       "mode": 0,
       "inputs": [
         {
           "name": "images",
           "type": "IMAGE",
-          "link": 16
+          "link": 18
         },
         {
           "name": "audio",
@@ -891,7 +952,7 @@
       2,
       3,
       0,
-      5,
+      6,
       0,
       "MODEL"
     ],
@@ -899,111 +960,127 @@
       3,
       2,
       1,
-      5,
+      6,
       1,
       "CLIP"
     ],
     [
       4,
-      5,
-      1,
       6,
       0,
-      "CLIP"
-    ],
-    [
       5,
-      5,
-      1,
-      7,
-      0,
-      "CLIP"
-    ],
-    [
-      6,
-      4,
-      1,
-      6,
-      1,
-      "STRING"
-    ],
-    [
-      7,
-      4,
-      2,
-      7,
-      1,
-      "STRING"
-    ],
-    [
-      8,
-      5,
-      0,
-      8,
       0,
       "MODEL"
     ],
     [
-      9,
+      5,
       6,
+      1,
+      5,
+      1,
+      "CLIP"
+    ],
+    [
+      6,
+      5,
+      1,
+      7,
       0,
+      "CLIP"
+    ],
+    [
+      7,
+      5,
+      1,
       8,
-      6,
-      "CONDITIONING"
+      0,
+      "CLIP"
+    ],
+    [
+      8,
+      4,
+      1,
+      7,
+      1,
+      "STRING"
+    ],
+    [
+      9,
+      4,
+      2,
+      8,
+      1,
+      "STRING"
     ],
     [
       10,
-      7,
+      5,
       0,
-      8,
-      7,
-      "CONDITIONING"
+      9,
+      0,
+      "MODEL"
     ],
     [
       11,
-      9,
+      7,
       0,
-      8,
-      8,
-      "LATENT"
+      9,
+      6,
+      "CONDITIONING"
     ],
     [
       12,
       8,
       0,
+      9,
+      7,
+      "CONDITIONING"
+    ],
+    [
+      13,
       10,
+      0,
+      9,
+      8,
+      "LATENT"
+    ],
+    [
+      14,
+      9,
+      0,
+      11,
       0,
       "LATENT"
     ],
     [
-      13,
+      15,
       2,
       2,
-      10,
+      11,
       1,
       "VAE"
     ],
     [
-      14,
-      10,
-      0,
+      16,
       11,
+      0,
+      12,
       0,
       "IMAGE"
     ],
     [
-      15,
-      11,
-      0,
+      17,
       12,
+      0,
+      13,
       3,
       "IMAGE"
     ],
     [
-      16,
-      12,
-      0,
+      18,
       13,
+      0,
+      14,
       0,
       "*"
     ]
@@ -1015,8 +1092,8 @@
       "bounding": [
         10,
         10,
-        780,
-        720
+        850,
+        850
       ],
       "color": "#355c7d",
       "font_size": 24,
@@ -1026,9 +1103,9 @@
       "id": 2,
       "title": "Prompt and sampling",
       "bounding": [
-        800,
+        880,
         90,
-        720,
+        630,
         620
       ],
       "color": "#2f6f62",

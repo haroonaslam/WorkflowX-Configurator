@@ -18,7 +18,7 @@ function serializeUI(node, capture) {
  const previous=node.onSerialize;
  node.onSerialize=function(info){
   previous?.apply(this,arguments);capture();
-  info.properties??={};info.properties.h3rcUI=structuredClone(node.properties?.h3rcUI||{});
+  info.properties??={};info.properties.h3rcUI=JSON.parse(JSON.stringify(node.properties?.h3rcUI||{}));
  };
 }
 export function rememberDetails(node, element, key, fallback = false, lifecycle = true) {

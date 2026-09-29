@@ -12,7 +12,7 @@ import {
 } from "./load_image_x_adv_helpers.mjs";
 
 const ACCENT = "#7aa2f7";
-const MIN_WIDTH = 380;
+const MIN_WIDTH = 300;
 const PREVIEW_FLOOR = 170;
 const SNAP_OPTIONS = [0, 8, 16, 32, 64];
 const MODE_OPTIONS = [
@@ -42,13 +42,15 @@ function installCSS() {
   const style = document.createElement("style");
   style.textContent = `
     .workflowx-lixa {
-      --lixa-accent:${ACCENT}; width:100%; height:100%; min-height:0; box-sizing:border-box;
+      --lixa-accent:${ACCENT}; width:100%; height:100%; min-height:0; box-sizing:border-box; container-type:inline-size;
       padding:4px 8px 8px; display:flex; flex-direction:column; gap:7px; overflow:hidden;
       color:#d9dce2; font:11px ui-sans-serif,system-ui,sans-serif; letter-spacing:0;
     }
     .workflowx-lixa *, .workflowx-lixa *::before, .workflowx-lixa *::after { box-sizing:border-box; }
     .workflowx-lixa button, .workflowx-lixa input, .workflowx-lixa select { font:inherit; letter-spacing:0; }
-    .workflowx-lixa-browse { height:36px; flex:none; border:1px solid #5876a4; border-radius:4px;
+    .workflowx-lixa-source-actions { height:36px; flex:none; display:grid;
+      grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; }
+    .workflowx-lixa-browse { width:100%; min-width:0; height:36px; border:1px solid #5876a4; border-radius:4px;
       background:#263952; color:#f2f6ff; cursor:pointer; font-weight:650; }
     .workflowx-lixa-browse:hover { border-color:var(--lixa-accent); background:#304b6d; }
     .workflowx-lixa-modes { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:5px; flex:none; }
@@ -102,13 +104,26 @@ function installCSS() {
     .workflowx-lixa-toggles { height:32px; flex:none; display:grid; grid-template-columns:1fr 1fr; gap:6px; }
     .workflowx-lixa-preview { min-height:${PREVIEW_FLOOR}px; flex:1 1 ${PREVIEW_FLOOR}px; position:relative; overflow:hidden;
       background:#141518; border:1px solid #343840; border-radius:3px; }
+    .workflowx-lixa.is-file-dragging .workflowx-lixa-preview {
+      border-color:var(--lixa-accent); box-shadow:inset 0 0 0 2px rgba(122,162,247,.28); }
+    .workflowx-lixa-drop-overlay { position:absolute; inset:0; z-index:3; pointer-events:none; display:none;
+      place-items:center; color:#eef4ff; background:rgba(20,21,24,.76); font-size:14px; font-weight:700; }
+    .workflowx-lixa.is-file-dragging .workflowx-lixa-drop-overlay { display:grid; }
     .workflowx-lixa-preview canvas { width:100%; height:100%; display:block; touch-action:none; }
+    .workflowx-lixa-resize-handle { position:absolute; right:0; bottom:0; z-index:4; width:20px; height:20px;
+      border:0; border-radius:0; padding:0; cursor:nwse-resize; touch-action:none;
+      background:linear-gradient(135deg,transparent 48%,#59606b 49% 57%,transparent 58% 66%,#7a8390 67% 75%,transparent 76%); }
+    .workflowx-lixa-resize-handle:hover { background:linear-gradient(135deg,transparent 48%,var(--lixa-accent) 49% 57%,transparent 58% 66%,var(--lixa-accent) 67% 75%,transparent 76%); }
     .workflowx-lixa-port-card { position:absolute; left:12px; top:38px; right:142px; height:88px; z-index:5;
       pointer-events:none; display:flex; align-items:center; justify-content:center; gap:11px; border:1px solid #434a55;
       border-radius:5px; background:#25282d; box-shadow:inset 0 1px rgba(255,255,255,.025); color:#d9dce2; }
     .workflowx-lixa-port-card-label { color:#969da7; font-size:9px; text-transform:uppercase; }
     .workflowx-lixa-port-card-size { color:var(--lixa-accent); font-weight:700; font-size:15px; }
     .workflowx-lixa-port-card-shape { display:block; border:1px solid var(--lixa-accent); background:rgba(122,162,247,.12); border-radius:2px; }
+    @container (max-width:430px) {
+      .workflowx-lixa-modes { grid-template-columns:repeat(2,minmax(0,1fr)); }
+      .workflowx-lixa-quick, .workflowx-lixa-ratios { grid-template-columns:repeat(3,minmax(0,1fr)); }
+    }
     .lg-node.workflowx-lixa-host .image-preview { display:none !important; min-height:0 !important; height:0 !important; }
   `;
   document.head.appendChild(style);
@@ -159,14 +174,19 @@ function isAdvancedNode(node) {
   return node?.comfyClass === "WorkflowX_LoadImageXAdv" || node?.type === "WorkflowX_LoadImageXAdv";
 }
 
-function createAdvancedUI(node, imageWidget, stateWidget) {
+function createAdvancedUI(node, imageWidget, stateWidget, uploadWidget) {
   installCSS();
   installLoadImageXBrowserCSS();
 
   const root = document.createElement("div");
   root.className = "workflowx-lixa";
+  const sourceActions = document.createElement("div");
+  sourceActions.className = "workflowx-lixa-source-actions";
   const browse = button("Browse Thumbnails", "workflowx-lixa-browse");
   browse.title = "Browse images in ComfyUI input folders";
+  const upload = button("Upload Photo", "workflowx-lixa-browse");
+  upload.title = "Upload an image to ComfyUI input";
+  sourceActions.append(browse, upload);
   const modes = document.createElement("div");
   modes.className = "workflowx-lixa-modes";
   const outputSnap = document.createElement("div");
@@ -180,8 +200,16 @@ function createAdvancedUI(node, imageWidget, stateWidget) {
   const preview = document.createElement("div");
   preview.className = "workflowx-lixa-preview";
   const canvas = document.createElement("canvas");
-  preview.appendChild(canvas);
-  root.append(browse, modes, outputSnap, resample, toggles, preview);
+  const dropOverlay = document.createElement("div");
+  dropOverlay.className = "workflowx-lixa-drop-overlay";
+  dropOverlay.textContent = "Drop image to load";
+  const resizeHandle = document.createElement("button");
+  resizeHandle.type = "button";
+  resizeHandle.className = "workflowx-lixa-resize-handle";
+  resizeHandle.title = "Resize node";
+  resizeHandle.setAttribute("aria-label", "Resize node");
+  preview.append(canvas, dropOverlay, resizeHandle);
+  root.append(sourceActions, modes, outputSnap, resample, toggles, preview);
 
   const ui = {
     root, source: null, sourcePath: "", imageBox: null, drag: null, panel: null,
@@ -665,6 +693,106 @@ function createAdvancedUI(node, imageWidget, stateWidget) {
     beforeSelect: () => { ui.pendingBrowserSelection = true; },
     onEmpty: () => loadSelectedImage("browser"),
   }));
+  upload.addEventListener("click", () => {
+    const currentUploadWidget = uploadWidget || node.widgets?.find(
+      (widget) => String(widget?.name || "").toLowerCase() === "upload",
+    );
+    currentUploadWidget?.callback?.call(currentUploadWidget);
+  });
+
+  const isFileDrag = (event) => {
+    const transfer = event.dataTransfer;
+    if (!transfer) return false;
+    return Array.from(transfer.types || []).includes("Files")
+      || Array.from(transfer.items || []).some((item) => item.kind === "file");
+  };
+  const isImageFile = (file) => Boolean(file) && (
+    String(file.type || "").startsWith("image/")
+      || /\.(?:apng|avif|bmp|gif|jpe?g|png|tiff?|webp)$/i.test(String(file.name || ""))
+  );
+  let fileDragDepth = 0;
+  const clearFileDrag = () => {
+    fileDragDepth = 0;
+    root.classList.remove("is-file-dragging");
+  };
+  root.addEventListener("dragenter", (event) => {
+    if (!isFileDrag(event)) return;
+    fileDragDepth += 1;
+    root.classList.add("is-file-dragging");
+    event.preventDefault();
+    event.stopPropagation();
+  });
+  root.addEventListener("dragover", (event) => {
+    if (!isFileDrag(event)) return;
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    root.classList.add("is-file-dragging");
+    event.preventDefault();
+    event.stopPropagation();
+  });
+  root.addEventListener("dragleave", (event) => {
+    if (!isFileDrag(event)) return;
+    fileDragDepth = Math.max(0, fileDragDepth - 1);
+    if (fileDragDepth === 0) root.classList.remove("is-file-dragging");
+    event.preventDefault();
+    event.stopPropagation();
+  });
+  root.addEventListener("drop", async (event) => {
+    if (!isFileDrag(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    clearFileDrag();
+    const file = Array.from(event.dataTransfer?.files || []).find(isImageFile);
+    if (!file) return;
+    const form = new FormData();
+    form.append("image", file, file.name);
+    form.append("type", "input");
+    form.append("overwrite", "false");
+    try {
+      const response = await fetch("/upload/image", { method: "POST", body: form });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || `HTTP ${response.status}`);
+      const selected = [payload?.subfolder, payload?.name].filter(Boolean).join("/");
+      if (!selected) throw new Error("Upload response did not include an image name");
+      const values = imageWidget.options?.values;
+      if (Array.isArray(values) && !values.includes(selected)) values.push(selected);
+      ui.pendingBrowserSelection = true;
+      imageWidget.value = selected;
+      imageWidget.callback?.(selected);
+    } catch (error) {
+      console.error("WorkflowX Load ImageX Adv drop upload failed", error);
+    }
+  });
+  resizeHandle.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || !event.isPrimary) return;
+    const bounds = root.getBoundingClientRect();
+    const scaleX = Math.max(0.01, bounds.width / Math.max(1, root.offsetWidth));
+    const scaleY = Math.max(0.01, bounds.height / Math.max(1, root.offsetHeight));
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const startWidth = Number(node.size?.[0]) || MIN_WIDTH;
+    const startHeight = Number(node.size?.[1]) || minimumHeight() + 42;
+    const move = (moveEvent) => {
+      const width = Math.max(MIN_WIDTH, Math.round(startWidth + (moveEvent.clientX - startX) / scaleX));
+      const height = Math.max(minimumHeight() + 42, Math.round(startHeight + (moveEvent.clientY - startY) / scaleY));
+      node.setSize?.([width, height]);
+      node.setDirtyCanvas?.(true, true);
+      moveEvent.preventDefault();
+      moveEvent.stopPropagation();
+    };
+    const stop = (stopEvent) => {
+      resizeHandle.removeEventListener("pointermove", move);
+      resizeHandle.removeEventListener("pointerup", stop);
+      resizeHandle.removeEventListener("pointercancel", stop);
+      resizeHandle.releasePointerCapture?.(stopEvent.pointerId);
+      stopEvent.stopPropagation();
+    };
+    resizeHandle.setPointerCapture?.(event.pointerId);
+    resizeHandle.addEventListener("pointermove", move);
+    resizeHandle.addEventListener("pointerup", stop);
+    resizeHandle.addEventListener("pointercancel", stop);
+    event.preventDefault();
+    event.stopPropagation();
+  });
 
   canvas.addEventListener("pointerdown", (event) => {
     if (event.button !== 0 || !event.isPrimary || !ui.state.crop_enabled || !ui.source) return;
@@ -756,8 +884,16 @@ function createAdvancedUI(node, imageWidget, stateWidget) {
     window.setTimeout(() => graphCanvas.dispatchEvent(new PointerEvent("pointerup", pointer)));
   });
 
-  ui.resizeObserver = new ResizeObserver(() => { mountNodes2Card(); drawPreview(); });
-  ui.resizeObserver.observe(preview);
+  ui.resizeObserver = new ResizeObserver(() => {
+    mountNodes2Card();
+    const requiredHeight = minimumHeight() + 42;
+    const currentHeight = Number(node.size?.[1]) || 0;
+    if (currentHeight && currentHeight + 1 < requiredHeight) {
+      node.setSize?.([Math.max(MIN_WIDTH, Number(node.size?.[0]) || MIN_WIDTH), requiredHeight]);
+    }
+    drawPreview();
+  });
+  ui.resizeObserver.observe(root);
 
   let lastImage = String(imageWidget.value || "");
   const originalImageCallback = imageWidget.callback;
@@ -873,6 +1009,9 @@ function attachAdvancedUI(node) {
   queueMicrotask(() => {
     const imageWidget = node.widgets?.find((widget) => widget.name === "image");
     const stateWidget = node.widgets?.find((widget) => widget.name === "workflowx_state");
+    const uploadWidget = node.widgets?.find(
+      (widget) => String(widget?.name || "").toLowerCase() === "upload",
+    );
     if (!imageWidget || !stateWidget) { node._workflowxLoadImageXAdvSetup = false; return; }
     hideWidget(imageWidget);
     hideWidget(stateWidget);
@@ -881,12 +1020,13 @@ function attachAdvancedUI(node) {
       if (widget !== imageWidget && widget !== stateWidget && (name === "upload" || name.includes("image_preview"))) hideWidget(widget);
     }
     node.inputs = [];
-    const ui = createAdvancedUI(node, imageWidget, stateWidget);
+    const ui = createAdvancedUI(node, imageWidget, stateWidget, uploadWidget);
     const widget = node.addDOMWidget("workflowx_load_image_x_adv", "custom", ui.root, {
       getMinHeight: () => ui.minimumHeight(), getMaxHeight: () => Infinity, margin: 0, serialize: false,
     });
     widget.computeLayoutSize = () => ({ minHeight: ui.minimumHeight(), maxHeight: Infinity, minWidth: MIN_WIDTH });
     ui.widget = widget;
+    node.resizable = true;
     installCanvasBehavior(node, ui);
 
     const originalRemoved = node.onRemoved;

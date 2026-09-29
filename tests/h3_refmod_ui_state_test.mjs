@@ -17,3 +17,9 @@ const previous=reloaded.onConfigure,modal=new Element();rememberDetails(reloaded
 modal.open=true;modal.dispatchEvent(new Event('toggle'));const reopened=new Element();rememberDetails(reloaded,reopened,'modal',false,false);assert.equal(reopened.open,true);
 modal.isConnected=false;modal.open=false;modal.dispatchEvent(new Event('toggle'));assert.equal(reloaded.properties.h3rcUI.modal,true);
 console.log('PASS H3 UI state: immediate save, hidden resize, reload, delayed toggles and modal lifecycle');
+// Vue-backed properties are proxies in current ComfyUI. Workflow state is JSON.
+const proxied=make();proxied.properties.h3rcUI=new Proxy({existing:true},{});
+const pg=new Element();rememberDetails(proxied,pg,'proxy-group',true);
+const proxyInfo={};proxied.onSerialize(proxyInfo);
+assert.equal(proxyInfo.properties.h3rcUI.existing,true);
+assert.equal(proxyInfo.properties.h3rcUI['proxy-group'],true);

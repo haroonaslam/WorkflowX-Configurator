@@ -472,6 +472,12 @@ def build_local_generation() -> Workflow:
         widgets=["flux1_dev", "natural", True, False, False, False, False, "", "", "A neutral documentation example.", "{}"],
     )
     lorax = w.node("KVGC_LoraX", 400, 190, size=(360, 110), inputs=[socket("model", "MODEL"), socket("clip", "CLIP")], outputs=[port("MODEL", "MODEL"), port("CLIP", "CLIP"), port("trigger_words", "STRING"), port("loaded_loras", "STRING")])
+    lora_picker = w.node(
+        "KVGC_LoadLoraPickerX", 40, 720, size=(820, 120),
+        inputs=[socket("model", "MODEL"), socket("clip", "CLIP")],
+        outputs=[port("MODEL", "MODEL"), port("CLIP", "CLIP"), port("trigger_words", "STRING"), port("loaded_loras", "STRING")],
+        widgets=[{"type": "header"}],
+    )
     positive = clip_encode(w, 830, 130, "Generated positive prompt")
     negative = clip_encode(w, 830, 330, "Generated negative prompt")
     sampler = ksampler(w, 1210, 180)
@@ -491,8 +497,10 @@ def build_local_generation() -> Workflow:
         widgets=[24.0, "WorkflowX/example-video", "video/h264-mp4", "Standard (CRF 23)", "yuv420p (8-bit)", "Auto (format default)", True, "Source/default", "", False],
     )
     w.connect(source, 0, prompt, 0)
-    w.connect(diffusion_model, 0, lorax, 0)
-    w.connect(model, 1, lorax, 1)
+    w.connect(diffusion_model, 0, lora_picker, 0)
+    w.connect(model, 1, lora_picker, 1)
+    w.connect(lora_picker, 0, lorax, 0)
+    w.connect(lora_picker, 1, lorax, 1)
     w.connect(lorax, 1, positive, 0)
     w.connect(lorax, 1, negative, 0)
     w.connect(prompt, 1, positive, 1)
@@ -506,8 +514,8 @@ def build_local_generation() -> Workflow:
     w.connect(decoded, 0, repeat, 0)
     w.connect(repeat, 0, unload, 3)
     w.connect(unload, 0, save, 0)
-    w.group("References and model", 10, 10, 780, 720, "#355c7d")
-    w.group("Prompt and sampling", 800, 90, 720, 620, "#2f6f62")
+    w.group("References and model", 10, 10, 850, 850, "#355c7d")
+    w.group("Prompt and sampling", 880, 90, 630, 620, "#2f6f62")
     w.group("Decode, unload, and save", 1530, 90, 1390, 460, "#8a6d3b")
     return w
 

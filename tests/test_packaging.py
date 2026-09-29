@@ -92,7 +92,7 @@ def _load_package():
 
 def test_combined_package_exports_workflowx_and_afj_nodes():
     module = _load_package()
-    assert len(module.NODE_CLASS_MAPPINGS) == 65
+    assert len(module.NODE_CLASS_MAPPINGS) == 66
     voice = module.NODE_CLASS_MAPPINGS["WorkflowX_VoiceChangerX"]
     assert module.NODE_DISPLAY_NAME_MAPPINGS["WorkflowX_VoiceChangerX"] == "Voice ChangerX"
     assert voice.CATEGORY == "WorkflowX/Audio"
@@ -105,6 +105,8 @@ def test_combined_package_exports_workflowx_and_afj_nodes():
     assert module.NODE_DISPLAY_NAME_MAPPINGS["KVGC_ConfigSelectorX"] == "Config SelectorX"
     assert "KVGC_UnloadModelsByType" in module.NODE_CLASS_MAPPINGS
     assert "KVGC_LoraX" in module.NODE_CLASS_MAPPINGS
+    assert "KVGC_LoadLoraPickerX" in module.NODE_CLASS_MAPPINGS
+    assert module.NODE_DISPLAY_NAME_MAPPINGS["KVGC_LoadLoraPickerX"] == "Load Lora PickerX"
     assert "KVGC_LoadDiffusionModelX" in module.NODE_CLASS_MAPPINGS
     assert module.NODE_DISPLAY_NAME_MAPPINGS["KVGC_LoadDiffusionModelX"] == "Load Diffusion Model X"
     assert "FluxVisualJsonBuilder" in module.NODE_CLASS_MAPPINGS

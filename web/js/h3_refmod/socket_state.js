@@ -30,7 +30,9 @@ export function contractEmptySockets(node) {
   }
   const replacements=new Map();
   for(const [prefix,inputs] of groups){
-   const connected=inputs.filter(i=>i.link!=null),empty=inputs.find(i=>i.link==null);
+   const connected=inputs.filter(i=>i.link!=null);
+   const lastConnected=Math.max(-1,...connected.map(i=>node.inputs.indexOf(i)));
+   const empty=inputs.find(i=>i.link==null&&node.inputs.indexOf(i)>lastConnected);
    const groupName=prefix.slice(0,prefix.lastIndexOf('.'));
    const max=node.comfyDynamic?.autogrow?.[groupName]?.max??Infinity;
    const spare=connected.length<max?(empty||{name:prefix+connected.length,type:inputs[0].type,link:null,shape:inputs[0].shape}):null;
@@ -38,11 +40,18 @@ export function contractEmptySockets(node) {
    ordered.forEach((input,index)=>{input.name=prefix+index;});
    replacements.set(prefix,ordered);
   }
-  const next=[],seen=new Set();
-  for(const input of node.inputs){const prefix=input.name.match(dynamicName)?.[1];
-   if(!prefix){next.push(input);continue;}if(seen.has(prefix))continue;seen.add(prefix);next.push(...replacements.get(prefix));
+  // Use native slot mutations: current ComfyUI also stores widget connections
+  // outside node.inputs. Splicing/reordering that array leaves saved link indices stale.
+  const keep=new Set([...replacements.values()].flat());
+  for(let index=node.inputs.length-1;index>=0;index--){
+   const input=node.inputs[index];
+   if(dynamicName.test(input.name)&&!keep.has(input)){
+    if(node.removeInput)node.removeInput(index);else node.inputs.splice(index,1);
+   }
   }
-  node.inputs.splice(0,node.inputs.length,...next);
+  for(const inputs of replacements.values())for(const input of inputs)if(!node.inputs.includes(input)){
+   if(node.addInput)node.addInput(input.name,input.type,input);else node.inputs.push(input);
+  }
   for(let index=0;index<node.inputs.length;index++){const input=node.inputs[index],link=input.link!=null?getLink(graph,input.link):null;if(link&&same(link.target_id,node.id))link.target_slot=index;}
   node._setConcreteSlots?.();node.setDirtyCanvas?.(true,true);
  } finally {node.h3rcContracting=false;}

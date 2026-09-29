@@ -128,6 +128,44 @@ test("custom preview opens ComfyUI's native node menu", () => {
   assert.match(source, /new ContextMenu\(options, \{ event, title: node\.type, extra: node \}\)/);
 });
 
+test("advanced image source row exposes thumbnail browsing and native upload", () => {
+  const source = fs.readFileSync(new URL("../web/js/load_image_x_adv.js", import.meta.url), "utf8");
+  assert.match(source, /workflowx-lixa-source-actions/);
+  assert.match(source, /grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+  assert.match(source, /button\("Browse Thumbnails"/);
+  assert.match(source, /button\("Upload Photo"/);
+  assert.match(source, /currentUploadWidget\?\.callback\?\.call\(currentUploadWidget\)/);
+  assert.match(source, /root\.append\(sourceActions, modes, outputSnap, resample, toggles, preview\)/);
+});
+
+test("advanced image UI accepts dropped image files through ComfyUI's upload endpoint", () => {
+  const source = fs.readFileSync(new URL("../web/js/load_image_x_adv.js", import.meta.url), "utf8");
+  assert.match(source, /root\.addEventListener\("dragenter"/);
+  assert.match(source, /root\.addEventListener\("dragover"/);
+  assert.match(source, /root\.addEventListener\("dragleave"/);
+  assert.match(source, /root\.addEventListener\("drop", async/);
+  assert.match(source, /fetch\("\/upload\/image", \{ method: "POST", body: form \}\)/);
+  assert.match(source, /form\.append\("type", "input"\)/);
+  assert.match(source, /ui\.pendingBrowserSelection = true/);
+  assert.match(source, /imageWidget\.callback\?\.\(selected\)/);
+  assert.match(source, /Drop image to load/);
+});
+
+test("advanced UI is user-resizable and reflows narrow control grids", () => {
+  const source = fs.readFileSync(new URL("../web/js/load_image_x_adv.js", import.meta.url), "utf8");
+  assert.match(source, /const MIN_WIDTH = 300/);
+  assert.match(source, /container-type:inline-size/);
+  assert.match(source, /@container \(max-width:430px\)/);
+  assert.match(source, /workflowx-lixa-modes \{ grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+  assert.match(source, /workflowx-lixa-quick, \.workflowx-lixa-ratios \{ grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
+  assert.match(source, /ui\.resizeObserver\.observe\(root\)/);
+  assert.match(source, /node\.resizable = true/);
+  assert.match(source, /workflowx-lixa-resize-handle/);
+  assert.match(source, /resizeHandle\.addEventListener\("pointerdown"/);
+  assert.match(source, /bounds\.width \/ Math\.max\(1, root\.offsetWidth\)/);
+  assert.match(source, /node\.setSize\?\.\(\[width, height\]\)/);
+});
+
 test("advanced extension is auto-discovered without a duplicate side-effect import", () => {
   const browserSource = fs.readFileSync(new URL("../web/js/load_image_x.js", import.meta.url), "utf8");
   assert.doesNotMatch(browserSource, /import\s+["']\.\/load_image_x_adv\.js/);

@@ -70,7 +70,7 @@ def _heading_slug(text):
 def test_readme_is_the_complete_active_node_reference():
     text = README.read_text(encoding="utf-8")
     active = _active_node_ids()
-    assert len(active) == 59
+    assert len(active) == 60
     missing = sorted(node_id for node_id in active if f"`{node_id}`" not in text)
     assert missing == [], missing
     for heading in (

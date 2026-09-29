@@ -165,6 +165,25 @@ Load Diffusion Model X keeps preferred diffusion models visible on the canvas an
 
 **Controls:** add, remove, reorder, search/select, enable/disable, and refresh LoRA rows. Empty rows are skipped; unavailable filenames are reported instead of silently substituted. [LoraX guide](docs/LORAX.md)
 
+### Load Lora PickerX
+
+**Node ID / category:** `KVGC_LoadLoraPickerX` · `WorkflowX/Loaders`
+
+| Inputs | Type | Required | Behavior |
+|---|---|---:|---|
+| `model` | `MODEL` | Yes | Base diffusion model. |
+| `clip` | `CLIP` | No | Optional text encoder to receive LoRA patches. |
+| LoRA rows | UI-managed | No | Native-file selection, epoch choice, enable state, and independent model/CLIP strengths. |
+
+| Outputs | Type | Behavior |
+|---|---|---|
+| `MODEL` | `MODEL` | Model with enabled LoRAs applied in row order. |
+| `CLIP` | `CLIP` | Patched CLIP when supplied. |
+| `trigger_words` | `STRING` | Trigger words retained by rows when available. |
+| `loaded_loras` | `STRING` | Selected checkpoint filenames and their applied strengths. |
+
+**Controls:** **Pick LoRA** opens the Windows file picker without uploading or copying the selected file. Related epoch, step, checkpoint, or fixed-width numbered files in the same directory become selectable in that row. A row with no related checkpoints shows a disabled **Single** selector. External absolute paths are specific to the current machine. [Load Lora PickerX guide](docs/LOAD_LORA_PICKER_X.md)
+
 ### Unload Models By Type
 
 **Node ID / category:** `KVGC_UnloadModelsByType` · `WorkflowX/VRAM`
