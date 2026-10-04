@@ -13,6 +13,7 @@ from .advanced import (
     NODE_CLASS_MAPPINGS as LOAD_IMAGE_X_ADV_NODE_CLASS_MAPPINGS,
     NODE_DISPLAY_NAME_MAPPINGS as LOAD_IMAGE_X_ADV_NODE_DISPLAY_NAME_MAPPINGS,
 )
+from .direct import direct_upload_handler
 
 
 NODE_CLASS_MAPPINGS = {
@@ -32,6 +33,7 @@ def register_routes(app) -> None:
     router.add_get("/workflowx_configurator/load_image_x/images", catalog_handler)
     router.add_get("/workflowx_configurator/load_image_x/thumbnail", thumbnail_handler)
     router.add_post("/workflowx_configurator/load_image_x/delete", delete_images_handler)
+    router.add_post("/workflowx_configurator/load_image_x/direct", direct_upload_handler)
     app._workflowx_load_image_x_routes = True
 
 

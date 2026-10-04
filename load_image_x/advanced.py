@@ -16,6 +16,7 @@ from .runtime import get_catalog, resolve_annotated_image_path
 
 DEFAULT_ADV_STATE: dict[str, Any] = {
     "version": 1,
+    "load_mode": "normal",
     "mode": "off",
     "max_mp": 1.0,
     "longest_side": 1024,
@@ -80,6 +81,8 @@ def parse_adv_state(value: object) -> dict[str, Any]:
         if key in parsed:
             state[key] = parsed[key]
 
+    if state["load_mode"] not in ("normal", "direct"):
+        state["load_mode"] = "normal"
     if state["mode"] not in VALID_MODES:
         state["mode"] = "off"
     if state["resample"] not in VALID_RESAMPLE:
@@ -478,6 +481,8 @@ class LoadImageXAdv:
         except ValueError as exc:
             return str(exc)
         if not image_path.is_file():
+            if str(image).rstrip().lower().endswith("[temp]"):
+                return "Temporary image unavailable—upload or paste again, or use Normal mode for persistent inputs."
             return f"Invalid image file: {image}"
         return True
 

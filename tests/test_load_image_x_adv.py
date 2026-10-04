@@ -3,6 +3,7 @@ import json
 import pathlib
 import sys
 import types
+import io
 
 import numpy as np
 import pytest
@@ -48,6 +49,75 @@ def _load_modules():
 
 
 advanced = _load_modules()
+direct_spec = importlib.util.spec_from_file_location("workflowx_direct_test", ROOT / "load_image_x/direct.py")
+direct = importlib.util.module_from_spec(direct_spec)
+direct_spec.loader.exec_module(direct)
+
+
+def _encoded(format="PNG", mode="RGBA"):
+    stream = io.BytesIO()
+    Image.new(mode, (16, 12)).save(stream, format=format)
+    stream.seek(0)
+    return stream
+
+
+def test_direct_replacement_is_original_bytes_and_does_not_accumulate(tmp_path):
+    first = _encoded()
+    result = direct.store_direct_image(first, "a" * 32, tmp_path)
+    target = tmp_path / result["subfolder"] / result["name"]
+    assert target.read_bytes() == first.getvalue()
+    second = _encoded("JPEG", "RGB")
+    assert direct.store_direct_image(second, "a" * 32, tmp_path) == result
+    assert target.read_bytes() == second.getvalue()
+    assert list(target.parent.iterdir()) == [target]
+    other = direct.store_direct_image(first, "b" * 32, tmp_path)
+    assert other["subfolder"] != result["subfolder"]
+    assert target.read_bytes() == second.getvalue()
+
+
+def test_direct_bad_upload_preserves_previous_and_cleans_partial(tmp_path):
+    result = direct.store_direct_image(_encoded(), "a" * 32, tmp_path)
+    target = tmp_path / result["subfolder"] / result["name"]
+    before = target.read_bytes()
+    with pytest.raises(OSError):
+        direct.store_direct_image(io.BytesIO(b"broken"), "a" * 32, tmp_path)
+    assert target.read_bytes() == before
+    assert list(target.parent.iterdir()) == [target]
+    with pytest.raises(ValueError):
+        direct.store_direct_image(_encoded(), "../escape", tmp_path)
+
+
+def test_direct_animation_retains_all_frames(tmp_path):
+    stream = io.BytesIO()
+    Image.new("RGB", (16, 12), "red").save(stream, format="GIF", save_all=True,
+        append_images=[Image.new("RGB", (16, 12), "blue")], duration=100, loop=0)
+    result = direct.store_direct_image(stream, "a" * 32, tmp_path)
+    with Image.open(tmp_path / result["subfolder"] / result["name"]) as image:
+        assert image.n_frames == 2
+
+
+def test_load_mode_migration_and_validation():
+    assert advanced.parse_adv_state('{}')["load_mode"] == "normal"
+    assert advanced.parse_adv_state('{"load_mode": []}')["load_mode"] == "normal"
+    assert advanced.parse_adv_state('{"load_mode": "direct"}')["load_mode"] == "direct"
+
+
+def test_direct_source_load_hash_and_missing_message(tmp_path, monkeypatch):
+    result = direct.store_direct_image(_encoded(), "a" * 32, tmp_path)
+    path = tmp_path / result["subfolder"] / result["name"]
+    reference = f'{result["subfolder"]}/image [temp]'
+    monkeypatch.setattr(advanced, "resolve_annotated_image_path", lambda _: (reference, path))
+    node = advanced.LoadImageXAdv()
+    before = node.IS_CHANGED(reference)
+    image, mask, inverted, w, h = node.load_image(reference)
+    assert (w, h) == (16, 12)
+    assert tuple(image.shape) == (1, 12, 16, 3)
+    assert bool((mask == 1).all())  # Original transparent alpha survives.
+    assert bool((inverted == 0).all())
+    direct.store_direct_image(_encoded("JPEG", "RGB"), "a" * 32, tmp_path)
+    assert node.IS_CHANGED(reference) != before
+    path.unlink()
+    assert "Temporary image unavailable" in node.VALIDATE_INPUTS(reference)
 
 
 def _state(**updates):

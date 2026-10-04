@@ -14,6 +14,17 @@ import {
 import { splitAnnotatedPath, viewURL } from "../web/js/load_image_x_helpers.mjs";
 import fs from "node:fs";
 
+test("Direct mode survives image-change normalization and uses a versioned state helper", () => {
+  const state=normalizeAdvState({load_mode:"direct",crop_rect:{x:0,y:0,w:.5,h:.5}});
+  const changed=clearCropForImageChange(state);
+  assert.equal(changed.load_mode,"direct");
+  assert.equal(changed.crop_rect,null);
+  assert.equal(normalizeAdvState(JSON.stringify(changed)).load_mode,"direct");
+  const source=fs.readFileSync(new URL('../web/js/load_image_x_adv.js',import.meta.url),'utf8');
+  assert.match(source,/load_image_x_adv_helpers\.mjs\?v=direct-mode-2/);
+  assert.match(source,/stateWidget\.serializeValue = \(\) => JSON\.stringify\(ui\.state\)/);
+});
+
 test("normalizes malformed state to independent defaults", () => {
   const state = normalizeAdvState("not json");
   assert.deepEqual(state, DEFAULT_ADV_STATE);
@@ -128,13 +139,13 @@ test("custom preview opens ComfyUI's native node menu", () => {
   assert.match(source, /new ContextMenu\(options, \{ event, title: node\.type, extra: node \}\)/);
 });
 
-test("advanced image source row exposes thumbnail browsing and native upload", () => {
+test("advanced image source row exposes thumbnail browsing and owned upload", () => {
   const source = fs.readFileSync(new URL("../web/js/load_image_x_adv.js", import.meta.url), "utf8");
   assert.match(source, /workflowx-lixa-source-actions/);
   assert.match(source, /grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
   assert.match(source, /button\("Browse Thumbnails"/);
   assert.match(source, /button\("Upload Photo"/);
-  assert.match(source, /currentUploadWidget\?\.callback\?\.call\(currentUploadWidget\)/);
+  assert.match(source, /upload.addEventListener\("click", \(\) => fileInput.click\(\)\)/);
   assert.match(source, /root\.append\(sourceActions, modes, outputSnap, resample, toggles, preview\)/);
 });
 
@@ -144,11 +155,33 @@ test("advanced image UI accepts dropped image files through ComfyUI's upload end
   assert.match(source, /root\.addEventListener\("dragover"/);
   assert.match(source, /root\.addEventListener\("dragleave"/);
   assert.match(source, /root\.addEventListener\("drop", async/);
-  assert.match(source, /fetch\("\/upload\/image", \{ method: "POST", body: form \}\)/);
+  assert.match(source, /fetch\(endpoint, \{ method: "POST", body: form \}\)/);
   assert.match(source, /form\.append\("type", "input"\)/);
   assert.match(source, /ui\.pendingBrowserSelection = true/);
   assert.match(source, /imageWidget\.callback\?\.\(selected\)/);
   assert.match(source, /Drop image to load/);
+});
+
+test("load mode defaults, validation and serialized snapshots", () => {
+  assert.equal(normalizeAdvState('{}').load_mode, 'normal');
+  assert.equal(normalizeAdvState({load_mode: 'invalid'}).load_mode, 'normal');
+  const state = normalizeAdvState({load_mode: 'direct', mode: 'pad', resample: 'lanczos'});
+  assert.deepEqual(normalizeAdvState(JSON.stringify(state)), state);
+  assert.equal(state.mode, 'pad');
+  assert.equal(state.load_mode, 'direct');
+});
+
+test("compact controls and all image ingestion paths share the mode-aware queue", () => {
+  const source = fs.readFileSync(new URL("../web/js/load_image_x_adv.js", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /shiftResample|Previous resampling filter|Next resampling filter/);
+  assert.match(source, /resample.append\(select, loadMode\)/);
+  assert.match(source, /uploadQueue = uploadQueue.then/);
+  assert.match(source, /crypto.randomUUID/);
+  assert.match(source, /window.addEventListener\("paste", pasteImage, true\)/);
+  assert.match(source, /window.removeEventListener\("paste", pasteImage, true\)/);
+  assert.match(source, /event.stopImmediatePropagation\(\)/);
+  assert.match(source, /selectedNodes.length === 1/);
+  assert.equal((source.match(/ingestImage\(file\)/g) || []).length, 4);
 });
 
 test("advanced UI is user-resizable and reflows narrow control grids", () => {

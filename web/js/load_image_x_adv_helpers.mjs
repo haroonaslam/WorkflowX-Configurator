@@ -1,5 +1,6 @@
 export const DEFAULT_ADV_STATE = Object.freeze({
   version: 1,
+  load_mode: "normal",
   mode: "off",
   max_mp: 1,
   longest_side: 1024,
@@ -70,6 +71,7 @@ export function normalizeAdvState(value) {
   for (const key of Object.keys(DEFAULT_ADV_STATE)) {
     if (Object.hasOwn(parsed, key)) state[key] = parsed[key];
   }
+  if (!["normal", "direct"].includes(state.load_mode)) state.load_mode = "normal";
   if (!VALID_MODES.has(state.mode)) state.mode = "off";
   if (!VALID_RESAMPLE.has(state.resample)) state.resample = "auto";
   for (const key of ["output_snap", "crop_snap"]) {

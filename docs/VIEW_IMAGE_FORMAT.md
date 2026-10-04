@@ -1,0 +1,17 @@
+# View Image (Format)
+
+Automatic saves use ComfyUI's output-directory numbering. Manual Save As suggests `prefix_00001_.jpg` (or PNG/WebP) using a separate browser-local counter per filename prefix, shared across formats and nodes. The counter survives refreshes when browser storage is available. Cancelled attempts leave gaps. It cannot inspect arbitrary destination folders; the native dialog handles existing-file overwrite confirmation. Clearing browser storage resets manual counters. Simultaneous saves from separate tabs may suggest the same number.
+
+Manual export accepts browser-proven same-origin requests even when a reverse proxy rewrites the backend Host header. Cross-site requests remain rejected.
+
+Find the node in **WorkflowX / Image**. Connect an IMAGE batch. With **save_automatically** off, the node always displays a lossless PNG preview, regardless of the automatic-save format or quality. This uses ComfyUI's normal 8-bit display conversion without JPG/WebP compression. The original floating-point source is retained for export. Enable **save_automatically** to save and preview the selected format in ComfyUI output.
+
+The inline **PNG / JPG / WEBP** buttons open Save As for full-resolution manual export, independently of the automatic-save format. Quality (default 95) stays visible and applies to JPG/WebP only. PNG/WebP preserve transparency; JPG composites onto white and uses 4:4:4 chroma sampling. The IMAGE output always passes through the original tensor, not the compressed preview.
+
+With metadata enabled, PNG embeds ComfyUI prompt/workflow metadata for both manual and automatic saves. JPG/WebP share **one JSON sidecar per producing execution** in the default ComfyUI output directory (or filename-prefix subfolder). Saving another format updates that same sidecar atomically, without making a duplicate. This also applies to batches and to manual exports after automatic saving. The UI workflow is at the JSON root; provenance is under `extra.workflowx_export`. Load that JSON in ComfyUI to restore the workflow. API-only executions retain prompt metadata but cannot fabricate a UI workflow. ComfyUI's global metadata-disable setting takes precedence.
+
+Manual export uses the clicked format button and current quality/metadata settings, but always retains the producing execution's workflow snapshot. The image goes only to the location selected in the browser's native Save As dialog; **no image copy is written into ComfyUI output**. The sidecar is updated after successful image writes. PNG does not create a sidecar. Cancelling the picker makes no export request. Batches present one Save As dialog per image before encoding begins. Chrome/Edge on localhost or HTTPS is required for native Save As; unsupported browsers receive a clear message instead of silently downloading elsewhere. The status line reports saves, cancellation, errors and the sidecar location.
+
+Lossless temporary sources are bounded to 2 GiB per process with oldest-idle eviction and one latest batch per node/session. Eviction, node recreation or a server restart can make manual Save unavailable; run the node again. A batch larger than the limit can still preview or auto-save but cannot be manually exported afterward. Temporary sources and runtime tokens are not embedded in the workflow.
+
+Existing Save Image Jpg nodes remain supported as deprecated **View Image (Format) — Legacy JPG** nodes, retaining their old automatic JPG behavior. Add the new node to use format selection and manual saving.

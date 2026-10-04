@@ -73,6 +73,15 @@ from .image_processor_x import (
     NODE_DISPLAY_NAME_MAPPINGS as IMAGE_PROCESSOR_X_NODE_DISPLAY_NAME_MAPPINGS,
     register_routes as _register_image_processor_x_routes_on_app,
 )
+from .save_image_jpg import (
+    NODE_CLASS_MAPPINGS as SAVE_IMAGE_JPG_NODE_CLASS_MAPPINGS,
+    NODE_DISPLAY_NAME_MAPPINGS as SAVE_IMAGE_JPG_NODE_DISPLAY_NAME_MAPPINGS,
+)
+from .view_image_format import (
+    NODE_CLASS_MAPPINGS as VIEW_IMAGE_FORMAT_NODE_CLASS_MAPPINGS,
+    NODE_DISPLAY_NAME_MAPPINGS as VIEW_IMAGE_FORMAT_NODE_DISPLAY_NAME_MAPPINGS,
+    register_routes as register_view_image_format_routes,
+)
 from .load_lora_picker_x import (
     NODE_CLASS_MAPPINGS as LOAD_LORA_PICKER_X_NODE_CLASS_MAPPINGS,
     NODE_DISPLAY_NAME_MAPPINGS as LOAD_LORA_PICKER_X_NODE_DISPLAY_NAME_MAPPINGS,
@@ -109,6 +118,8 @@ NODE_CLASS_MAPPINGS = {
     **LOAD_AUDIO_X_NODE_CLASS_MAPPINGS,
     **PREVIEW_VIDEO_X_NODE_CLASS_MAPPINGS,
     **SAVE_VIDEO_X_NODE_CLASS_MAPPINGS,
+    **SAVE_IMAGE_JPG_NODE_CLASS_MAPPINGS,
+    **VIEW_IMAGE_FORMAT_NODE_CLASS_MAPPINGS,
     **IMAGE_PROCESSOR_X_NODE_CLASS_MAPPINGS,
     **LOAD_LORA_PICKER_X_NODE_CLASS_MAPPINGS,
 }
@@ -127,6 +138,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     **LOAD_AUDIO_X_NODE_DISPLAY_NAME_MAPPINGS,
     **PREVIEW_VIDEO_X_NODE_DISPLAY_NAME_MAPPINGS,
     **SAVE_VIDEO_X_NODE_DISPLAY_NAME_MAPPINGS,
+    **SAVE_IMAGE_JPG_NODE_DISPLAY_NAME_MAPPINGS,
+    **VIEW_IMAGE_FORMAT_NODE_DISPLAY_NAME_MAPPINGS,
     **IMAGE_PROCESSOR_X_NODE_DISPLAY_NAME_MAPPINGS,
     **LOAD_LORA_PICKER_X_NODE_DISPLAY_NAME_MAPPINGS,
 }
@@ -881,6 +894,23 @@ def _register_image_processor_x_routes() -> None:
 _register_image_processor_x_routes()
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]
+
+try:
+    register_view_image_format_routes()
+except Exception:
+    logger.exception("WorkflowX View Image (Format) routes could not load")
+
+try:
+    from .detailer_x import (
+        NODE_CLASS_MAPPINGS as DETAILER_X_NODE_CLASS_MAPPINGS,
+        NODE_DISPLAY_NAME_MAPPINGS as DETAILER_X_NODE_DISPLAY_NAME_MAPPINGS,
+        register_routes as register_detailer_x_routes,
+    )
+    register_detailer_x_routes()
+    NODE_CLASS_MAPPINGS.update(DETAILER_X_NODE_CLASS_MAPPINGS)
+    NODE_DISPLAY_NAME_MAPPINGS.update(DETAILER_X_NODE_DISPLAY_NAME_MAPPINGS)
+except Exception:
+    logger.exception("WorkflowX DetailerX could not load")
 
 
 # AuK is an isolated addition. Missing optional audio dependencies must not

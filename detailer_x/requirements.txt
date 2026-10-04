@@ -1,0 +1,7 @@
+# Install into the same Python environment as ComfyUI.
+ultralytics>=8.3
+segment-anything>=1.0
+opencv-python>=4.8
+spandrel>=0.4
+scipy
+colour-science>=0.4

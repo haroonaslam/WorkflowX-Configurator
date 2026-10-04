@@ -9,7 +9,7 @@ import {
   normalizedRect,
   pixelRectFromState,
   snapCropRect,
-} from "./load_image_x_adv_helpers.mjs";
+} from "./load_image_x_adv_helpers.mjs?v=direct-mode-2";
 
 const ACCENT = "#7aa2f7";
 const MIN_WIDTH = 300;
@@ -97,10 +97,15 @@ function installCSS() {
     .workflowx-lixa-live { color:var(--lixa-accent); font-weight:650; text-align:center; }
     .workflowx-lixa-snaprow { height:28px; flex:none; display:flex; align-items:center; justify-content:center; gap:5px; }
     .workflowx-lixa-snaprow .workflowx-lixa-chip { width:34px; height:26px; padding:0; font-size:9px; }
-    .workflowx-lixa-resample { height:32px; flex:none; display:grid; grid-template-columns:31px 1fr 31px; gap:5px; }
+    .workflowx-lixa-resample { height:32px; flex:none; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; }
     .workflowx-lixa-resample button, .workflowx-lixa-resample select { border:1px solid #4b5058; border-radius:4px;
       background:#202226; color:#d9dce2; cursor:pointer; }
-    .workflowx-lixa-resample button { color:var(--lixa-accent); }
+    .workflowx-lixa-resample select { width:100%; min-width:0; padding:0 5px; }
+    .workflowx-lixa-resample select:focus-visible { outline:2px solid var(--lixa-accent); outline-offset:-2px; }
+    .workflowx-lixa-status { position:absolute; left:6px; right:6px; top:6px; z-index:2; padding:6px;
+      background:#202226ee; color:#d9dce2; overflow-wrap:anywhere; pointer-events:none; }
+    .workflowx-lixa-status:empty { display:none; }
+    .workflowx-lixa-status[data-error="true"] { color:#ffaaaa; }
     .workflowx-lixa-toggles { height:32px; flex:none; display:grid; grid-template-columns:1fr 1fr; gap:6px; }
     .workflowx-lixa-preview { min-height:${PREVIEW_FLOOR}px; flex:1 1 ${PREVIEW_FLOOR}px; position:relative; overflow:hidden;
       background:#141518; border:1px solid #343840; border-radius:3px; }
@@ -180,6 +185,7 @@ function createAdvancedUI(node, imageWidget, stateWidget, uploadWidget) {
 
   const root = document.createElement("div");
   root.className = "workflowx-lixa";
+  root.tabIndex = 0;
   const sourceActions = document.createElement("div");
   sourceActions.className = "workflowx-lixa-source-actions";
   const browse = button("Browse Thumbnails", "workflowx-lixa-browse");
@@ -193,6 +199,11 @@ function createAdvancedUI(node, imageWidget, stateWidget, uploadWidget) {
   outputSnap.className = "workflowx-lixa-snaprow";
   const resample = document.createElement("div");
   resample.className = "workflowx-lixa-resample";
+  // Native selects must receive their default mouse/keyboard behavior without
+  // the canvas interpreting the interaction as node selection or dragging.
+  for (const event of ["pointerdown", "mousedown", "click", "keydown", "keyup"]) {
+    resample.addEventListener(event, e => e.stopPropagation());
+  }
   const toggles = document.createElement("div");
   toggles.className = "workflowx-lixa-toggles";
   const cropSnap = document.createElement("div");
@@ -203,12 +214,20 @@ function createAdvancedUI(node, imageWidget, stateWidget, uploadWidget) {
   const dropOverlay = document.createElement("div");
   dropOverlay.className = "workflowx-lixa-drop-overlay";
   dropOverlay.textContent = "Drop image to load";
+  const status = document.createElement("div");
+  status.className = "workflowx-lixa-status";
+  status.setAttribute("role", "status");
+  status.setAttribute("aria-live", "polite");
+  const setStatus = (message = "", error = false) => {
+    status.textContent = message;
+    status.dataset.error = String(error);
+  };
   const resizeHandle = document.createElement("button");
   resizeHandle.type = "button";
   resizeHandle.className = "workflowx-lixa-resize-handle";
   resizeHandle.title = "Resize node";
   resizeHandle.setAttribute("aria-label", "Resize node");
-  preview.append(canvas, dropOverlay, resizeHandle);
+  preview.append(canvas, status, dropOverlay, resizeHandle);
   root.append(sourceActions, modes, outputSnap, resample, toggles, preview);
 
   const ui = {
@@ -217,6 +236,8 @@ function createAdvancedUI(node, imageWidget, stateWidget, uploadWidget) {
     widget: null, resizeObserver: null, imagePoll: null, portalCard: null,
     output: { width: 0, height: 0 }, pendingBrowserSelection: false, disposed: false,
   };
+  // Native text widgets may otherwise serialize an obsolete hidden textarea.
+  stateWidget.serializeValue = () => JSON.stringify(ui.state);
 
   function markChanged() {
     node.graph?.setDirtyCanvas?.(true, true);
@@ -255,6 +276,7 @@ function createAdvancedUI(node, imageWidget, stateWidget, uploadWidget) {
     const previousFixed = resize ? fixedContentHeight() : null;
     ui.state = normalizeAdvState(next);
     stateWidget.value = JSON.stringify(ui.state);
+    if (stateWidget.inputEl) stateWidget.inputEl.value = stateWidget.value;
     stateWidget.callback?.(stateWidget.value);
     markChanged();
     if (render) renderControls();
@@ -518,10 +540,9 @@ function createAdvancedUI(node, imageWidget, stateWidget, uploadWidget) {
     renderSnapRow(outputSnap, "Output Snap", "output_snap");
 
     resample.replaceChildren();
-    const previous = button("<");
-    previous.title = "Previous resampling filter";
     const select = document.createElement("select");
     select.title = "Resampling filter";
+    select.setAttribute("aria-label", "Resample");
     for (const [id, label] of RESAMPLE_OPTIONS) {
       const option = document.createElement("option");
       option.value = id;
@@ -529,17 +550,22 @@ function createAdvancedUI(node, imageWidget, stateWidget, uploadWidget) {
       option.selected = ui.state.resample === id;
       select.appendChild(option);
     }
-    const next = button(">");
-    next.title = "Next resampling filter";
-    const shiftResample = (direction) => {
-      const index = RESAMPLE_OPTIONS.findIndex(([id]) => id === ui.state.resample);
-      const selected = RESAMPLE_OPTIONS[(index + direction + RESAMPLE_OPTIONS.length) % RESAMPLE_OPTIONS.length][0];
-      commitState({ ...ui.state, resample: selected });
-    };
-    previous.addEventListener("click", () => shiftResample(-1));
-    next.addEventListener("click", () => shiftResample(1));
     select.addEventListener("change", () => commitState({ ...ui.state, resample: select.value }));
-    resample.append(previous, select, next);
+    const loadMode = document.createElement("select");
+    loadMode.setAttribute("aria-label", "Load mode");
+    loadMode.title = "Normal: uploads to inputs. Direct: replaces this node's temporary image; restart may clear it. Applies to the next upload, drop, or image paste.";
+    for (const [value, label] of [["normal", "Normal"], ["direct", "Direct"]]) {
+      const option = new Option(`Mode: ${label}`, value, false, ui.state.load_mode === value);
+      loadMode.appendChild(option);
+    }
+    loadMode.addEventListener("change", () => {
+      // Ingestion policy is independent of the currently selected source.
+      // Keep this select mounted so native selection/focus can finish normally.
+      commitState({ ...ui.state, load_mode: loadMode.value }, { render: false });
+      upload.title = ui.state.load_mode === "direct" ? "Upload a replaceable temporary image (not saved to inputs)" : "Upload an image to ComfyUI input";
+    });
+    upload.title = ui.state.load_mode === "direct" ? "Upload a replaceable temporary image (not saved to inputs)" : "Upload an image to ComfyUI input";
+    resample.append(select, loadMode);
 
     toggles.replaceChildren();
     const cropToggle = button(`Crop: ${ui.state.crop_enabled ? "On" : "Off"}`, "workflowx-lixa-toggle");
@@ -677,15 +703,19 @@ function createAdvancedUI(node, imageWidget, stateWidget, uploadWidget) {
       return;
     }
     const image = new Image();
-    image.onload = () => { if (sequence === ui.loadSequence) acceptLoadedImage(image, selected, reason); };
+    image.onload = () => { if (sequence === ui.loadSequence) { setStatus(); acceptLoadedImage(image, selected, reason); } };
     image.onerror = () => {
       if (sequence !== ui.loadSequence) return;
       ui.source = null;
       ui.sourcePath = selected;
+      node.imgs = [];
+      setStatus(selected.endsWith("[temp]") ? "Temporary image unavailable—upload or paste again" : "Image unavailable—select or upload again", true);
       updateOutput();
       drawPreview();
     };
-    image.src = viewURL({ path: selected, version: String(Date.now()) });
+    // Core /view needs an explicit preview format for our extensionless original bytes.
+    image.src = viewURL({ path: selected, version: String(Date.now()) })
+      + (selected.startsWith("workflowx_load_image_x_adv/") && selected.endsWith("[temp]") ? "&preview=webp" : "");
   }
 
   browse.addEventListener("click", () => openLoadImageXPicker(node, imageWidget, {
@@ -693,12 +723,63 @@ function createAdvancedUI(node, imageWidget, stateWidget, uploadWidget) {
     beforeSelect: () => { ui.pendingBrowserSelection = true; },
     onEmpty: () => loadSelectedImage("browser"),
   }));
-  upload.addEventListener("click", () => {
-    const currentUploadWidget = uploadWidget || node.widgets?.find(
-      (widget) => String(widget?.name || "").toLowerCase() === "upload",
-    );
-    currentUploadWidget?.callback?.call(currentUploadWidget);
+  // Runtime-only slot: clones and other tabs never overwrite this instance's uploads.
+  const slot = crypto.randomUUID().replaceAll("-", "");
+  let uploadQueue = Promise.resolve();
+  function ingestImage(file) {
+    const mode = ui.state.load_mode;
+    uploadQueue = uploadQueue.then(async () => {
+      if (ui.disposed) return;
+      setStatus(`Uploading ${mode === "direct" ? "temporary image" : "image"}…`);
+      const form = new FormData();
+      form.append("image", file, file.name || "clipboard.png");
+      form.append("type", "input");
+      form.append("overwrite", "false");
+      form.append("slot", slot);
+      const endpoint = mode === "direct" ? "/workflowx_configurator/load_image_x/direct" : "/upload/image";
+      const response = await fetch(endpoint, { method: "POST", body: form });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || `HTTP ${response.status}`);
+      if (ui.disposed) return;
+      const path = [payload?.subfolder, payload?.name].filter(Boolean).join("/");
+      if (!path) throw new Error("Upload response did not include an image name");
+      const selected = path + (payload.type === "temp" ? " [temp]" : "");
+      const values = imageWidget.options?.values;
+      if (Array.isArray(values) && !values.includes(selected)) values.push(selected);
+      // Also refresh when the path is unchanged but the temporary bytes were replaced.
+      node.imgs = [];
+      ui.pendingBrowserSelection = true;
+      imageWidget.value = selected;
+      imageWidget.callback?.(selected);
+      markChanged();
+    }).catch((error) => {
+      setStatus(error.message || String(error), true);
+      console.error("WorkflowX Load ImageX Adv upload failed", error);
+    });
+    return uploadQueue;
+  }
+  const fileInput = document.createElement("input");
+  fileInput.type = "file";
+  fileInput.accept = "image/*,.apng,.avif,.bmp,.gif,.jpg,.jpeg,.png,.tif,.tiff,.webp";
+  fileInput.addEventListener("change", () => {
+    const file = fileInput.files?.[0];
+    if (file) ingestImage(file);
+    fileInput.value = "";
   });
+  upload.addEventListener("click", () => fileInput.click());
+  const pasteImage = (event) => {
+    const target = event.target;
+    if (target?.closest?.("input,textarea,[contenteditable='true']")) return;
+    const selectedNodes = Object.values(app.canvas?.selected_nodes || {});
+    if (!root.contains(target) && !(selectedNodes.length === 1 && selectedNodes[0] === node
+      && (target === document.body || target === app.canvasEl || target === app.canvas?.canvas))) return;
+    const file = Array.from(event.clipboardData?.items || []).find((item) => item.kind === "file" && item.type.startsWith("image/"))?.getAsFile();
+    if (!file) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    ingestImage(file);
+  };
+  window.addEventListener("paste", pasteImage, true);
 
   const isFileDrag = (event) => {
     const transfer = event.dataTransfer;
@@ -743,24 +824,7 @@ function createAdvancedUI(node, imageWidget, stateWidget, uploadWidget) {
     clearFileDrag();
     const file = Array.from(event.dataTransfer?.files || []).find(isImageFile);
     if (!file) return;
-    const form = new FormData();
-    form.append("image", file, file.name);
-    form.append("type", "input");
-    form.append("overwrite", "false");
-    try {
-      const response = await fetch("/upload/image", { method: "POST", body: form });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.error || `HTTP ${response.status}`);
-      const selected = [payload?.subfolder, payload?.name].filter(Boolean).join("/");
-      if (!selected) throw new Error("Upload response did not include an image name");
-      const values = imageWidget.options?.values;
-      if (Array.isArray(values) && !values.includes(selected)) values.push(selected);
-      ui.pendingBrowserSelection = true;
-      imageWidget.value = selected;
-      imageWidget.callback?.(selected);
-    } catch (error) {
-      console.error("WorkflowX Load ImageX Adv drop upload failed", error);
-    }
+    ingestImage(file);
   });
   resizeHandle.addEventListener("pointerdown", (event) => {
     if (event.button !== 0 || !event.isPrimary) return;
@@ -943,6 +1007,7 @@ function createAdvancedUI(node, imageWidget, stateWidget, uploadWidget) {
 
   ui.dispose = () => {
     ui.disposed = true;
+    window.removeEventListener("paste", pasteImage, true);
     ui.resizeObserver?.disconnect();
     window.clearInterval(ui.imagePoll);
     ui.portalCard?.remove();
