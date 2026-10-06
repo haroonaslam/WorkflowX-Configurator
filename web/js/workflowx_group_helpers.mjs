@@ -1,8 +1,12 @@
-export function nodesForGrouping(canvas, sourceNode) {
+export function graphForGrouping(canvas, sourceNode, fallbackGraph = null) {
+  return sourceNode?.graph ?? canvas?.graph ?? fallbackGraph;
+}
+
+export function nodesForGrouping(canvas, sourceNode, graph = graphForGrouping(canvas, sourceNode)) {
   if (!sourceNode) return [];
 
-  const legacySelection = Object.values(canvas?.selected_nodes || {}).filter(Boolean);
-  const graphNodes = new Set(canvas?.graph?._nodes || []);
+  const graphNodes = new Set(graph?._nodes || []);
+  const legacySelection = Object.values(canvas?.selected_nodes || {}).filter((item) => graphNodes.has(item));
   const modernSelection = Array.from(canvas?.selectedItems || []).filter((item) => graphNodes.has(item));
   const selectedNodes = [...new Set(modernSelection.length ? modernSelection : legacySelection)];
   return selectedNodes.includes(sourceNode) ? selectedNodes : [sourceNode];

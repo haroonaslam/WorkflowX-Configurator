@@ -1,6 +1,10 @@
 import { app } from "../../scripts/app.js";
 import { $el } from "../../scripts/ui.js";
-import { addNodesToNativeGroup, nodesForGrouping } from "./workflowx_group_helpers.mjs";
+import {
+  addNodesToNativeGroup,
+  graphForGrouping,
+  nodesForGrouping,
+} from "./workflowx_group_helpers.mjs?workflowx=2";
 
 const EXTENSION_NAME = "Comfy.WorkflowXNodeReplacer";
 const MENU_LABEL = "WorkflowX: Replace node...";
@@ -20,9 +24,9 @@ function getCanvas() {
   return app.canvas;
 }
 
-function markDirty() {
-  getCanvas()?.setDirty?.(true, true);
-  getGraph()?.setDirtyCanvas?.(true, true);
+function markDirty(graph = getGraph(), canvas = getCanvas()) {
+  canvas?.setDirty?.(true, true);
+  graph?.setDirtyCanvas?.(true, true);
 }
 
 function groupPadding() {
@@ -31,10 +35,9 @@ function groupPadding() {
   return Number.isFinite(configured) && configured >= 0 ? configured : DEFAULT_GROUP_PADDING;
 }
 
-function addToGroup(sourceNode) {
-  const canvas = getCanvas();
-  const graph = getGraph();
-  const nodes = nodesForGrouping(canvas, sourceNode);
+function addToGroup(sourceNode, menuCanvas = getCanvas()) {
+  const graph = graphForGrouping(menuCanvas, sourceNode, getGraph());
+  const nodes = nodesForGrouping(menuCanvas, sourceNode, graph);
 
   if (!graph || !nodes.length) {
     showToast("Select one or more nodes first", "error");
@@ -48,7 +51,7 @@ function addToGroup(sourceNode) {
       LiteGraph: globalThis.LiteGraph,
       padding: groupPadding(),
     });
-    markDirty();
+    markDirty(graph, menuCanvas);
   } catch (error) {
     console.error("[WorkflowX] Could not add selected nodes to a group", error);
     showToast("Could not add nodes to group", "error");
@@ -607,7 +610,7 @@ function installMenuHandler(nodeTypeDef) {
   if (!proto || proto.__workflowXNodeReplacerMenu) return;
 
   const originalGetExtraMenuOptions = proto.getExtraMenuOptions;
-  proto.getExtraMenuOptions = function workflowXGetExtraMenuOptions(_, options) {
+  proto.getExtraMenuOptions = function workflowXGetExtraMenuOptions(menuCanvas, options) {
     const result = originalGetExtraMenuOptions?.apply(this, arguments);
     if (!Array.isArray(options)) return result;
 
@@ -618,7 +621,7 @@ function installMenuHandler(nodeTypeDef) {
     });
     options.push({
       content: GROUP_MENU_LABEL,
-      callback: () => addToGroup(this),
+      callback: () => addToGroup(this, menuCanvas),
     });
 
     return result;

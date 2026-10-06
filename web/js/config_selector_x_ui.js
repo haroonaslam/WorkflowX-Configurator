@@ -50,7 +50,7 @@ function installStyles() {
     .workflowx-csx-head,.workflowx-csx-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-bottom:1px solid var(--border-color,#35414c)}
     .workflowx-csx-foot{border-top:1px solid var(--border-color,#35414c);border-bottom:0}.workflowx-csx-title{font-size:16px;font-weight:700}.workflowx-csx-sub{margin-top:2px;color:var(--descrip-text,#9aa8b6);font-size:12px}
     .workflowx-csx-actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.workflowx-csx-btn{min-height:32px;border:1px solid var(--border-color,#465665);border-radius:6px;padding:6px 10px;background:var(--comfy-input-bg,#222a32);color:var(--fg-color,#eef3f8);cursor:pointer}.workflowx-csx-btn:hover{border-color:#62a8d7;background:#273746}.workflowx-csx-btn.primary{border-color:#2380b9;background:#176a9d;color:#fff}.workflowx-csx-btn.danger{border-color:#a85252;color:#ffc5c5}.workflowx-csx-btn:disabled{opacity:.4;cursor:default}
-    .workflowx-csx-body{min-height:0;overflow:auto;padding:12px 14px}.workflowx-csx-scope-grid{display:grid;gap:1px;min-width:720px;border:1px solid var(--border-color,#35414c);background:var(--border-color,#35414c)}.workflowx-csx-scope-row{display:grid;grid-template-columns:minmax(180px,1fr) minmax(440px,2fr);gap:12px;align-items:center;min-height:45px;padding:6px 9px;background:var(--comfy-menu-bg,#151a20)}
+    .workflowx-csx-body{min-height:0;overflow:auto;padding:12px 14px}.workflowx-csx-scope-grid{display:grid;gap:1px;min-width:720px;border:1px solid var(--border-color,#35414c);background:var(--border-color,#35414c)}.workflowx-csx-scope-row{display:grid;grid-template-columns:minmax(260px,1.35fr) minmax(460px,1.65fr);gap:12px;align-items:center;min-height:45px;padding:6px 9px;background:var(--comfy-menu-bg,#151a20)}
     .workflowx-csx-group-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.workflowx-csx-segments{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:4px}.workflowx-csx-segment{min-height:30px;border:1px solid var(--border-color,#465665);border-radius:5px;padding:4px 7px;background:var(--comfy-input-bg,#222a32);color:var(--descrip-text,#aeb9c4);cursor:pointer;white-space:nowrap}.workflowx-csx-segment.active{border-color:#39a5d8;background:#164f6d;color:#fff}
     .workflowx-csx-config-layout{height:100%;min-height:470px;display:grid;grid-template-columns:260px minmax(0,1fr);gap:12px}.workflowx-csx-config-sidebar{min-height:0;display:grid;grid-template-rows:auto minmax(0,1fr) auto;border-right:1px solid var(--border-color,#35414c);padding-right:12px}.workflowx-csx-config-list{min-height:0;overflow:auto;display:grid;align-content:start;gap:5px;padding:8px 0}.workflowx-csx-config-item{width:100%;min-height:34px;overflow:hidden;text-align:left;text-overflow:ellipsis;white-space:nowrap;border:1px solid transparent;border-radius:5px;padding:6px 9px;background:transparent;color:var(--fg-color,#e7edf5);cursor:pointer}.workflowx-csx-config-item.disabled{color:var(--descrip-text,#8995a1);opacity:.72}.workflowx-csx-config-item.active{border-color:#39a5d8;background:#173f55}
     .workflowx-csx-editor{min-width:0;min-height:0;display:grid;grid-template-rows:auto minmax(0,1fr)}.workflowx-csx-editor-fields{display:grid;grid-template-columns:minmax(300px,600px) auto;gap:14px;align-items:center}.workflowx-csx-field{display:grid;grid-template-columns:80px minmax(0,1fr);gap:9px;align-items:center;padding-bottom:10px}.workflowx-csx-input{width:100%;min-height:34px;box-sizing:border-box;border:1px solid var(--border-color,#465665);border-radius:6px;padding:6px 9px;background:var(--comfy-input-bg,#222a32);color:var(--fg-color,#eef3f8)}.workflowx-csx-switch{display:inline-flex;align-items:center;gap:10px;width:max-content;min-height:34px;margin:0 0 10px;padding:0;border:0;background:transparent;color:inherit;font:inherit;cursor:pointer;user-select:none}.workflowx-csx-switch-track{position:relative;width:44px;height:24px;box-sizing:border-box;border:1px solid var(--border-color,#596571);border-radius:999px;background:var(--comfy-input-bg,#252b31);transition:background .15s,border-color .15s}.workflowx-csx-switch-track::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#a9b1ba;box-shadow:0 1px 3px rgba(0,0,0,.45);transition:transform .15s,background .15s}.workflowx-csx-switch[aria-checked="true"] .workflowx-csx-switch-track{border-color:#39a5d8;background:#176a9d}.workflowx-csx-switch[aria-checked="true"] .workflowx-csx-switch-track::after{transform:translateX(20px);background:#fff}.workflowx-csx-switch:focus-visible .workflowx-csx-switch-track{outline:2px solid #79c9ee;outline-offset:2px}.workflowx-csx-switch-label{color:var(--fg-color,#e7edf5);font-size:13px}.workflowx-csx-mode-list{min-height:0;overflow:auto;display:grid;align-content:start;border:1px solid var(--border-color,#35414c);background:var(--comfy-menu-bg,#151a20)}.workflowx-csx-mode-row{display:grid;grid-template-columns:minmax(160px,1fr) minmax(340px,1.7fr);gap:10px;align-items:center;min-height:44px;padding:6px 9px;border-bottom:1px solid var(--border-color,#35414c);background:var(--comfy-menu-bg,#151a20)}.workflowx-csx-empty{padding:24px;color:var(--descrip-text,#9aa8b6);text-align:center}
@@ -181,6 +181,14 @@ export function createSelectorXController(adapter) {
     return control;
   }
 
+  function groupNameElement(groupName) {
+    const displayName = adapter.groupLabel?.(groupName) ?? groupName;
+    const element = el("div", "workflowx-csx-group-name", displayName);
+    element.title = displayName;
+    element.setAttribute("aria-label", displayName);
+    return element;
+  }
+
   function openScopes(node) {
     const state = readState(node);
     if (!state) return;
@@ -195,7 +203,7 @@ export function createSelectorXController(adapter) {
     ]);
     for (const groupName of adapter.groupNames()) {
       const row = el("div", "workflowx-csx-scope-row");
-      row.append(el("div", "workflowx-csx-group-name", groupName));
+      row.append(groupNameElement(groupName));
       const segments = el("div", "workflowx-csx-segments");
       for (const scope of SCOPE_NAMES) segments.append(scopeSegment(segments, groupName, scope, labels.get(scope)));
       row.append(segments);
@@ -361,7 +369,7 @@ export function createSelectorXController(adapter) {
     for (const groupName of configGroups) {
       if (!MODE_NAMES.includes(config.modes[groupName])) config.modes[groupName] = "Active";
       const row = el("div", "workflowx-csx-mode-row");
-      row.append(el("div", "workflowx-csx-group-name", groupName));
+      row.append(groupNameElement(groupName));
       const segments = el("div", "workflowx-csx-segments");
       for (const mode of MODE_NAMES) {
         const control = el("button", "workflowx-csx-segment", mode);

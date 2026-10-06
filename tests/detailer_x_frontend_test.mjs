@@ -119,6 +119,13 @@ test("entry toolbar has no inline image display or image fetch",async()=>{
   assert.match(source,/x.entryPanel.append\(toolbar\)/);
   assert.doesNotMatch(source,/dx-entry-message|x.entryMessage/);
 });
+
+test("rerenders fit height to current content instead of accumulating prior height",async()=>{
+  const source=await readFile(new URL("../web/js/detailer_x.js",import.meta.url),"utf8");
+  const fit=source.slice(source.indexOf("function fit(node)"),source.indexOf("function report(node,error)"));
+  assert.match(fit,/node\.setSize\(\[Math\.max\([\s\S]*?size\[0\]\),size\[1\]\]\)/);
+  assert.doesNotMatch(fit,/node\.size\[1\].*\+delta|bodyHeight==null/);
+});
 test("Pause and Skip persist through serialization and legacy defaults are off",()=>{
   const state=restore('{}',defaults);
   assert.equal(state.entry.pause,false);assert.equal(state.entry.skip,false);

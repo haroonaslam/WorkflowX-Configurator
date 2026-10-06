@@ -6,52 +6,66 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const source = fs.readFileSync(path.join(root, "web", "js", "key_config_tools.js"), "utf8");
+const selectorUiSource = fs.readFileSync(
+  path.join(root, "web", "js", "config_selector_x_ui.js"),
+  "utf8",
+);
 
-test("reference routing is registered alongside relay routing", () => {
-  assert.match(source, /const SET_REFERENCE_TYPE = "KVGC_SetReference"/);
-  assert.match(source, /const GET_REFERENCE_TYPE = "KVGC_GetReference"/);
-  assert.match(source, /function resolveReferenceSource\(getNode, promptOutput = null\)/);
-  assert.match(source, /getOutput\.inputs\.value = \[String\(source\.node\.id\), 0\]/);
+test("all Set/Get families use the recursive runtime resolver", () => {
+  for (const type of [
+    "KVGC_SetInt",
+    "KVGC_SetFloat",
+    "KVGC_SetString",
+    "KVGC_SetText",
+    "KVGC_SetBoolean",
+    "KVGC_SetSampler",
+    "KVGC_SetScheduler",
+    "KVGC_SetRelay",
+    "KVGC_SetDimensions",
+    "KVGC_SetReference",
+  ]) {
+    assert.ok(source.includes(type), `${type} should be registered`);
+  }
+  assert.match(source, /function materializeRecursiveSetGets\(promptResult, inventory\)/);
+  assert.match(source, /for \(const record of inventory\.instances\)/);
+  assert.match(source, /resolveCandidates\(candidates, family, key\)/);
 });
 
-test("dimensions routing materializes width and height from separate output slots", () => {
-  assert.match(source, /const SET_DIMENSIONS_TYPE = "KVGC_SetDimensions"/);
-  assert.match(source, /const GET_DIMENSIONS_TYPE = "KVGC_GetDimensions"/);
-  assert.match(source, /function resolveDimensionsSource\(getNode, promptOutput\)/);
-  assert.match(source, /getOutput\.inputs\.width = \[String\(source\.node\.id\), 0\]/);
-  assert.match(source, /getOutput\.inputs\.height = \[String\(source\.node\.id\), 1\]/);
-  assert.match(source, /nodeData\.name === GET_DIMENSIONS_TYPE/);
+test("Scopes and Configs display breadcrumbs without changing stored group names", () => {
+  assert.match(source, /groupLabel: groupDisplayLabel/);
+  assert.match(selectorUiSource, /function groupNameElement\(groupName\)/);
+  assert.match(selectorUiSource, /element\.title = displayName/);
+  assert.match(selectorUiSource, /element\.setAttribute\("aria-label", displayName\)/);
+  assert.match(selectorUiSource, /grid-template-columns:minmax\(260px,1\.35fr\) minmax\(460px,1\.65fr\)/);
+  assert.match(selectorUiSource, /draft\.scopes\[groupName\]/);
+  assert.match(selectorUiSource, /config\.modes\[groupName\]/);
 });
 
-test("reference mute temporarily uses ComfyUI native mute mode during serialization", () => {
-  assert.match(source, /function applyReferenceMuteModesBeforeQueue\(\)/);
-  assert.match(source, /setWidgetValueSilently\(getNode, "set_mute", setMute\)/);
-  assert.match(source, /getNode\.mode = MODES\.Mute/);
-  assert.match(source, /function restoreReferenceModes\(originalModes\)/);
-  assert.match(source, /node\.mode = mode/);
+test("relay, dimensions, and reference links use full execution IDs", () => {
+  assert.match(source, /getPrompt\.inputs\.value = \[source\.executionId, 0\]/);
+  assert.match(source, /getPrompt\.inputs\.width = \[source\.executionId, 0\]/);
+  assert.match(source, /getPrompt\.inputs\.height = \[source\.executionId, 1\]/);
+});
+
+test("typed values and provenance bind to the winning runtime source", () => {
+  assert.match(source, /getPrompt\.inputs\.resolved_value = value/);
+  assert.match(source, /getPrompt\.inputs\.resolved_config = selectedConfig/);
+  assert.match(source, /digestResolvedValue\([\s\S]*?source\.executionId,[\s\S]*?value/);
+});
+
+test("reference mute removes routed Gets and dangling prompt inputs", () => {
+  assert.match(source, /removedReferences\.add\(executionId\)/);
+  assert.match(source, /for \(const executionId of removedReferences\) delete output\[executionId\]/);
   assert.match(
     source,
-    /applySelectedConfigAndAdvancedOverrides\(\);\s+referenceModes = applyReferenceMuteModesBeforeQueue\(\);/,
+    /Array\.isArray\(input\) && removedReferences\.has\(String\(input\[0\]\)\)/,
   );
-  assert.match(source, /finally \{\s+restoreReferenceModes\(referenceModes\)/);
 });
 
-test("set and get reference mute widgets both activate queue-time native muting", () => {
-  assert.match(source, /nodeData\.name === GET_REFERENCE_TYPE/);
-  assert.match(source, /nodeData\.name === SET_REFERENCE_TYPE/);
-  assert.match(source, /const mute = findWidget\(this, "mute"\)/);
-  assert.match(source, /mute\.beforeQueued = \(\) => \{\s+app\.__workflowXRelayQueueing = true/);
-});
-
-test("a manually muted or bypassed set reference cannot control related gets", () => {
-  const resolver = source.slice(
-    source.indexOf("function resolveReferenceSource"),
-    source.indexOf("function resolveDimensionsSource"),
-  );
-  assert.match(
-    resolver,
-    /if \(node\.mode === MODES\.Mute \|\| node\.mode === MODES\.Bypass\) continue/,
-  );
+test("Set/Get queue hooks validate and apply the root selector", () => {
+  assert.match(source, /const inventory = assertQueueGraphValid\(\)/);
+  assert.match(source, /applySelectedConfigAndAdvancedOverrides\(\)/);
+  assert.doesNotMatch(source, /__workflowXRelayQueueing/);
 });
 
 test("internal set mute state is hidden while independent get mute remains visible", () => {

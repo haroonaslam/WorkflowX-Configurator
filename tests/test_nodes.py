@@ -35,8 +35,11 @@ from nodes import (
 )
 
 
-def workflow(*nodes, groups=None):
-    return {"workflow": {"nodes": list(nodes), "groups": groups or []}}
+def workflow(*nodes, groups=None, subgraphs=None):
+    data = {"nodes": list(nodes), "groups": groups or []}
+    if subgraphs is not None:
+        data["definitions"] = {"subgraphs": subgraphs}
+    return {"workflow": data}
 
 
 def set_node(node_id, node_type, key, value, mode=0, pos=None, size=None):
@@ -93,10 +96,28 @@ def group(title, bounding):
     return {"title": title, "bounding": bounding}
 
 
-def resolved_digest(type_name, key, config, value):
-    payload = {"config": config, "key": key, "type": type_name, "value": value}
+def resolved_digest(type_name, key, config, value, source="1", modes=None):
+    payload = {
+        "config": config,
+        "key": key,
+        "modes": modes or {},
+        "source": source,
+        "type": type_name,
+        "value": value,
+    }
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
-    return f"workflowx:{encoded}"
+    return f"workflowx:v2:{encoded}"
+
+
+def assert_resolved(getter, type_name, set_type, key, value, expected):
+    data = workflow(set_node(1, set_type, key, value))
+    assert getter.get_value(
+        key,
+        str(value).lower() if isinstance(value, bool) else str(value),
+        "",
+        resolved_digest(type_name, key, "", str(value).lower() if isinstance(value, bool) else str(value)),
+        extra_pnginfo=data,
+    ) == (expected,)
 
 
 def test_all_nodes_registered():
@@ -438,12 +459,7 @@ def test_set_float_widget_preserves_decimal_precision():
         "cfg",
         extra_pnginfo=workflow(set_node(1, "KVGC_SetFloat", "cfg", 0.987654)),
     ) == (0.987654,)
-    assert GetFloat().get_value(
-        "cfg",
-        "0.987654",
-        "Speed",
-        resolved_digest("Float", "cfg", "Speed", "0.987654"),
-    ) == (0.987654,)
+    assert_resolved(GetFloat(), "Float", "KVGC_SetFloat", "cfg", 0.987654, 0.987654)
 
 
 def test_config_selector_accepts_console_output_choice():
@@ -595,13 +611,13 @@ def test_typed_workflow_lookups():
 
 
 def test_typed_resolved_values_are_used_when_digest_matches():
-    assert GetInt().get_value("seed", "42", "Speed", resolved_digest("Int", "seed", "Speed", "42")) == (42,)
-    assert GetFloat().get_value("cfg", "7.5", "Speed", resolved_digest("Float", "cfg", "Speed", "7.5")) == (7.5,)
-    assert GetString().get_value("name", "abc", "Speed", resolved_digest("String", "name", "Speed", "abc")) == ("abc",)
-    assert GetText().get_value("prompt", "hello\nworld", "Speed", resolved_digest("Text", "prompt", "Speed", "hello\nworld")) == ("hello\nworld",)
-    assert GetBoolean().get_value("enabled", "true", "Speed", resolved_digest("Boolean", "enabled", "Speed", "true")) == (True,)
-    assert GetSampler().get_value("sampler", "dpmpp_2m", "Speed", resolved_digest("Sampler", "sampler", "Speed", "dpmpp_2m")) == ("dpmpp_2m",)
-    assert GetScheduler().get_value("scheduler", "karras", "Speed", resolved_digest("Scheduler", "scheduler", "Speed", "karras")) == ("karras",)
+    assert_resolved(GetInt(), "Int", "KVGC_SetInt", "seed", 42, 42)
+    assert_resolved(GetFloat(), "Float", "KVGC_SetFloat", "cfg", 7.5, 7.5)
+    assert_resolved(GetString(), "String", "KVGC_SetString", "name", "abc", "abc")
+    assert_resolved(GetText(), "Text", "KVGC_SetText", "prompt", "hello\nworld", "hello\nworld")
+    assert_resolved(GetBoolean(), "Boolean", "KVGC_SetBoolean", "enabled", True, True)
+    assert_resolved(GetSampler(), "Sampler", "KVGC_SetSampler", "sampler", "dpmpp_2m", "dpmpp_2m")
+    assert_resolved(GetScheduler(), "Scheduler", "KVGC_SetScheduler", "scheduler", "karras", "karras")
 
 
 def test_invalid_resolved_digest_falls_back_to_workflow_lookup():
@@ -615,13 +631,20 @@ def test_invalid_resolved_digest_falls_back_to_workflow_lookup():
     ) == (12,)
 
 
-def test_duplicate_uses_highest_node_id():
+def test_stale_v2_resolved_value_falls_back_to_current_workflow_value():
+    data = workflow(set_node(1, "KVGC_SetInt", "seed", 12))
+    stale = resolved_digest("Int", "seed", "", "42")
+    assert GetInt().get_value("seed", "42", "", stale, extra_pnginfo=data) == (12,)
+
+
+def test_duplicate_ungrouped_sets_raise_an_ambiguity_error():
     data = workflow(
         set_node(1, "KVGC_SetInt", "seed", 1),
         set_node(9, "KVGC_SetInt", "seed", 9),
         set_node(4, "KVGC_SetInt", "seed", 4),
     )
-    assert GetInt().get_value("seed", extra_pnginfo=data) == (9,)
+    with pytest.raises(ValueError, match="tier 1: 1, 9, 4"):
+        GetInt().get_value("seed", extra_pnginfo=data)
 
 
 def test_muted_set_node_is_ignored():
@@ -778,7 +801,7 @@ def test_populated_selectorx_takes_priority_over_legacy_nodes():
     assert GetInt().get_value("Choice", extra_pnginfo=data) == (1,)
 
 
-def test_highest_id_populated_selectorx_wins_and_empty_x_falls_back_to_legacy():
+def test_multiple_populated_selectorx_nodes_error_and_empty_x_falls_back_to_legacy():
     groups = [
         group("First", [0, 0, 300, 140]),
         group("Second", [0, 200, 300, 140]),
@@ -801,7 +824,8 @@ def test_highest_id_populated_selectorx_wins_and_empty_x_falls_back_to_legacy():
         *values,
         groups=groups,
     )
-    assert GetInt().get_value("Choice", extra_pnginfo=data) == (2,)
+    with pytest.raises(ValueError, match="Multiple initialized Config SelectorX"):
+        GetInt().get_value("Choice", extra_pnginfo=data)
 
     fallback = workflow(
         selectorx_node(999, "Uninitialized", {}),
@@ -855,7 +879,7 @@ def test_global_set_node_wins_over_active_group_set_node():
     assert GetInt().get_value("Steps", extra_pnginfo=data) == (12,)
 
 
-def test_global_duplicate_keys_win_by_highest_node_id_before_groups():
+def test_global_duplicate_keys_raise_before_group_fallback():
     data = workflow(
         selector_node(100, "Realism"),
         configurator_node(101, "Realism", {"RealConfig": "Active"}),
@@ -866,7 +890,117 @@ def test_global_duplicate_keys_win_by_highest_node_id_before_groups():
             group("RealConfig", [0, 200, 300, 140]),
         ],
     )
-    assert GetFloat().get_value("CFG", extra_pnginfo=data) == (1.8,)
+    with pytest.raises(ValueError, match="tier 1: 5, 6"):
+        GetFloat().get_value("CFG", extra_pnginfo=data)
+
+
+def test_recursive_precedence_prefers_ungrouped_then_grouped_root_then_subgraph(caplog):
+    state = selectorx_state(
+        [{"name": "Profile", "modes": {"Root Choice": "Active", "Nested Choice": "Active"}}],
+        {"Root Choice": "Group Configurator", "Nested Choice": "Group Configurator"},
+    )
+    subgraph = {
+        "id": "subgraph-a",
+        "name": "Nested",
+        "nodes": [set_node(7, "KVGC_SetInt", "Choice", 30, pos=[10, 10], size=[80, 40])],
+        "groups": [group("Nested Choice", [0, 0, 100, 100])],
+    }
+    data = workflow(
+        selectorx_node(1, "Profile", state),
+        set_node(2, "KVGC_SetInt", "Choice", 10, pos=[500, 500], size=[80, 40]),
+        set_node(3, "KVGC_SetInt", "Choice", 20, pos=[10, 10], size=[80, 40]),
+        {"id": 50, "type": "subgraph-a", "mode": 0},
+        groups=[group("Root Choice", [0, 0, 100, 100])],
+        subgraphs=[subgraph],
+    )
+    assert GetInt().get_value("Choice", extra_pnginfo=data) == (10,)
+
+
+def test_recursive_lookup_uses_unique_subgraph_candidate_and_honors_muted_wrapper():
+    subgraph = {
+        "id": "subgraph-a",
+        "nodes": [set_node(7, "KVGC_SetString", "Name", "nested")],
+        "groups": [],
+    }
+    active = workflow({"id": 50, "type": "subgraph-a", "mode": 0}, subgraphs=[subgraph])
+    assert GetString().get_value("Name", extra_pnginfo=active) == ("nested",)
+
+    muted = workflow({"id": 50, "type": "subgraph-a", "mode": 2}, subgraphs=[subgraph])
+    with pytest.raises(KeyError, match="No String value"):
+        GetString().get_value("Name", extra_pnginfo=muted)
+
+
+def test_legacy_configuration_does_not_control_same_named_subgraph_group():
+    subgraph = {
+        "id": "subgraph-a",
+        "nodes": [set_node(7, "KVGC_SetInt", "Steps", 7, pos=[10, 10], size=[80, 40])],
+        "groups": [group("Legacy Group", [0, 0, 100, 100])],
+    }
+    data = workflow(
+        selector_node(1, "Profile"),
+        configurator_node(2, "Profile", {"Legacy Group": "Mute"}),
+        {"id": 50, "type": "subgraph-a", "mode": 0},
+        subgraphs=[subgraph],
+    )
+    assert GetInt().get_value("Steps", extra_pnginfo=data) == (7,)
+
+
+def test_recursive_lookup_prefers_promoted_per_instance_prompt_value():
+    subgraph = {
+        "id": "subgraph-a",
+        "nodes": [set_node(7, "KVGC_SetInt", "Steps", 7)],
+        "groups": [],
+    }
+    data = workflow({"id": 50, "type": "subgraph-a", "mode": 0}, subgraphs=[subgraph])
+    prompt = {
+        "50:7": {"class_type": "KVGC_SetInt", "inputs": {"key": "Steps", "value": 23}},
+    }
+    assert GetInt().get_value("Steps", prompt=prompt, extra_pnginfo=data) == (23,)
+
+
+def test_shared_subgraph_instances_are_distinct_candidates():
+    subgraph = {
+        "id": "subgraph-a",
+        "nodes": [set_node(7, "KVGC_SetBoolean", "Enabled", True)],
+        "groups": [],
+    }
+    data = workflow(
+        {"id": 50, "type": "subgraph-a", "mode": 0},
+        {"id": 60, "type": "subgraph-a", "mode": 0},
+        subgraphs=[subgraph],
+    )
+    with pytest.raises(ValueError, match="tier 3: 50:7, 60:7"):
+        GetBoolean().get_value("Enabled", extra_pnginfo=data)
+
+
+def test_duplicate_group_names_across_root_and_subgraph_are_rejected():
+    state = selectorx_state(
+        [{"name": "Profile", "modes": {"Sampling": "Active"}}],
+        {"Sampling": "Group Configurator"},
+    )
+    subgraph = {"id": "subgraph-a", "nodes": [], "groups": [group(" sampling ", [0, 0, 10, 10])]}
+    data = workflow(
+        selectorx_node(1, "Profile", state),
+        {"id": 50, "type": "subgraph-a", "mode": 0},
+        set_node(2, "KVGC_SetInt", "Steps", 20),
+        groups=[group("Sampling", [0, 0, 10, 10])],
+        subgraphs=[subgraph],
+    )
+    with pytest.raises(ValueError, match="group names must be unique"):
+        GetInt().get_value("Steps", extra_pnginfo=data)
+
+
+def test_shadowed_subgraph_duplicates_warn_but_root_override_wins(caplog):
+    first = {"id": "first", "nodes": [set_node(7, "KVGC_SetInt", "Steps", 7)], "groups": []}
+    second = {"id": "second", "nodes": [set_node(8, "KVGC_SetInt", "Steps", 8)], "groups": []}
+    data = workflow(
+        set_node(1, "KVGC_SetInt", "Steps", 1),
+        {"id": 50, "type": "first", "mode": 0},
+        {"id": 60, "type": "second", "mode": 0},
+        subgraphs=[first, second],
+    )
+    assert GetInt().get_value("Steps", extra_pnginfo=data) == (1,)
+    assert "Shadowed Set Int key 'Steps' has 2 active nodes at tier 3" in caplog.text
 
 
 def test_prompt_fallback_lookup():

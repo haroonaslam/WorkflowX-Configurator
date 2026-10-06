@@ -466,7 +466,9 @@ Config SelectorX is WorkflowX's integrated configuration system. Its **Scopes** 
 
 ![Config SelectorX configurations](docs/images/workflowx-config-selector-x-configs.png)
 
-**Controls:** **Scopes** assigns each native group to configuration, selector-mute, selector-bypass, or ignore behavior. **Configs** creates named configurations and assigns Active, Bypass, Mute, or Ignore per controlled group. State is stored in workflow JSON and validated during execution. [Config SelectorX guide](docs/CONFIG_SELECTOR_X.md)
+**Controls:** **Scopes** assigns each native group to configuration, selector-mute, selector-bypass, or ignore behavior. **Configs** creates named configurations and assigns Active, Bypass, Mute, or Ignore per controlled group. One initialized Config SelectorX on the root canvas controls the root and every reachable nested subgraph. Nested selectors are ignored with a warning, and multiple initialized root selectors block queueing. Subgraph group settings are definition-wide. State remains schema version 1 and is stored in workflow JSON. [Config SelectorX guide](docs/CONFIG_SELECTOR_X.md)
+
+Every non-empty group name must be unique across the reachable workflow (Unicode-normalized, trimmed, and case-insensitive for collision checks). Blank groups are unmanaged. Duplicate names are reported with readable locations and block queueing until renamed; repeated instances of one shared subgraph definition still represent one logical group.
 
 ### Typed Set/Get values
 
@@ -484,7 +486,15 @@ Set nodes publish a keyed value from their scoped group and intentionally have n
 | Sampler | `KVGC_SetSampler`, `KVGC_GetSampler` | `key: STRING`, sampler combo `value`; no outputs | `sampler_name`: live ComfyUI sampler combo |
 | Scheduler | `KVGC_SetScheduler`, `KVGC_GetScheduler` | `key: STRING`, scheduler combo `value`; no outputs | `scheduler`: live ComfyUI scheduler combo |
 
-Sampler and scheduler values are validated against the running ComfyUI installation. Typed resolution follows native group containment and the selected Config SelectorX state.
+Sampler and scheduler values are validated against the running ComfyUI installation. Typed values, Relay, Dimensions, and Reference all resolve a trimmed, case-sensitive key independently by family. The first non-empty tier wins:
+
+| Priority | Active Set candidates |
+|---:|---|
+| 1 | Ungrouped root Sets, including Sets in root groups scoped to **Ignore** |
+| 2 | Root Sets inside exactly one controlled group |
+| 3 | Sets in any reachable subgraph |
+
+Get location does not change precedence. Muted/bypassed Sets and Sets below inactive subgraph wrappers are excluded. More than one candidate in the winning tier is a hard error; duplicate candidates in a shadowed tier are warnings. Each shared-subgraph runtime instance counts separately, because its promoted values can differ. Keys in different families never collide. Full nested execution IDs are used for routing and typed provenance.
 
 ### Relay routing
 

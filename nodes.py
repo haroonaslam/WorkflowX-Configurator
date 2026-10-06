@@ -6,6 +6,7 @@ import logging
 import os
 import random
 import tempfile
+import unicodedata
 from typing import Any, ClassVar, NamedTuple
 
 logger = logging.getLogger(__name__)
@@ -97,6 +98,15 @@ class _ConfigContext(NamedTuple):
     selected_config: str
     config_modes: dict[str, str]
     groups: list[dict[str, Any]]
+    recursive: bool
+
+
+class _WorkflowNodeRecord(NamedTuple):
+    node: dict[str, Any]
+    execution_id: str
+    depth: int
+    groups: list[dict[str, Any]]
+    ancestors: tuple["_WorkflowNodeRecord", ...]
 
 
 def _parse_selectorx_state(raw_state: str) -> dict[str, Any]:
@@ -217,11 +227,83 @@ class _TypedKeyValueBase:
         return workflow if isinstance(workflow, dict) else {}
 
     @classmethod
-    def _workflow_groups(cls, extra_pnginfo: dict[str, Any] | None) -> list[dict[str, Any]]:
-        groups = cls._workflow(extra_pnginfo).get("groups")
-        if not isinstance(groups, list):
-            return []
-        return [group for group in groups if isinstance(group, dict)]
+    def _workflow_inventory(
+        cls, extra_pnginfo: dict[str, Any] | None
+    ) -> tuple[list[_WorkflowNodeRecord], list[dict[str, Any]]]:
+        workflow = cls._workflow(extra_pnginfo)
+        if not workflow:
+            return [], []
+
+        definitions: dict[str, dict[str, Any]] = {}
+        logical_graphs: list[dict[str, Any]] = [workflow]
+
+        def collect_definitions(graph: dict[str, Any]) -> None:
+            raw_definitions = graph.get("definitions")
+            if not isinstance(raw_definitions, dict):
+                return
+            subgraphs = raw_definitions.get("subgraphs")
+            if not isinstance(subgraphs, list):
+                return
+            for subgraph in subgraphs:
+                if not isinstance(subgraph, dict):
+                    continue
+                graph_id = str(subgraph.get("id", "")).strip()
+                if not graph_id or graph_id in definitions:
+                    continue
+                definitions[graph_id] = subgraph
+                logical_graphs.append(subgraph)
+                collect_definitions(subgraph)
+
+        collect_definitions(workflow)
+        logical_groups = [
+            group
+            for graph in logical_graphs
+            for group in (graph.get("groups") if isinstance(graph.get("groups"), list) else [])
+            if isinstance(group, dict)
+        ]
+        records: list[_WorkflowNodeRecord] = []
+
+        def expand(
+            graph: dict[str, Any],
+            prefix: str,
+            depth: int,
+            ancestors: tuple[_WorkflowNodeRecord, ...],
+            stack: frozenset[str],
+        ) -> None:
+            graph_id = str(graph.get("id", "__root__"))
+            if graph_id in stack:
+                raise ValueError(f"Circular subgraph reference detected at '{prefix or 'Canvas'}'.")
+            next_stack = stack | {graph_id}
+            graph_groups = [
+                group
+                for group in (graph.get("groups") if isinstance(graph.get("groups"), list) else [])
+                if isinstance(group, dict)
+            ]
+            graph_nodes = graph.get("nodes")
+            if not isinstance(graph_nodes, list):
+                return
+            for node in graph_nodes:
+                if not isinstance(node, dict):
+                    continue
+                local_id = str(node.get("id", "")).strip()
+                if not local_id:
+                    continue
+                execution_id = f"{prefix}:{local_id}" if prefix else local_id
+                node_rect = cls._node_rect(node)
+                containing_groups = []
+                if node_rect is not None:
+                    for group in graph_groups:
+                        group_rect = cls._group_rect(group)
+                        if group_rect is not None and cls._rects_intersect(node_rect, group_rect):
+                            containing_groups.append(group)
+                record = _WorkflowNodeRecord(node, execution_id, depth, containing_groups, ancestors)
+                records.append(record)
+                subgraph = definitions.get(str(node.get("type", "")))
+                if subgraph is not None:
+                    expand(subgraph, execution_id, depth + 1, (*ancestors, record), next_stack)
+
+        expand(workflow, "", 0, (), frozenset())
+        return records, logical_groups
 
     @classmethod
     def _prompt_nodes(cls, prompt: dict[str, Any] | None) -> list[dict[str, Any]]:
@@ -406,7 +488,10 @@ class _TypedKeyValueBase:
         if not candidates:
             return None
 
-        _, selected_config, state = sorted(candidates, key=lambda item: item[0])[-1]
+        if len(candidates) > 1:
+            raise ValueError("Multiple initialized Config SelectorX nodes exist on the root canvas.")
+
+        _, selected_config, state = candidates[0]
         selected = next(item for item in state["configs"] if item["name"] == selected_config)
         scopes = state["scopes"]
         advanced = state["advanced"]
@@ -430,12 +515,13 @@ class _TypedKeyValueBase:
             selected_config=selected_config,
             config_modes=effective_modes,
             groups=groups,
+            recursive=True,
         )
 
     @classmethod
     def _config_context(cls, extra_pnginfo: dict[str, Any] | None) -> _ConfigContext | None:
         nodes = cls._workflow_nodes(extra_pnginfo)
-        groups = cls._workflow_groups(extra_pnginfo)
+        _, groups = cls._workflow_inventory(extra_pnginfo)
         selectorx_context = cls._selectorx_context(nodes, groups)
         if selectorx_context is not None:
             return selectorx_context
@@ -452,58 +538,66 @@ class _TypedKeyValueBase:
             selected_config=selected_config,
             config_modes=config_modes,
             groups=groups,
+            recursive=False,
         )
 
-    @classmethod
-    def _configured_group_modes_for_node(
-        cls,
-        node: dict[str, Any],
-        context: _ConfigContext,
-    ) -> list[str]:
-        node_rect = cls._node_rect(node)
-        if node_rect is None:
-            return []
+    @staticmethod
+    def _canonical_group_name(group: dict[str, Any]) -> str:
+        return unicodedata.normalize("NFKC", str(group.get("title", ""))).strip().lower()
 
-        modes: list[str] = []
-        for group in context.groups:
-            title = cls._group_title(group)
-            if title not in context.config_modes:
+    @classmethod
+    def _validate_unique_group_names(cls, groups: list[dict[str, Any]]) -> None:
+        names: dict[str, list[str]] = {}
+        for group in groups:
+            name = cls._group_title(group)
+            canonical = cls._canonical_group_name(group)
+            if not canonical:
                 continue
-
-            group_rect = cls._group_rect(group)
-            if group_rect is None:
-                continue
-
-            if cls._rects_intersect(node_rect, group_rect):
-                mode = context.config_modes[title]
-                if mode != "Ignore":
-                    modes.append(mode)
-
-        return modes
+            names.setdefault(canonical, []).append(name)
+        duplicates = [values for values in names.values() if len(values) > 1]
+        if duplicates:
+            labels = ", ".join(" / ".join(values) for values in duplicates)
+            raise ValueError(f"Config SelectorX group names must be unique across the workflow: {labels}")
 
     @classmethod
-    def _is_selected_config_candidate(
+    def _record_state(
         cls,
-        node: dict[str, Any],
-        context: _ConfigContext,
-    ) -> bool:
-        modes = cls._configured_group_modes_for_node(node, context)
-        if not modes:
-            return True
-        return "Active" in modes
+        record: _WorkflowNodeRecord,
+        context: _ConfigContext | None,
+    ) -> tuple[bool, list[str]]:
+        for ancestor in record.ancestors:
+            inactive, _ = cls._record_state(ancestor, context)
+            if inactive:
+                return True, []
+
+        controlled: list[str] = []
+        if context is not None and (context.recursive or record.depth == 0):
+            for group in record.groups:
+                title = cls._group_title(group)
+                mode = context.config_modes.get(title)
+                if mode is not None and mode != "Ignore":
+                    controlled.append(title)
+        if len(controlled) > 1:
+            raise ValueError(
+                f"Workflow node {record.execution_id} intersects multiple controlled groups: "
+                + ", ".join(controlled)
+            )
+        if controlled:
+            return context.config_modes[controlled[0]] != "Active", controlled
+        return not cls._is_active_workflow_node(record.node), controlled
 
     @classmethod
-    def _selected_config_candidate_priority(
+    def _record_tier(
         cls,
-        node: dict[str, Any],
-        context: _ConfigContext,
+        record: _WorkflowNodeRecord,
+        context: _ConfigContext | None,
     ) -> int | None:
-        modes = cls._configured_group_modes_for_node(node, context)
-        if not modes:
-            return 0
-        if "Active" in modes:
-            return 1
-        return None
+        inactive, controlled = cls._record_state(record, context)
+        if inactive:
+            return None
+        if record.depth > 0:
+            return 2
+        return 1 if controlled else 0
 
     @classmethod
     def _read_from_workflow_node(cls, node: dict[str, Any]) -> tuple[str, Any] | None:
@@ -535,47 +629,73 @@ class _TypedKeyValueBase:
         key: str,
         prompt: dict[str, Any] | None,
         extra_pnginfo: dict[str, Any] | None,
-    ) -> list[tuple[int, Any]]:
-        matches: list[tuple[int, Any]] = []
-        prioritized_matches: list[tuple[int, int, Any]] = []
+    ) -> list[tuple[str, Any]]:
         context = cls._config_context(extra_pnginfo)
-
-        for node in cls._workflow_nodes(extra_pnginfo):
-            if node.get("type") != cls.SET_CLASS_TYPE:
+        records, groups = cls._workflow_inventory(extra_pnginfo)
+        cls._validate_unique_group_names(groups)
+        if context is not None:
+            for record in records:
+                if record.node.get("type") != cls.SET_CLASS_TYPE:
+                    continue
+                controlled = [
+                    cls._group_title(group)
+                    for group in record.groups
+                    if context.recursive or record.depth == 0
+                    if context.config_modes.get(cls._group_title(group)) not in (None, "Ignore")
+                ]
+                if len(controlled) > 1:
+                    raise ValueError(
+                        f"Set {cls.TYPE_NAME} node {record.execution_id} intersects multiple "
+                        f"controlled groups: {', '.join(controlled)}"
+                    )
+        prompt_by_id = {
+            str(node.get("id", "")): node
+            for node in cls._prompt_nodes(prompt)
+            if node.get("class_type") == cls.SET_CLASS_TYPE
+        }
+        tiers: list[list[tuple[str, Any]]] = [[], [], []]
+        tier_locations: list[list[str]] = [[], [], []]
+        for record in records:
+            if record.node.get("type") != cls.SET_CLASS_TYPE:
                 continue
-
-            if context is None and not cls._is_active_workflow_node(node):
-                continue
-
-            read = cls._read_from_workflow_node(node)
-            if read is None:
-                continue
-
-            found_key, value = read
-            if found_key == key:
-                sort_id = cls._sort_id(node)
-                if context is not None:
-                    priority = cls._selected_config_candidate_priority(node, context)
-                    if priority is None:
-                        continue
-                    prioritized_matches.append((priority, sort_id, value))
-                else:
-                    matches.append((sort_id, value))
-
-        if prioritized_matches:
-            best_priority = min(priority for priority, _, _ in prioritized_matches)
-            return sorted(
-                [
-                    (sort_id, value)
-                    for priority, sort_id, value in prioritized_matches
-                    if priority == best_priority
-                ],
-                key=lambda item: item[0],
+            prompt_node = prompt_by_id.get(record.execution_id)
+            read = (
+                cls._read_from_prompt_node(prompt_node)
+                if prompt_node is not None
+                else cls._read_from_workflow_node(record.node)
             )
+            if read is None or read[0] != key:
+                continue
+            tier = cls._record_tier(record, context)
+            if tier is not None:
+                tiers[tier].append((record.execution_id, read[1]))
+                group_names = [cls._group_title(group) for group in record.groups]
+                location = record.execution_id
+                if group_names:
+                    location += f" [{', '.join(group_names)}]"
+                tier_locations[tier].append(location)
 
-        if matches:
-            return sorted(matches, key=lambda item: item[0])
+        for tier, matches in enumerate(tiers, start=1):
+            if not matches:
+                continue
+            if len(matches) > 1:
+                locations = ", ".join(tier_locations[tier - 1])
+                raise ValueError(
+                    f"Multiple active Set {cls.TYPE_NAME} nodes found for key '{key}' at tier {tier}: "
+                    f"{locations}. Leave only one active Set at this tier."
+                )
+            for shadow_tier, shadowed in enumerate(tiers[tier:], start=tier + 1):
+                if len(shadowed) > 1:
+                    logger.warning(
+                        "Shadowed Set %s key '%s' has %s active nodes at tier %s.",
+                        cls.TYPE_NAME,
+                        key,
+                        len(shadowed),
+                        shadow_tier,
+                    )
+            return matches
 
+        prompt_matches: list[tuple[str, Any]] = []
         for node in cls._prompt_nodes(prompt):
             if node.get("class_type") != cls.SET_CLASS_TYPE:
                 continue
@@ -586,9 +706,13 @@ class _TypedKeyValueBase:
 
             found_key, value = read
             if found_key == key:
-                matches.append((cls._sort_id(node), value))
-
-        return sorted(matches, key=lambda item: item[0])
+                prompt_matches.append((str(node.get("id", "0")), value))
+        if len(prompt_matches) > 1:
+            locations = ", ".join(source for source, _ in prompt_matches)
+            raise ValueError(
+                f"Multiple active Set {cls.TYPE_NAME} nodes found for key '{key}' in the API prompt: {locations}."
+            )
+        return prompt_matches
 
     @classmethod
     def _lookup(
@@ -608,15 +732,7 @@ class _TypedKeyValueBase:
                 f"Add a Set {cls.TYPE_NAME} node with the same key to this workflow."
             )
 
-        if len(matches) > 1:
-            logger.warning(
-                "Multiple Set %s nodes found for key '%s'; using node id %s.",
-                cls.TYPE_NAME,
-                clean_key,
-                matches[-1][0],
-            )
-
-        return cls._coerce(matches[-1][1])
+        return cls._coerce(matches[0][1])
 
     @classmethod
     def _fingerprint(
@@ -649,16 +765,20 @@ class _TypedKeyValueBase:
         cls,
         key: str,
         resolved_config: str,
+        modes: dict[str, str],
+        source: str,
         resolved_value: Any,
     ) -> str:
         payload = {
             "config": str(resolved_config or ""),
             "key": cls._normalize_key(key),
+            "modes": modes,
+            "source": str(source),
             "type": cls.TYPE_NAME,
             "value": resolved_value,
         }
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
-        return f"workflowx:{encoded}"
+        return f"workflowx:v2:{encoded}"
 
     @classmethod
     def _has_valid_resolved_value(
@@ -667,11 +787,30 @@ class _TypedKeyValueBase:
         resolved_value: Any,
         resolved_config: str,
         resolved_digest: str,
+        prompt: dict[str, Any] | None,
+        extra_pnginfo: dict[str, Any] | None,
     ) -> bool:
-        if not str(resolved_digest or ""):
+        if not str(resolved_digest or "").startswith("workflowx:v2:"):
             return False
-
-        expected = cls._expected_resolved_digest(key, resolved_config, resolved_value)
+        matches = cls._matching_set_nodes(cls._normalize_key(key), prompt, extra_pnginfo)
+        if len(matches) != 1:
+            return False
+        context = cls._config_context(extra_pnginfo)
+        selected_config = context.selected_config if context else ""
+        if str(resolved_config or "") != selected_config:
+            return False
+        try:
+            if cls._coerce(resolved_value) != cls._coerce(matches[0][1]):
+                return False
+        except (TypeError, ValueError):
+            return False
+        expected = cls._expected_resolved_digest(
+            key,
+            selected_config,
+            context.config_modes if context else {},
+            matches[0][0],
+            resolved_value,
+        )
         return str(resolved_digest) == expected
 
 
@@ -723,7 +862,14 @@ class _GetBase(_TypedKeyValueBase):
         prompt: dict[str, Any] | None = None,
         extra_pnginfo: dict[str, Any] | None = None,
     ) -> tuple[Any]:
-        if self._has_valid_resolved_value(key, resolved_value, resolved_config, resolved_digest):
+        if self._has_valid_resolved_value(
+            key,
+            resolved_value,
+            resolved_config,
+            resolved_digest,
+            prompt,
+            extra_pnginfo,
+        ):
             return (self._coerce(resolved_value),)
         return (self._lookup(key, prompt, extra_pnginfo),)
 

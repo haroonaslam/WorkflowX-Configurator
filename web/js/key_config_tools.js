@@ -5,8 +5,16 @@ import {
   effectiveSelectorXModes,
   parseSelectorXState,
 } from "./config_selector_x_state.mjs?workflowx=2";
-import { createSelectorXController } from "./config_selector_x_ui.js";
-import { referenceIsMuted } from "./reference_routing_state.mjs";
+import { createSelectorXController } from "./config_selector_x_ui.js?workflowx=2";
+import {
+  applyModeToNamedGroup,
+  buildGraphInventory,
+  candidateTier,
+  describeDuplicateGroups,
+  effectiveRecordState,
+  graphNodes,
+  resolveCandidates,
+} from "./key_config_graph.mjs?workflowx=2";
 
 const EXTENSION_NAME = "key_config_tools.group_configurator";
 const DEBUG_LOG_ROUTE = "/workflowx_configurator/debug_log";
@@ -16,9 +24,7 @@ const SELECTOR_TYPE = "KVGC_ConfigSelector";
 const ADVANCED_SELECTOR_TYPE = "KVGC_ConfigSelectorAdvanced";
 const SELECTOR_X_TYPE = "KVGC_ConfigSelectorX";
 const GROUP_SCOPES_TYPE = "KVGC_GroupScopes";
-const SET_RELAY_TYPE = "KVGC_SetRelay";
 const GET_RELAY_TYPE = "KVGC_GetRelay";
-const SET_DIMENSIONS_TYPE = "KVGC_SetDimensions";
 const GET_DIMENSIONS_TYPE = "KVGC_GetDimensions";
 const SET_REFERENCE_TYPE = "KVGC_SetReference";
 const GET_REFERENCE_TYPE = "KVGC_GetReference";
@@ -31,14 +37,23 @@ const GET_TYPES = Object.freeze({
   KVGC_GetSampler: "Sampler",
   KVGC_GetScheduler: "Scheduler",
 });
-const SET_TYPES_BY_GET_TYPE = Object.freeze({
-  KVGC_GetInt: "KVGC_SetInt",
-  KVGC_GetFloat: "KVGC_SetFloat",
-  KVGC_GetString: "KVGC_SetString",
-  KVGC_GetText: "KVGC_SetText",
-  KVGC_GetBoolean: "KVGC_SetBoolean",
-  KVGC_GetSampler: "KVGC_SetSampler",
-  KVGC_GetScheduler: "KVGC_SetScheduler",
+const FAMILY_BY_SET_TYPE = Object.freeze({
+  KVGC_SetInt: "Int",
+  KVGC_SetFloat: "Float",
+  KVGC_SetString: "String",
+  KVGC_SetText: "Text",
+  KVGC_SetBoolean: "Boolean",
+  KVGC_SetSampler: "Sampler",
+  KVGC_SetScheduler: "Scheduler",
+  KVGC_SetRelay: "Relay",
+  KVGC_SetDimensions: "Dimensions",
+  KVGC_SetReference: "Reference",
+});
+const FAMILY_BY_GET_TYPE = Object.freeze({
+  ...GET_TYPES,
+  KVGC_GetRelay: "Relay",
+  KVGC_GetDimensions: "Dimensions",
+  KVGC_GetReference: "Reference",
 });
 
 const MODES = Object.freeze({
@@ -103,21 +118,31 @@ function setWidgetValueSilently(node, name, value) {
 }
 
 function allNodes() {
-  return getGraph()?._nodes ?? [];
+  return buildGraphInventory(getGraph()).graphs.flatMap(({ graph }) => graphNodes(graph));
 }
 
-function allGroups() {
-  return getGraph()?._groups ?? [];
-}
-
-function groupTitle(group) {
-  return String(group?.title ?? "").trim();
+function rootNodes() {
+  return graphNodes(getGraph());
 }
 
 function uniqueGroupTitles() {
-  return [...new Set(allGroups().map(groupTitle).filter(Boolean))].sort((a, b) =>
+  return [...new Set(buildGraphInventory(getGraph()).groups.map(({ name }) => name))].sort((a, b) =>
     a.localeCompare(b),
   );
+}
+
+function rootGroupTitles() {
+  return [
+    ...new Set(
+      buildGraphInventory(getGraph()).groups
+        .filter(({ isRoot }) => isRoot)
+        .map(({ name }) => name),
+    ),
+  ].sort((a, b) => a.localeCompare(b));
+}
+
+function groupDisplayLabel(groupName) {
+  return buildGraphInventory(getGraph()).groups.find(({ name }) => name === groupName)?.location ?? groupName;
 }
 
 function nodeType(node) {
@@ -148,26 +173,6 @@ function isGroupScopes(node) {
   return nodeType(node) === GROUP_SCOPES_TYPE;
 }
 
-function isSetRelay(node) {
-  return nodeType(node) === SET_RELAY_TYPE;
-}
-
-function isGetRelay(node) {
-  return nodeType(node) === GET_RELAY_TYPE;
-}
-
-function isSetDimensions(node) {
-  return nodeType(node) === SET_DIMENSIONS_TYPE;
-}
-
-function isGetDimensions(node) {
-  return nodeType(node) === GET_DIMENSIONS_TYPE;
-}
-
-function isSetReference(node) {
-  return nodeType(node) === SET_REFERENCE_TYPE;
-}
-
 function isGetReference(node) {
   return nodeType(node) === GET_REFERENCE_TYPE;
 }
@@ -177,7 +182,7 @@ function isGetNode(node) {
 }
 
 function groupScopesNodes() {
-  return allNodes().filter(isGroupScopes);
+  return rootNodes().filter(isGroupScopes);
 }
 
 function hasDuplicateGroupScopes() {
@@ -204,7 +209,7 @@ function workflowScopes() {
 }
 
 function groupsForScope(scopeName) {
-  const groups = uniqueGroupTitles();
+  const groups = rootGroupTitles();
   const scopes = workflowScopes();
   if (!scopes) {
     return scopeName === CONFIGURATOR_SCOPE ? groups : [];
@@ -240,7 +245,7 @@ function readSelectorXState(node) {
 }
 
 function legacySelectorNodes() {
-  return allNodes().filter((node) =>
+  return rootNodes().filter((node) =>
     [SELECTOR_TYPE, ADVANCED_SELECTOR_TYPE].includes(nodeType(node)),
   );
 }
@@ -250,7 +255,7 @@ function highestIdNode(nodes) {
 }
 
 function collectLegacyImport() {
-  const configNodes = allNodes().filter(isConfigurator);
+  const configNodes = rootNodes().filter(isConfigurator);
   const configNames = configNodes
     .map((node) => String(getWidgetValue(node, "config_name", "")).trim())
     .filter(Boolean);
@@ -295,6 +300,7 @@ function collectLegacyImport() {
 
 const selectorXController = createSelectorXController({
   groupNames: uniqueGroupTitles,
+  groupLabel: groupDisplayLabel,
   getWidgetValue,
   setWidgetValueSilently,
   writeJsonWidget,
@@ -316,7 +322,7 @@ const selectorXController = createSelectorXController({
 
 function configsByName() {
   const configs = new Map();
-  for (const node of allNodes().filter(isConfigurator)) {
+  for (const node of rootNodes().filter(isConfigurator)) {
     const name = String(getWidgetValue(node, "config_name", "")).trim();
     if (!name) continue;
     configs.set(name, {
@@ -361,45 +367,16 @@ function writeScopeChoices(node, scopes) {
   writeJsonWidget(node, "scopes_json", scopes);
 }
 
-function nodeBounds(node) {
-  const [x, y] = node.pos ?? [0, 0];
-  const [w, h] = node.size ?? [0, 0];
-  return { x, y, w, h };
-}
-
-function groupBounds(group) {
-  const [x, y] = group.pos ?? [0, 0];
-  const [w, h] = group.size ?? [0, 0];
-  return { x, y, w, h };
-}
-
-function intersects(a, b) {
-  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
-}
-
-function nodeInsideGroup(node, group) {
-  if (isConfigurator(node) || isSelector(node) || isGroupScopes(node)) return false;
-  return intersects(nodeBounds(node), groupBounds(group));
-}
-
-function applyModeToGroup(groupName, modeName) {
+function applyModeToGroup(groupName, modeName, recursive = true) {
   if (!Object.hasOwn(MODES, modeName)) return 0;
-
-  let changed = 0;
-  const mode = MODES[modeName];
-  for (const group of allGroups()) {
-    if (groupTitle(group) !== groupName) continue;
-
-    for (const node of allNodes()) {
-      if (!nodeInsideGroup(node, group)) continue;
-      if (node.mode === mode) continue;
-
-      node.mode = mode;
-      node.setDirtyCanvas?.(true, true);
-      changed += 1;
-    }
-  }
-  return changed;
+  const inventory = buildGraphInventory(getGraph());
+  if (!recursive) inventory.groups = inventory.groups.filter(({ isRoot }) => isRoot);
+  return applyModeToNamedGroup(
+    inventory,
+    groupName,
+    MODES[modeName],
+    (node) => isConfigurator(node) || isSelector(node) || isGroupScopes(node),
+  );
 }
 
 function applyConfig(configName, selector = selectedSelectorNode()) {
@@ -419,7 +396,7 @@ function applyConfig(configName, selector = selectedSelectorNode()) {
   if (!config) return false;
 
   for (const [groupName, modeName] of Object.entries(config.modes)) {
-    applyModeToGroup(groupName, modeName);
+    applyModeToGroup(groupName, modeName, false);
   }
 
   markCanvasDirty();
@@ -453,18 +430,20 @@ function stableStringify(value) {
     .join(",")}}`;
 }
 
-function digestResolvedValue(typeName, key, configName, value) {
+function digestResolvedValue(typeName, key, configName, modes, source, value) {
   const payload = {
     config: String(configName || ""),
     key: String(key || "").trim(),
+    modes: modes ?? {},
+    source: String(source || ""),
     type: typeName,
     value,
   };
-  return `workflowx:${stableStringify(payload)}`;
+  return `workflowx:v2:${stableStringify(payload)}`;
 }
 
 function selectedSelectorNode() {
-  const selectorXNodes = allNodes()
+  const selectorXNodes = rootNodes()
     .filter(isSelectorX)
     .map((node) => ({ id: Number(node.id ?? 0), node, value: selectedConfigName(node) }))
     .filter((entry) => {
@@ -481,42 +460,67 @@ function selectedSelectorNode() {
   return selectors.at(-1)?.node ?? null;
 }
 
+function graphValidation() {
+  const inventory = buildGraphInventory(getGraph());
+  const { modes, recursive } = selectedConfigContext();
+  const effectiveModes = modes ?? {};
+  const rootSelectors = rootNodes().filter((node) => isSelectorX(node) && readSelectorXState(node));
+  const nestedSelectors = inventory.instances.filter((record) => !record.isRoot && isSelectorX(record.node));
+  const errors = [];
+  const warnings = [];
+  if (inventory.duplicateGroups.length) {
+    errors.push(`Duplicate group names: ${describeDuplicateGroups(inventory.duplicateGroups).join("; ")}`);
+  }
+  if (inventory.cycles.length) errors.push(`Circular subgraph reference: ${inventory.cycles.join(", ")}`);
+  if (rootSelectors.length > 1) errors.push("Multiple initialized Config SelectorX nodes exist on the root canvas.");
+  for (const record of inventory.instances) {
+    const family = FAMILY_BY_SET_TYPE[nodeType(record.node)];
+    if (!family) continue;
+    const controlledGroups = recursive || record.isRoot
+      ? record.containingGroups.filter(
+          ({ name }) => Object.hasOwn(effectiveModes, name) && effectiveModes[name] !== "Ignore",
+        )
+      : [];
+    if (controlledGroups.length > 1) {
+      errors.push(
+        `${family} Set ${record.executionId} intersects multiple controlled groups: ${controlledGroups.map(({ name }) => name).join(", ")}.`,
+      );
+    }
+  }
+  if (nestedSelectors.length) warnings.push(`${nestedSelectors.length} nested Config SelectorX node(s) are ignored.`);
+  return { inventory, errors, warnings };
+}
+
+function assertQueueGraphValid() {
+  const validation = graphValidation();
+  for (const warning of validation.warnings) console.warn(`[WorkflowX_Configurator] ${warning}`);
+  if (validation.errors.length) throw new Error(`[WorkflowX_Configurator] ${validation.errors.join(" ")}`);
+  return validation.inventory;
+}
+
 function selectedConfigContext() {
   const selector = selectedSelectorNode();
   const selectedConfig = selectedConfigName(selector);
-  if (!selectedConfig) return { selectedConfig: "", modes: null };
+  if (!selectedConfig) return { selectedConfig: "", modes: null, recursive: false };
 
   if (isSelectorX(selector)) {
     const state = readSelectorXState(selector);
     return {
       selectedConfig,
       modes: state ? effectiveSelectorXModes(state, selectedConfig) : null,
+      recursive: true,
     };
   }
 
   return {
     selectedConfig,
     modes: configsByName().get(selectedConfig)?.modes ?? null,
+    recursive: false,
   };
 }
 
 function consoleOutputEnabled() {
   return String(getWidgetValue(selectedSelectorNode(), "console_output", "no") || "no") === "yes";
-}
-
-function groupNamesForNode(node, modes = null) {
-  const names = [];
-  const nodeRect = nodeBounds(node);
-
-  for (const group of allGroups()) {
-    const title = groupTitle(group);
-    if (modes && (!Object.hasOwn(modes, title) || modes[title] === "Ignore")) continue;
-    if (intersects(nodeRect, groupBounds(group))) {
-      names.push(title);
-    }
-  }
-
-  return names;
 }
 
 function formatDebugGroups(groupNames) {
@@ -536,367 +540,136 @@ function logResolution(message) {
   }
 }
 
-function groupModeForNode(node, modes) {
-  const nodeRect = nodeBounds(node);
-  const matchedModes = [];
-
-  for (const group of allGroups()) {
-    const title = groupTitle(group);
-    if (!Object.hasOwn(modes, title)) continue;
-
-    if (intersects(nodeRect, groupBounds(group))) {
-      const mode = modes[title];
-      if (mode !== "Ignore") {
-        matchedModes.push(mode);
-      }
-    }
-  }
-
-  return matchedModes;
-}
-
-function priorityForSetNode(node, modes) {
-  const matchedModes = groupModeForNode(node, modes);
-  if (!matchedModes.length) return 0;
-  if (matchedModes.includes("Active")) return 1;
-  return null;
-}
-
-function valueForSetNode(node) {
-  const valueWidget = findWidget(node, "value");
-  if (valueWidget) return valueWidget.value;
-
-  const values = node.widgets_values;
-  return Array.isArray(values) ? values[1] : undefined;
-}
-
 function keyForSetNode(node) {
   return String(getWidgetValue(node, "key", "") || "").trim();
 }
 
-function resolveGetNodeValue(getNode) {
-  const getType = nodeType(getNode);
-  const setType = SET_TYPES_BY_GET_TYPE[getType];
-  const key = String(getWidgetValue(getNode, "key", "") || "").trim();
-  if (!setType || !key) return null;
-
-  const { selectedConfig, modes } = selectedConfigContext();
-
-  const candidates = [];
-  for (const node of allNodes()) {
-    if (nodeType(node) !== setType) continue;
-    if (keyForSetNode(node) !== key) continue;
-
-    let priority = 0;
-    if (modes) {
-      priority = priorityForSetNode(node, modes);
-      if (priority === null) continue;
-    } else if (node.mode === MODES.Mute || node.mode === MODES.Bypass) {
-      continue;
-    }
-
-    candidates.push({
-      id: Number(node.id ?? 0),
-      priority,
-      value: valueForSetNode(node),
-      groupNames: groupNamesForNode(node, modes),
-    });
-  }
-
-  if (!candidates.length) return null;
-
-  const bestPriority = Math.min(...candidates.map((candidate) => candidate.priority));
-  const bestCandidates = candidates
-    .filter((candidate) => candidate.priority === bestPriority)
-    .sort((a, b) => a.id - b.id);
-
-  if (bestCandidates.length > 1) {
-    console.warn(
-      `[WorkflowX_Configurator] Multiple active ${setType} nodes found for key "${key}"; using node id ${bestCandidates.at(-1).id}.`,
-    );
-  }
-
-  return {
-    configName: selectedConfig,
-    typeName: GET_TYPES[getType],
-    key,
-    setType,
-    ...bestCandidates.at(-1),
-  };
+function promptScalar(value, fallback = "") {
+  return Array.isArray(value) ? fallback : value ?? fallback;
 }
 
-function materializeGetValuesBeforeQueue() {
-  applySelectedConfigAndAdvancedOverrides();
+function promptBoolean(value) {
+  return value === true || String(value).toLowerCase() === "true";
+}
 
-  for (const getNode of allNodes().filter(isGetNode)) {
-    const resolved = resolveGetNodeValue(getNode);
-    if (!resolved) {
-      logResolution(
-        `Get ${GET_TYPES[nodeType(getNode)]} key="${String(getWidgetValue(getNode, "key", "") || "").trim()}" unresolved`,
+function showResolutionWarnings(warnings) {
+  for (const node of rootNodes().filter(isSelectorX)) {
+    node.widgets = (node.widgets ?? []).filter((widget) => !widget.__workflowXResolutionWarning);
+    if (warnings.length) {
+      const suffix = warnings.length > 1 ? ` (+${warnings.length - 1} more)` : "";
+      addTextRow(
+        node,
+        "warning:set_resolution",
+        `${warnings[0]}${suffix}`,
+        "__workflowXResolutionWarning",
       );
-      setWidgetValueSilently(getNode, "resolved_value", "");
-      setWidgetValueSilently(getNode, "resolved_config", "");
-      setWidgetValueSilently(getNode, "resolved_digest", "");
-      continue;
     }
-
-    const value = String(resolved.value);
-    const digest = digestResolvedValue(
-      resolved.typeName,
-      resolved.key,
-      resolved.configName,
-      value,
-    );
-    setWidgetValueSilently(getNode, "resolved_value", value);
-    setWidgetValueSilently(getNode, "resolved_config", resolved.configName);
-    setWidgetValueSilently(getNode, "resolved_digest", digest);
-
-    logResolution(
-      `Get ${resolved.typeName} key="${resolved.key}" resolved from ${resolved.setType} node ${resolved.id}${formatDebugGroups(resolved.groupNames)} value=${JSON.stringify(value)} config="${resolved.configName || "none"}"`,
-    );
+    recomputeNodeHeightPreservingWidth(node);
   }
 }
 
-function relayKey(node) {
-  return String(getWidgetValue(node, "key", "") || "").trim();
-}
-
-function resolveRelaySource(getNode, promptOutput) {
-  const key = relayKey(getNode);
-  if (!key || !promptOutput) return null;
-
-  const { modes } = selectedConfigContext();
-
-  const candidates = [];
-  for (const node of allNodes()) {
-    if (!isSetRelay(node)) continue;
-    if (relayKey(node) !== key) continue;
-    if (!promptOutput[String(node.id)]) continue;
-
-    let priority = 0;
-    if (modes) {
-      priority = priorityForSetNode(node, modes);
-      if (priority === null) continue;
-    }
-
-    candidates.push({
-      id: Number(node.id ?? 0),
-      priority,
-      node,
-      groupNames: groupNamesForNode(node, modes),
-    });
-  }
-
-  if (!candidates.length) return null;
-
-  const bestPriority = Math.min(...candidates.map((candidate) => candidate.priority));
-  const bestCandidates = candidates
-    .filter((candidate) => candidate.priority === bestPriority)
-    .sort((a, b) => a.id - b.id);
-
-  if (bestCandidates.length > 1) {
-    console.warn(
-      `[WorkflowX_Configurator] Multiple active Set Relay nodes found for key "${key}"; using node id ${bestCandidates.at(-1).id}.`,
-    );
-  }
-
-  return bestCandidates.at(-1);
-}
-
-function resolveReferenceSource(getNode, promptOutput = null) {
-  const key = relayKey(getNode);
-  if (!key) return null;
-
-  const { modes } = selectedConfigContext();
-
-  const candidates = [];
-  for (const node of allNodes()) {
-    if (!isSetReference(node)) continue;
-    if (relayKey(node) !== key) continue;
-    if (promptOutput && !promptOutput[String(node.id)]) continue;
-    if (node.mode === MODES.Mute || node.mode === MODES.Bypass) continue;
-
-    let priority = 0;
-    if (modes) {
-      priority = priorityForSetNode(node, modes);
-      if (priority === null) continue;
-    }
-
-    candidates.push({
-      id: Number(node.id ?? 0),
-      priority,
-      node,
-      groupNames: groupNamesForNode(node, modes),
-    });
-  }
-
-  if (!candidates.length) return null;
-
-  const bestPriority = Math.min(...candidates.map((candidate) => candidate.priority));
-  const bestCandidates = candidates
-    .filter((candidate) => candidate.priority === bestPriority)
-    .sort((a, b) => a.id - b.id);
-
-  if (bestCandidates.length > 1) {
-    console.warn(
-      `[WorkflowX_Configurator] Multiple active Set Reference nodes found for key "${key}"; using node id ${bestCandidates.at(-1).id}.`,
-    );
-  }
-
-  return bestCandidates.at(-1);
-}
-
-function resolveDimensionsSource(getNode, promptOutput) {
-  const key = relayKey(getNode);
-  if (!key || !promptOutput) return null;
-
-  const { modes } = selectedConfigContext();
-
-  const candidates = [];
-  for (const node of allNodes()) {
-    if (!isSetDimensions(node)) continue;
-    if (relayKey(node) !== key) continue;
-    if (!promptOutput[String(node.id)]) continue;
-
-    let priority = 0;
-    if (modes) {
-      priority = priorityForSetNode(node, modes);
-      if (priority === null) continue;
-    }
-
-    candidates.push({
-      id: Number(node.id ?? 0),
-      priority,
-      node,
-      groupNames: groupNamesForNode(node, modes),
-    });
-  }
-
-  if (!candidates.length) return null;
-
-  const bestPriority = Math.min(...candidates.map((candidate) => candidate.priority));
-  const bestCandidates = candidates
-    .filter((candidate) => candidate.priority === bestPriority)
-    .sort((a, b) => a.id - b.id);
-
-  if (bestCandidates.length > 1) {
-    console.warn(
-      `[WorkflowX_Configurator] Multiple active Set Dimensions nodes found for key "${key}"; using node id ${bestCandidates.at(-1).id}.`,
-    );
-  }
-
-  return bestCandidates.at(-1);
-}
-
-function materializeDimensionsLinksInPrompt(promptResult) {
+function materializeRecursiveSetGets(promptResult, inventory) {
   const output = promptResult?.output;
   if (!output) return promptResult;
+  const { selectedConfig, modes, recursive } = selectedConfigContext();
+  const effectiveModes = modes ?? {};
+  const candidatesByLookup = new Map();
 
-  for (const getNode of allNodes().filter(isGetDimensions)) {
-    const getOutput = output[String(getNode.id)];
-    if (!getOutput) continue;
-
-    const source = resolveDimensionsSource(getNode, output);
-    if (!source) {
-      console.warn(
-        `[WorkflowX_Configurator] No active Set Dimensions found for key "${relayKey(getNode)}"; keeping any existing Get Dimensions inputs.`,
+  for (const record of inventory.instances) {
+    const promptNode = output[record.executionId];
+    const family = FAMILY_BY_SET_TYPE[nodeType(record.node)];
+    if (!promptNode || !family) continue;
+    const key = String(promptScalar(promptNode.inputs?.key, keyForSetNode(record.node)) || "").trim();
+    if (!key) continue;
+    const state = effectiveRecordState(record, effectiveModes, recursive);
+    if (state.overlap) {
+      throw new Error(
+        `[WorkflowX_Configurator] ${family} Set ${record.executionId} intersects multiple controlled groups: ${state.controlledGroups.map(({ name }) => name).join(", ")}.`,
       );
+    }
+    const tier = candidateTier(record, effectiveModes, recursive);
+    if (tier === null) continue;
+    const lookup = `${family}\u0000${key}`;
+    const candidates = candidatesByLookup.get(lookup) ?? [];
+    candidates.push({
+      executionId: record.executionId,
+      family,
+      key,
+      node: record.node,
+      promptNode,
+      tier,
+      groupNames: record.containingGroups.map(({ name }) => name),
+    });
+    candidatesByLookup.set(lookup, candidates);
+  }
+
+  const resolved = new Map();
+  const resolutionWarnings = [];
+  for (const [lookup, candidates] of candidatesByLookup) {
+    const [family, key] = lookup.split("\u0000");
+    const result = resolveCandidates(candidates, family, key);
+    for (const warning of result.warnings) {
+      resolutionWarnings.push(warning);
+      console.warn(`[WorkflowX_Configurator] ${warning}`);
+    }
+    if (result.candidate) resolved.set(lookup, result.candidate);
+  }
+  showResolutionWarnings(resolutionWarnings);
+
+  const removedReferences = new Set();
+  for (const [executionId, getPrompt] of Object.entries(output)) {
+    const family = FAMILY_BY_GET_TYPE[getPrompt.class_type];
+    if (!family) continue;
+    const key = String(promptScalar(getPrompt.inputs?.key, "") || "").trim();
+    const source = resolved.get(`${family}\u0000${key}`);
+    if (!source) {
+      if (Object.hasOwn(GET_TYPES, getPrompt.class_type)) {
+        getPrompt.inputs.resolved_value = "";
+        getPrompt.inputs.resolved_config = "";
+        getPrompt.inputs.resolved_digest = "";
+      }
       continue;
     }
 
-    getOutput.inputs ??= {};
-    getOutput.inputs.width = [String(source.node.id), 0];
-    getOutput.inputs.height = [String(source.node.id), 1];
-
+    getPrompt.inputs ??= {};
+    if (Object.hasOwn(GET_TYPES, getPrompt.class_type)) {
+      const value = String(promptScalar(source.promptNode.inputs?.value, ""));
+      getPrompt.inputs.resolved_value = value;
+      getPrompt.inputs.resolved_config = selectedConfig;
+      getPrompt.inputs.resolved_digest = digestResolvedValue(
+        family,
+        key,
+        selectedConfig,
+        effectiveModes,
+        source.executionId,
+        value,
+      );
+    } else if (family === "Dimensions") {
+      getPrompt.inputs.width = [source.executionId, 0];
+      getPrompt.inputs.height = [source.executionId, 1];
+    } else {
+      getPrompt.inputs.value = [source.executionId, 0];
+      if (
+        family === "Reference" &&
+        (promptBoolean(getPrompt.inputs.mute) || promptBoolean(source.promptNode.inputs?.mute))
+      ) {
+        removedReferences.add(executionId);
+      }
+    }
     logResolution(
-      `Get Dimensions key="${relayKey(getNode)}" resolved from Set Dimensions node ${source.id}${formatDebugGroups(source.groupNames)} width_slot=0 height_slot=1`,
+      `Get ${family} key="${key}" resolved from Set ${family} ${source.executionId}${formatDebugGroups(source.groupNames)} config="${selectedConfig || "none"}"`,
     );
   }
 
+  for (const executionId of removedReferences) delete output[executionId];
+  if (removedReferences.size) {
+    for (const promptNode of Object.values(output)) {
+      for (const [name, input] of Object.entries(promptNode.inputs ?? {})) {
+        if (Array.isArray(input) && removedReferences.has(String(input[0]))) delete promptNode.inputs[name];
+      }
+    }
+  }
   return promptResult;
-}
-
-function applyReferenceMuteModesBeforeQueue() {
-  const originalModes = [];
-
-  for (const getNode of allNodes().filter(isGetReference)) {
-    const source = resolveReferenceSource(getNode);
-    const setMute = Boolean(source && getWidgetValue(source.node, "mute", false));
-    setWidgetValueSilently(getNode, "set_mute", setMute);
-
-    const getMute = getWidgetValue(getNode, "mute", false);
-    if (!referenceIsMuted(getMute, setMute)) continue;
-
-    originalModes.push({ node: getNode, mode: getNode.mode });
-    getNode.mode = MODES.Mute;
-  }
-
-  return originalModes;
-}
-
-function restoreReferenceModes(originalModes) {
-  for (const { node, mode } of originalModes) {
-    node.mode = mode;
-  }
-}
-
-function materializeReferenceLinksInPrompt(promptResult) {
-  const output = promptResult?.output;
-  if (!output) return promptResult;
-
-  for (const getNode of allNodes().filter(isGetReference)) {
-    const getOutput = output[String(getNode.id)];
-    if (!getOutput) continue;
-
-    const source = resolveReferenceSource(getNode, output);
-    if (!source) {
-      console.warn(
-        `[WorkflowX_Configurator] No active Set Reference found for key "${relayKey(getNode)}"; keeping any existing Get Reference input.`,
-      );
-      continue;
-    }
-
-    getOutput.inputs ??= {};
-    getOutput.inputs.value = [String(source.node.id), 0];
-
-    const muted = referenceIsMuted(
-      getWidgetValue(getNode, "mute", false),
-      getWidgetValue(source.node, "mute", false),
-    );
-    logResolution(
-      `Get Reference key="${relayKey(getNode)}" resolved from Set Reference node ${source.id}${formatDebugGroups(source.groupNames)} output_slot=0 muted=${muted}`,
-    );
-  }
-
-  return promptResult;
-}
-
-function materializeRelayLinksInPrompt(promptResult) {
-  const output = promptResult?.output;
-  if (!output) return promptResult;
-
-  for (const getNode of allNodes().filter(isGetRelay)) {
-    const getOutput = output[String(getNode.id)];
-    if (!getOutput) continue;
-
-    const source = resolveRelaySource(getNode, output);
-    if (!source) {
-      console.warn(
-        `[WorkflowX_Configurator] No active Set Relay found for key "${relayKey(getNode)}"; keeping any existing Get Relay input.`,
-      );
-      continue;
-    }
-
-    getOutput.inputs ??= {};
-    getOutput.inputs.value = [String(source.node.id), 0];
-
-    logResolution(
-      `Get Relay key="${relayKey(getNode)}" resolved from Set Relay node ${source.id}${formatDebugGroups(source.groupNames)} output_slot=0`,
-    );
-  }
-
-  materializeReferenceLinksInPrompt(promptResult);
-  return materializeDimensionsLinksInPrompt(promptResult);
 }
 
 function installGraphToPromptPatch() {
@@ -906,22 +679,10 @@ function installGraphToPromptPatch() {
 
   const originalGraphToPrompt = app.graphToPrompt.bind(app);
   app.graphToPrompt = async function (...args) {
-    const shouldMaterializeRelays = app.__workflowXRelayQueueing === true;
-    let referenceModes = [];
-    if (shouldMaterializeRelays) {
-      applySelectedConfigAndAdvancedOverrides();
-      referenceModes = applyReferenceMuteModesBeforeQueue();
-    }
-
-    try {
-      const promptResult = await originalGraphToPrompt(...args);
-      return shouldMaterializeRelays
-        ? materializeRelayLinksInPrompt(promptResult)
-        : promptResult;
-    } finally {
-      restoreReferenceModes(referenceModes);
-      app.__workflowXRelayQueueing = false;
-    }
+    const inventory = assertQueueGraphValid();
+    applySelectedConfigAndAdvancedOverrides();
+    const promptResult = await originalGraphToPrompt(...args);
+    return materializeRecursiveSetGets(promptResult, inventory);
   };
 
   app.__workflowXRelayGraphToPromptPatched = true;
@@ -988,6 +749,13 @@ function roundedRectPath(ctx, x, y, width, height, radius) {
 function refreshSelectorNode(node) {
   if (isSelectorX(node)) {
     selectorXController.refresh(node);
+    node.widgets = (node.widgets ?? []).filter((widget) => !widget.__workflowXGraphValidation);
+    if (rootNodes().includes(node)) {
+      const validation = graphValidation();
+      const message = validation.errors[0] ?? validation.warnings[0];
+      if (message) addTextRow(node, "warning:graph_validation", message, "__workflowXGraphValidation");
+      recomputeNodeHeightPreservingWidth(node);
+    }
     return;
   }
   hideSelectorBackingWidgets(node);
@@ -1013,7 +781,7 @@ function hideGetBackingWidgets(node) {
 }
 
 function refreshSelectorNodes() {
-  for (const node of allNodes().filter(isSelector)) {
+  for (const node of rootNodes().filter(isSelector)) {
     refreshSelectorNode(node);
   }
 }
@@ -1134,11 +902,11 @@ function applyAdvancedSelectorState(node) {
   let changed = 0;
 
   for (const groupName of groupsForScope(SELECTOR_MUTE_SCOPE)) {
-    changed += applyModeToGroup(groupName, state.mute[groupName] === true ? "Active" : "Mute");
+    changed += applyModeToGroup(groupName, state.mute[groupName] === true ? "Active" : "Mute", false);
   }
 
   for (const groupName of groupsForScope(SELECTOR_BYPASS_SCOPE)) {
-    changed += applyModeToGroup(groupName, state.bypass[groupName] === true ? "Active" : "Bypass");
+    changed += applyModeToGroup(groupName, state.bypass[groupName] === true ? "Active" : "Bypass", false);
   }
 
   if (changed) {
@@ -1151,7 +919,7 @@ function writeAdvancedToggleState(node, sectionName, groupName, value, targetMod
   state[sectionName] ??= {};
   state[sectionName][groupName] = value === true;
   writeAdvancedState(node, state);
-  applyModeToGroup(groupName, value === true ? "Active" : targetMode);
+  applyModeToGroup(groupName, value === true ? "Active" : targetMode, false);
   markCanvasDirty();
 }
 
@@ -1481,7 +1249,7 @@ function ensureRefreshButton(node, name) {
 }
 
 function refreshConfiguratorNodes() {
-  for (const node of allNodes().filter(isConfigurator)) {
+  for (const node of rootNodes().filter(isConfigurator)) {
     syncConfiguratorRows(node);
   }
 }
@@ -1538,7 +1306,8 @@ app.registerExtension({
         if (key && !key.__workflowXBeforeQueued) {
           key.__workflowXBeforeQueued = true;
           key.beforeQueued = () => {
-            materializeGetValuesBeforeQueue();
+            assertQueueGraphValid();
+            applySelectedConfigAndAdvancedOverrides();
           };
         }
       };
@@ -1553,7 +1322,8 @@ app.registerExtension({
         if (key && !key.__workflowXRelayBeforeQueued) {
           key.__workflowXRelayBeforeQueued = true;
           key.beforeQueued = () => {
-            app.__workflowXRelayQueueing = true;
+            assertQueueGraphValid();
+            applySelectedConfigAndAdvancedOverrides();
           };
         }
       };
@@ -1568,7 +1338,8 @@ app.registerExtension({
         if (key && !key.__workflowXDimensionsBeforeQueued) {
           key.__workflowXDimensionsBeforeQueued = true;
           key.beforeQueued = () => {
-            app.__workflowXRelayQueueing = true;
+            assertQueueGraphValid();
+            applySelectedConfigAndAdvancedOverrides();
           };
         }
       };
@@ -1584,7 +1355,8 @@ app.registerExtension({
         if (key && !key.__workflowXReferenceBeforeQueued) {
           key.__workflowXReferenceBeforeQueued = true;
           key.beforeQueued = () => {
-            app.__workflowXRelayQueueing = true;
+            assertQueueGraphValid();
+            applySelectedConfigAndAdvancedOverrides();
           };
         }
 
@@ -1592,7 +1364,8 @@ app.registerExtension({
         if (mute && !mute.__workflowXReferenceBeforeQueued) {
           mute.__workflowXReferenceBeforeQueued = true;
           mute.beforeQueued = () => {
-            app.__workflowXRelayQueueing = true;
+            assertQueueGraphValid();
+            applySelectedConfigAndAdvancedOverrides();
           };
         }
       };
@@ -1607,7 +1380,8 @@ app.registerExtension({
         if (mute && !mute.__workflowXReferenceBeforeQueued) {
           mute.__workflowXReferenceBeforeQueued = true;
           mute.beforeQueued = () => {
-            app.__workflowXRelayQueueing = true;
+            assertQueueGraphValid();
+            applySelectedConfigAndAdvancedOverrides();
           };
         }
       };

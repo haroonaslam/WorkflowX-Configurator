@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 import {
   addNodesToNativeGroup,
+  graphForGrouping,
   nodesForGrouping,
 } from "../web/js/workflowx_group_helpers.mjs";
 
@@ -17,6 +18,20 @@ const canvas = {
 assert.deepEqual(nodesForGrouping(canvas, first), [first, second]);
 assert.deepEqual(nodesForGrouping(canvas, unselected), [unselected]);
 assert.deepEqual(nodesForGrouping(canvas, null), []);
+
+const nestedFirst = { id: 11 };
+const nestedSecond = { id: 12 };
+const nestedGraph = { _nodes: [nestedFirst, nestedSecond] };
+nestedFirst.graph = nestedGraph;
+nestedSecond.graph = nestedGraph;
+const nestedCanvas = {
+  graph: nestedGraph,
+  selected_nodes: { 1: first, 11: nestedFirst, 12: nestedSecond },
+  selectedItems: new Set([first, nestedFirst, nestedSecond]),
+};
+
+assert.equal(graphForGrouping(canvas, nestedFirst, canvas.graph), nestedGraph);
+assert.deepEqual(nodesForGrouping(nestedCanvas, nestedFirst, nestedGraph), [nestedFirst, nestedSecond]);
 
 class FakeGroup {
   resizeTo(nodes, padding) {

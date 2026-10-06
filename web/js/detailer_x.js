@@ -243,11 +243,8 @@ function renderEntry(node){
 }
 function presetLabel(state){return `${state.preset?.label||"Custom"}${modified(state)?" · Modified":""}`;}
 function fit(node){
-  const height=bodyHeight(node._dx.state);
-  const delta=node._dx.bodyHeight==null?0:height-node._dx.bodyHeight;
-  node._dx.bodyHeight=height;
   const size=minimumSize(node._dx.state,Math.max(node.inputs?.length||0,node.outputs?.length||0));
-  node.setSize([Math.max(Number.isFinite(node.size[0])?node.size[0]:0,size[0]),Math.max((Number.isFinite(node.size[1])?node.size[1]:0)+delta,size[1])]);
+  node.setSize([Math.max(Number.isFinite(node.size[0])?node.size[0]:0,size[0]),size[1]]);
 }
 function report(node,error){node._dx.localError=error.message||String(error);updateStatus(node);}
 function dialog(heading,description){
