@@ -4,7 +4,7 @@ Screenshots use the current dark ComfyUI theme, default browser zoom, neutral wo
 
 | File | Captures | Used by |
 |---|---|---|
-| `workflowx-banner-v4.png` | Project banner | Root README |
+| `workflowx-banner-v5.png` | Project banner | Root README |
 | `workflowx-config-selector-x.png` | Integrated Config SelectorX node | README, Config SelectorX guide, node reference |
 | `workflowx-config-selector-x-scopes.png` | Scopes modal | Config SelectorX guide |
 | `workflowx-config-selector-x-configs.png` | Configurations modal | Config SelectorX guide |

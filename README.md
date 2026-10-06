@@ -1,6 +1,6 @@
 # WorkflowX for ComfyUI
 
-![WorkflowX banner](docs/images/workflowx-banner-v4.png)
+![WorkflowX banner](docs/images/workflowx-banner-v5.png)
 
 WorkflowX is a production toolkit for building, configuring, editing, organizing, and reusing ComfyUI workflows. It combines image and video nodes, model and LoRA controls, structured prompting, remote image APIs, reusable workflow libraries, scoped configuration, and canvas utilities in one package.
 
