@@ -3,7 +3,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 ASSETS = ROOT / "assets"
-KINDS = {"ultralytics": {".pt"}, "sams": {".pth", ".pt"}, "upscale_models": {".pth", ".pt", ".safetensors"}, 'luts':{'.cube'}, 'neural_grain':{'.pt'}}
+KINDS = {"ultralytics": {".pt"}, "sams": {".pth", ".pt", ".safetensors"}, "upscale_models": {".pth", ".pt", ".safetensors"}, 'luts':{'.cube'}, 'neural_grain':{'.pt'}}
 
 def roots(kind):
     import folder_paths
@@ -21,7 +21,7 @@ def roots(kind):
                 values.append(path)
     return values
 
-def inventory(kind):
+def inventory(kind, enrich=True):
     found = {}
     for origin, root in [("internal", ASSETS / kind)] + [("comfy", p) for p in roots(kind)]:
         if root.is_dir():
@@ -29,7 +29,11 @@ def inventory(kind):
                 if path.is_file() and path.suffix.lower() in KINDS[kind]:
                     relative = path.relative_to(root).as_posix()
                     identifier = f"{origin}:{kind}/{relative}"
-                    found.setdefault(identifier, {"id": identifier, "label": f"{'Internal' if origin == 'internal' else 'ComfyUI'} / {relative}"})
+                    item={"id": identifier, "label": f"{'Internal' if origin == 'internal' else 'ComfyUI'} / {relative}"}
+                    if enrich and kind=="ultralytics":
+                        sidecar=path.with_suffix('.txt')
+                        if sidecar.is_file(): item['description']=sidecar.read_text(encoding='utf-8',errors='replace').strip()
+                    found.setdefault(identifier, item)
     return list(found.values())
 
 def resolve(identifier, kind):

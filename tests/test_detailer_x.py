@@ -36,18 +36,19 @@ def test_roundtrip_and_migration():
     assert s==config.DEFAULTS
     s["face"]["denoise"]=.23
     assert config.normalize(json.dumps(s))==s
-    with pytest.raises(ValueError):config.normalize({"version":4})
+    with pytest.raises(ValueError):config.normalize({"version":6})
     with pytest.raises(ValueError):config.normalize({"face":{"denoise":1.5}})
     with pytest.raises(ValueError):config.normalize({"face":{"enabled":"false"}})
     with pytest.raises(ValueError):config.normalize({"face":{"steps":float("nan")}})
 
-def test_nine_bypass_outputs_and_alpha():
+def test_final_and_processor_bundle_bypass_outputs_and_alpha():
     image=torch.rand(2,16,24,4)
-    result=run(disabled(),image)
-    assert len(result)==9
-    assert all(torch.equal(i,image) for i in result)
-    result[-1].zero_()
-    assert torch.equal(result[0],image)
+    final,bundle,masks=run(disabled(),image)
+    assert torch.equal(final,image)
+    assert torch.equal(bundle['original'],image)
+    assert bundle['stages']==[]
+    bundle['original'].zero_()
+    assert torch.equal(final,image)
 
 def test_cumulative_order_and_reuse(monkeypatch):
     calls=[]
@@ -60,7 +61,10 @@ def test_cumulative_order_and_reuse(monkeypatch):
     image=torch.zeros(1,8,8,3)
     output=run(s,image)
     assert calls==list(config.LEGACY_REALISM)
-    assert torch.allclose(output[6],image+.05)
+    final,bundle,masks=output
+    assert torch.allclose(final,image+.05)
+    assert [item['id'] for item in bundle['stages']]==list(config.LEGACY_REALISM)
+    assert torch.allclose(bundle['stages'][-1]['image'],image+.05)
     s["levels"]["white_point"]=248
     calls.clear();run(s,image)
     assert calls==["levels","sharpen"]
@@ -78,6 +82,14 @@ def test_cache_isolation_eviction():
     assert cache.get("a") is None and cache.bytes==32
     cache.put("large",torch.ones(100));assert cache.bytes==32
     cache.clear();assert cache.bytes==0
+
+def test_cache_clones_structured_mask_diagnostics():
+    cache=StageCache(1024)
+    value={"image":torch.ones(1,2,2,3),"debug":{"blend":torch.ones(1,2,2,dtype=torch.uint8)}}
+    cache.put("detail",value);value["image"].zero_();value["debug"]["blend"].zero_()
+    loaded=cache.get("detail")
+    assert loaded["image"].sum()==12 and loaded["debug"]["blend"].sum()==4
+    loaded["image"].zero_();assert cache.get("detail")["image"].sum()==12
 
 def test_missing_asset_and_traversal():
     with pytest.raises(ValueError):assets.resolve("internal:ultralytics/../../bad.pt","ultralytics")
@@ -169,17 +181,24 @@ def test_no_detections_pass_through_batches(monkeypatch):
     s=dict(config.DEFAULTS["face"],prompt="",noise_mask=False)
     image=torch.rand(2,16,24,4)
     assert torch.equal(p.detail(image,s,config.DEFAULTS["sam"],None,None,None,[],[]),image)
+    result,debug=p.detail(image,s,config.DEFAULTS["sam"],None,None,None,[],[],True)
+    assert torch.equal(result,image)
+    assert debug['detector'].shape==(2,16,24)
+    assert not torch.any(debug['detector']) and debug['messages']==['No detections','No detections']
 
 @pytest.mark.parametrize("stage",["upscaler",*config.DETAILERS,"dlss5"])
-def test_individual_stage_toggle_and_cumulative_outputs(monkeypatch,stage):
+def test_individual_stage_toggle_and_processor_bundle(monkeypatch,stage):
     monkeypatch.setattr(p,"upscale",lambda image,*a:image+.1)
     monkeypatch.setattr(p,"detail",lambda image,*a:image+.1)
     monkeypatch.setattr(p,"dlss",lambda image,*a:image+.1)
     s=disabled();s[stage]["enabled"]=True
+    if stage=="anything":s[stage]["detector"]=s["face"]["detector"]
     image=torch.zeros(1,8,8,3)
-    outputs=run(s,image)
-    index=["upscaler",*config.DETAILERS,"realism","dlss5"].index(stage)
-    for n,out in enumerate(outputs):assert torch.allclose(out,image+(.1 if n>=index else 0))
+    final,bundle,masks=run(s,image)
+    assert torch.allclose(final,image+.1)
+    assert [item['id'] for item in bundle['stages']]==[stage]
+    assert torch.allclose(bundle['stages'][0]['image'],image+.1)
+    assert torch.equal(bundle['original'],image)
 
 def test_realism_against_original_functions():
     """Load only reference math definitions, never register external node packs."""

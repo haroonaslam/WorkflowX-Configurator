@@ -19,20 +19,20 @@ class StageCache:
             if key not in self.items:
                 return None
             self.items.move_to_end(key)
-            return self.items[key].clone()
+            return _clone(self.items[key])
 
     def put(self, key, image):
-        size = image.numel()*image.element_size()
+        size = _size(image)
         if size > self.limit:
             return
         with self.lock:
             old=self.items.pop(key,None)
             if old is not None:
-                self.bytes-=old.numel()*old.element_size()
+                self.bytes-=_size(old)
             while self.items and self.bytes+size>self.limit:
                 _,old=self.items.popitem(last=False)
-                self.bytes-=old.numel()*old.element_size()
-            self.items[key]=image.detach().cpu().clone()
+                self.bytes-=_size(old)
+            self.items[key]=_clone(image)
             self.bytes+=size
 
     def clear(self):
@@ -41,6 +41,21 @@ class StageCache:
             self.bytes=0
 
 CACHE=StageCache()
+
+def _clone(value):
+    import torch
+    if isinstance(value,torch.Tensor):return value.detach().cpu().clone()
+    if isinstance(value,dict):return {k:_clone(v) for k,v in value.items()}
+    if isinstance(value,list):return [_clone(v) for v in value]
+    if isinstance(value,tuple):return tuple(_clone(v) for v in value)
+    return value
+
+def _size(value):
+    import torch
+    if isinstance(value,torch.Tensor):return value.numel()*value.element_size()
+    if isinstance(value,dict):return sum(_size(v) for v in value.values())
+    if isinstance(value,(list,tuple)):return sum(_size(v) for v in value)
+    return 0
 _identities=weakref.WeakKeyDictionary()
 _identity_lock=threading.RLock()
 

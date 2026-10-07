@@ -62,8 +62,13 @@ def validate_profile(profile):
     if type(revision) is not int or revision < 1:
         raise ValueError("Invalid preset revision")
     data = profile.get("values")
-    if not isinstance(data, dict) or set(data) != set(DETAILERS):
-        raise ValueError("Preset must contain all five detailers")
+    if not isinstance(data, dict):
+        raise ValueError("Preset must contain detailer sampling settings")
+    # v3 libraries contain five entries; seed new built-ins from the closest existing profile.
+    for name in DETAILERS:
+        if name not in data:
+            data[name]=copy.deepcopy(data.get("hand") or next(iter(data.values()), {}))
+    data={name:data[name] for name in DETAILERS}
     for name in DETAILERS:
         if not isinstance(data[name], dict) or set(data[name]) != set(FIELDS):
             raise ValueError(f"Preset {name}: incomplete sampling settings")

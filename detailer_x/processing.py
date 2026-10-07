@@ -151,6 +151,16 @@ def blur(mask, radius):
             k += 1
     return gaussian_blur(mask[None], k, 10)[0] if radius > 0 and k >= 3 else mask
 
+
+def sam3_constraint(raw,proposal,bbox,kind,height,width):
+    raw=np.asarray(raw,dtype=np.float32);proposal=np.asarray(proposal,dtype=np.float32)
+    if kind=="detector_mask":return raw*proposal
+    if kind=="bounding_box":
+        result=np.zeros_like(raw);x1,y1,x2,y2=[int(v) for v in bbox]
+        result[max(0,y1):min(height,y2),max(0,x1):min(width,x2)]=raw[max(0,y1):min(height,y2),max(0,x1):min(width,x2)]
+        return result
+    return raw
+
 def crop_region(width, height, box, factor):
     def axis(limit, start, end):
         size = (end-start)*factor
@@ -168,12 +178,20 @@ def detections(image, settings):
         prediction = model(pil(image), conf=settings["bbox_threshold"], device="cpu", verbose=False)[0]
         h, w = image.shape[:2]
         regions = []
+        classes=prediction.boxes.cls.detach().cpu().numpy().astype(int) if prediction.boxes is not None else np.zeros(0,dtype=int)
+        wanted=set(settings.get("class_ids") or [])
+        names=getattr(prediction,"names",{}) or getattr(model,"names",{}) or {}
+        if isinstance(names,(list,tuple)): names={index:label for index,label in enumerate(names)}
+        if wanted:
+            missing=[(cid,label) for cid,label in zip(settings.get("class_ids",[]),settings.get("class_labels",[])) if cid not in names or str(names[cid]).lower()!=str(label).lower()]
+            if missing: raise ValueError(f"Detector class mapping changed or is incompatible: {missing}. Re-select the detector/class in the gear panel.")
         for idx, bbox in enumerate(prediction.boxes.xyxy.cpu().numpy()):
+            if wanted and (idx>=len(classes) or int(classes[idx]) not in wanted): continue
             x1, y1, x2, y2 = map(int, bbox)
             if x2-x1 <= settings["drop_size"] or y2-y1 <= settings["drop_size"]:
                 continue
             mask = np.zeros((h, w), np.float32)
-            if prediction.masks is not None:
+            if prediction.masks is not None and settings.get("detector_proposal","native")=="native":
                 raw = prediction.masks.data[idx].cpu()[None, None].float()
                 mask = torch.nn.functional.interpolate(raw, size=(h, w), mode="nearest")[0, 0].numpy()
             else:
@@ -184,16 +202,26 @@ def detections(image, settings):
     finally:
         model.to("cpu")
 
+
+def reused_mask_regions(mask, settings):
+    """Recover independent detail regions from a previously composited full-frame mask."""
+    import cv2
+    value=np.asarray(mask,dtype=np.float32)
+    binary=(value>1e-3).astype(np.uint8)
+    count,labels,stats,_=cv2.connectedComponentsWithStats(binary,connectivity=8)
+    height,width=value.shape;regions=[]
+    for component in range(1,count):
+        x,y,w,h,area=[int(v) for v in stats[component]]
+        if area<=0:continue
+        proposal=np.where(labels==component,value,0).astype(np.float32)
+        bbox=np.asarray([x,y,x+w,y+h],dtype=np.int32)
+        regions.append((bbox,crop_region(width,height,bbox,settings["bbox_crop_factor"]),proposal))
+    return regions
+
 def sam_masks(image, regions, settings, shared):
-    from segment_anything import sam_model_registry, SamPredictor
-    import comfy.model_management as mm
-    path = resolve(shared["model"], "sams")
-    kind = "vit_h" if "vit_h" in path.name else "vit_l" if "vit_l" in path.name else "vit_b"
-    model = sam_model_registry[kind](checkpoint=str(path))
-    device = "cpu" if shared["device"] == "CPU" else mm.get_torch_device()
+    from .sam_backends import spatial_predictor
+    predictor,model=spatial_predictor(shared)
     try:
-        model.to(device)
-        predictor = SamPredictor(model)
         predictor.set_image(np.array(pil(image)))
         combined = np.zeros(tuple(image.shape[:2]), np.float32)
         h, w = combined.shape
@@ -328,12 +356,19 @@ def crop_conditioning(conditioning, height, width, crop):
         result.append([embedding,values])
     return result
 
-def detail(image, s, shared, model, clip, vae, positive, negative):
+def detail(image, s, shared, model, clip, vae, positive, negative, return_debug=False, reuse_mask=None):
     import nodes
     import comfy.model_management as mm
+    height,width=image.shape[1:3]
+    def blank_debug(reason):
+        zero=torch.zeros((image.shape[0],height,width),dtype=torch.float32)
+        return dict(detector=zero.clone(),refined=zero.clone(),blend=zero.clone(),
+                    region_counts=[0]*image.shape[0],processed_counts=[0]*image.shape[0],
+                    messages=[reason]*image.shape[0],backend=shared.get("backend","disabled") if shared.get("enabled") else "detector-only",
+                    detector_model=s.get("detector",""),classes=list(s.get("class_labels") or s.get("class_ids") or []))
     if s["denoise"] == 0:
         report("Denoise is zero — passing through input")
-        return image
+        return (image,blank_debug("Denoise is zero")) if return_debug else image
     if s["prompt"] and s["prompt_mode"] != "incoming":
         report("Encoding detail prompt")
         local = nodes.CLIPTextEncode().encode(clip, s["prompt"])[0]
@@ -346,22 +381,65 @@ def detail(image, s, shared, model, clip, vae, positive, negative):
     if s["noise_mask"] and s["noise_mask_feather"] and "denoise_mask_function" not in model.model_options:
         from comfy_extras.nodes_differential_diffusion import DifferentialDiffusion
         model = DifferentialDiffusion.execute(model)[0]
+    reused_masks=None
+    if reuse_mask is not None:
+        reused_masks=reuse_mask.detach().cpu().float()
+        if reused_masks.max()>1:reused_masks=reused_masks/255
+        if tuple(reused_masks.shape)!=tuple(image.shape[:3]):
+            reused_masks=torch.nn.functional.interpolate(reused_masks[:,None],size=image.shape[1:3],mode="bilinear",align_corners=False)[:,0]
+        if reused_masks.shape[0]!=image.shape[0]:
+            raise ValueError("Previous mask batch does not match the retained output batch")
     outputs = []
+    detector_masks=[];refined_masks=[];blend_masks=[];region_counts=[];processed_counts=[];messages=[]
     for batch_index, frame in enumerate(image[..., :3]):
         cancelled()
         prefix(f"Image {batch_index+1}/{image.shape[0]}")
-        report("Detecting regions")
-        regions = detections(frame, s)
+        reuse=reused_masks is not None
+        sam3=not reuse and shared.get("enabled") and shared.get("backend")=="sam3.1"
+        report("Reusing previous final blend mask" if reuse else ("Detecting regions" if not (sam3 and s.get("sam3_mode")=="concept_only") else f"SAM3 text detection · {s.get('mask_concept','')}"))
+        regions = reused_mask_regions(reused_masks[batch_index].numpy(),s) if reuse else ([] if sam3 and s.get("sam3_mode")=="concept_only" else detections(frame, s))
+        detector_full=np.zeros((height,width),np.float32)
+        for _,_,proposal in regions:detector_full=np.maximum(detector_full,np.asarray(proposal,dtype=np.float32))
+        sam_per_region=None
+        if sam3:
+            from .sam_backends import sam3 as run_sam3
+            regions,sam_per_region=run_sam3(frame,regions,s,shared)
         if not regions:
             report("No detections — passing through input")
-            outputs.append(frame.clone()); continue
-        report(f"Found {len(regions)} region(s) · " + ("Building SAM masks" if shared["enabled"] else "Using detector masks"))
-        segmentation = sam_masks(frame, regions, s, shared) if shared["enabled"] else None
+            zero=torch.zeros((height,width),dtype=torch.float32)
+            outputs.append(frame.clone());detector_masks.append(torch.from_numpy(detector_full));refined_masks.append(zero.clone());blend_masks.append(zero.clone())
+            region_counts.append(0);processed_counts.append(0);messages.append("No detections");continue
+        sam_detail=f"Building {shared.get('backend','sam1')} masks · {shared.get('source','global')}"
+        if sam3:sam_detail+=f" · {s.get('sam3_mode','refine_detector')} · {s.get('sam3_constraint','bounding_box')}"
+        mask_detail="Reusing previous final blend mask" if reuse else (sam_detail if shared["enabled"] else "Using detector masks")
+        report(f"Found {len(regions)} region(s) · {mask_detail}")
+        if shared["enabled"] and not sam3 and not reuse:
+            if shared.get("backend","sam1")=="sam1":
+                legacy=sam_masks(frame,regions,s,shared);sam_per_region=[legacy]*len(regions)
+            else:
+                from .sam_backends import spatial_masks
+                sam_per_region=spatial_masks(frame,regions,s,shared)
         output = frame.clone()
-        for region_index, (bbox, (x1,y1,x2,y2), mask) in enumerate(regions):
+        refined_full=np.zeros((height,width),np.float32);blend_full=torch.zeros((height,width),dtype=torch.float32);processed=0
+        for region_index, (bbox, crop_bounds, proposal) in enumerate(regions):
             cancelled()
             prefix(f"Image {batch_index+1}/{image.shape[0]} · region {region_index+1}/{len(regions)}")
-            mask = mask if segmentation is None else mask * segmentation
+            proposal=np.asarray(proposal,dtype=np.float32)
+            raw=np.asarray(sam_per_region[region_index],dtype=np.float32) if sam_per_region is not None and region_index < len(sam_per_region) else proposal
+            refined_full=np.maximum(refined_full,raw)
+            mask=raw
+            if sam_per_region is not None and not (sam3 and s.get("sam3_mode")=="concept_only"):
+                if sam3:
+                    constraint="bounding_box" if s.get("sam3_mode")=="bbox_controlled" else s.get("sam3_constraint","bounding_box")
+                    mask=sam3_constraint(raw,proposal,bbox,constraint,height,width)
+                    if constraint=="none":
+                        ys,xs=np.where(raw>.5)
+                        if len(xs):
+                            bbox=np.asarray([xs.min(),ys.min(),xs.max()+1,ys.max()+1],dtype=np.int32)
+                            crop_bounds=crop_region(width,height,bbox,s["bbox_crop_factor"])
+                else:mask=proposal*raw
+            x1,y1,x2,y2=crop_bounds
+            mask=np.asarray(mask,dtype=np.float32)
             mask = torch.from_numpy(mask[y1:y2,x1:x2].copy())
             if not torch.any(mask):
                 report("Empty mask — skipped")
@@ -411,10 +489,21 @@ def detail(image, s, shared, model, clip, vae, positive, negative):
                 raise ValueError("VAE decoded an unexpected batch size for a single detail crop")
             refined=resize(rgb.cpu(),w,h)[0]
             report("Blending refined region into image")
-            blend=blur(mask,s["feather"])[...,None]
+            # A reused blend mask already contains the original feathering.
+            blend=(mask if reuse else blur(mask,s["feather"]))[...,None]
             output[y1:y2,x1:x2] = output[y1:y2,x1:x2]*(1-blend)+refined*blend
+            current=blend[...,0].clamp(0,1);prior=blend_full[y1:y2,x1:x2]
+            blend_full[y1:y2,x1:x2]=1-(1-prior)*(1-current);processed+=1
         outputs.append(output)
-    return with_alpha(image,torch.stack(outputs))
+        detector_masks.append(torch.from_numpy(detector_full));refined_masks.append(torch.from_numpy(refined_full));blend_masks.append(blend_full)
+        region_counts.append(len(regions));processed_counts.append(processed);messages.append(f"{len(regions)} region(s), {processed} processed")
+    result=with_alpha(image,torch.stack(outputs))
+    if not return_debug:return result
+    debug=dict(detector=torch.stack(detector_masks).clamp(0,1),refined=torch.stack(refined_masks).clamp(0,1),blend=torch.stack(blend_masks).clamp(0,1),
+               region_counts=region_counts,processed_counts=processed_counts,messages=messages,
+               backend="reused-mask" if reused_masks is not None else (shared.get("backend","disabled") if shared.get("enabled") else "detector-only"),
+               detector_model=s.get("detector",""),classes=list(s.get("class_labels") or s.get("class_ids") or []))
+    return result,debug
 
 def dlss(image, settings):
     report(f"Preparing DLSS5 runtime · {settings['upscaling_mode']} · {image.shape[0]} image(s)")

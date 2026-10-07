@@ -16,6 +16,8 @@ TYPE = "WorkflowX_DetailerX"
 TAP = "WorkflowX_DetailerXCapture"
 SOURCE = "WorkflowX_DetailerXSnapshot"
 REPLAY = "WorkflowX_DetailerXReplay"
+SELECTIVE = "WorkflowX_DetailerXSelective"
+CONNECTED_SELECTIVE = "WorkflowX_DetailerXConnectedSelective"
 LIMIT = 2 * 1024**3
 LOCK = threading.RLock()
 SESSIONS = OrderedDict()
@@ -33,6 +35,62 @@ def descendants(prompt, target):
         if added <= found:
             return found
         found |= added
+
+
+def ancestors(prompt, seeds):
+    """Return seeds plus every node needed to evaluate their linked inputs."""
+    found = set(seeds)
+    pending = list(seeds)
+    while pending:
+        key = pending.pop()
+        for value in prompt.get(key, {}).get("inputs", {}).values():
+            if link(value) and value[0] in prompt and value[0] not in found:
+                found.add(value[0])
+                pending.append(value[0])
+    return found
+
+
+def image_source_changed(previous, current, target):
+    """Detect rewiring and changed leaf image loaders without treating a
+    generation node's post-queue seed update as a request to regenerate it."""
+    old_link = previous.get(target, {}).get("inputs", {}).get("image")
+    new_link = current.get(target, {}).get("inputs", {}).get("image")
+    if old_link != new_link:
+        return True
+    if not link(new_link):
+        # Validation handles genuinely missing required inputs. Keeping two
+        # absent synthetic/test links equivalent also preserves replay helpers.
+        return False
+    old_source = previous.get(new_link[0], {})
+    new_source = current.get(new_link[0], {})
+    # A leaf image provider (Load Image and equivalents) has no linked input.
+    # Its filename/content selector must be current for iterative workflows.
+    if not any(link(value) for value in new_source.get("inputs", {}).values()):
+        return old_source != new_source
+    return False
+
+
+def connected_graph(prompt, target, settings, owner=None):
+    """Keep DetailerX descendants and only the ancestors they actually require."""
+    if target not in prompt or prompt[target].get("class_type") != TYPE:
+        raise ValueError("DetailerX cannot be resolved in the current graph.")
+    if not link(prompt[target].get("inputs", {}).get("image")):
+        raise ValueError("Image input not detected — connect an IMAGE output to DetailerX.")
+    downstream = descendants(prompt, target)
+    keep = ancestors(prompt, downstream)
+    result = {key: copy.deepcopy(prompt[key]) for key in keep}
+    raw=json.loads(settings) if isinstance(settings,str) else settings
+    owner=owner or (raw.get("_control",{}).get("owner") if isinstance(raw,dict) else None)
+    effective = normalize(settings)
+    effective["entry"]["pause"] = False
+    effective["entry"]["skip"] = False
+    # prepare_prompt uses this browser/workflow/node identity to create the
+    # retained session. normalize intentionally strips runtime controls, so
+    # restore only the validated owner needed for this queued execution.
+    if owner:
+        effective["_control"]={"owner":owner}
+    result[target].setdefault("inputs", {})["settings"] = json.dumps(effective)
+    return result
 
 
 def snapshot(value):
@@ -70,13 +128,13 @@ def retain(s, key, value, boundary=False):
         target=s['boundary'] if boundary else s
         additional=size_of(value)-size_of(target.get(key))
         active=ACTIVE_PROMPTS()
-        total=sum(size_of((v.get('inputs'),v['boundary'])) for v in SESSIONS.values())
+        total=sum(size_of((v.get('inputs'),v['boundary'],v.get('latest'))) for v in SESSIONS.values())
         for token,other in list(SESSIONS.items()):
             if total+additional<=LIMIT:
                 break
             if other is s or other['state'] in ('paused','processing','queued') or other.get('prompt_id') in active:
                 continue
-            total-=size_of((other.get('inputs'),other['boundary']))
+            total-=size_of((other.get('inputs'),other['boundary'],other.get('latest')))
             del SESSIONS[token]
         if total+additional>LIMIT:
             raise ValueError('DetailerX retained inputs exceed the shared 2 GiB limit. Reduce the batch or finish other paused jobs.')
@@ -88,13 +146,13 @@ def prune():
     for s in SESSIONS.values():
         if s["state"] in ("queued", "waiting") and s.get("prompt_id") not in active and time.monotonic()-s["created"]>10:
             s["state"],s["error"]="failed","Queued job was removed or rejected; queue again."
-    total = sum(size_of((s.get("inputs"), s["boundary"])) for s in SESSIONS.values())
+    total = sum(size_of((s.get("inputs"), s["boundary"], s.get("latest"))) for s in SESSIONS.values())
     for token, s in list(SESSIONS.items()):
         if s["state"] in ("paused", "processing", "queued") or s.get("prompt_id") in active:
             continue
         if total <= LIMIT and len(SESSIONS) <= 32:
             continue
-        total -= size_of((s.get("inputs"), s["boundary"]))
+        total -= size_of((s.get("inputs"), s["boundary"], s.get("latest")))
         del SESSIONS[token]
 
 
@@ -107,7 +165,8 @@ def new_session(owner, node, settings, prompt=None, token=None):
         token = token or uuid.uuid4().hex
         s = dict(token=token, owner=owner, node=str(node), settings=normalize(settings),
                  prompt=copy.deepcopy(prompt or {}), boundary={}, state="waiting", action=None,
-                 created=time.monotonic(), entered=None, prompt_id=None, inputs=None, error="", revision=0)
+                 created=time.monotonic(), entered=None, prompt_id=None, inputs=None, latest=None,
+                 queue_mode=None, error="", revision=0)
         SESSIONS[token] = s
         prune()
         return s
@@ -128,9 +187,15 @@ def view(s):
     if s["state"] == "paused" and not entry["wait_indefinitely"]:
         remaining = max(0, entry["pause_minutes"] * 60 - (time.monotonic() - s["entered"]))
     busy = s.get("prompt_id") in ACTIVE_PROMPTS()
+    available=not busy and s["state"] in ("completed", "passed", "failed")
+    latest=s.get("latest") or {}
     return dict(token=s["token"], owner=s["owner"], node=s["node"], state=s["state"], remaining=remaining,
                 skip=s["settings"]["entry"]["skip"],
-                revision=s["revision"], error=s["error"], can_rerun=bool(s["inputs"]) and not busy and s["state"] in ("completed", "passed", "failed"),
+                queue_mode=s.get("queue_mode"),
+                revision=s["revision"], error=s["error"], can_rerun=bool(s["inputs"]) and available,
+                can_refine_original=bool(s["inputs"]) and available,
+                can_refine_output=bool(latest.get("final") is not None) and available,
+                mask_stages=sorted(latest.get("masks",{})),
                 batch=int(s["inputs"]["image"].shape[0]) if s["inputs"] else 0)
 
 
@@ -274,6 +339,35 @@ def replay_graph(s, prompt, target, settings, job):
     return result
 
 
+def selective_graph(s, prompt, target, settings, job, stage, source, mask_mode):
+    """Replay only one DetailerX processor while preserving downstream consumers."""
+    result = replay_graph(s, prompt, target, settings, job)
+    result[target] = dict(class_type=SELECTIVE, inputs=dict(
+        token=s["token"], settings=json.dumps(normalize(settings)), job=job,
+        stage=stage, source=source, mask_mode=mask_mode,
+    ))
+    return result
+
+
+def compact_latest(result, previous=None, source="original"):
+    """Retain the latest final image and mask tensors without duplicating stage images."""
+    final, _processor_bundle, mask_bundle = result
+    masks = {} if source == "original" else dict((previous or {}).get("masks", {}))
+    for item in mask_bundle.get("stages", []):
+        masks[str(item["id"])] = dict(
+            masks=dict(item.get("masks",{})),
+            backend=str(item.get("backend","")), detector=str(item.get("detector","")),
+            classes=list(item.get("classes",[])), region_counts=list(item.get("region_counts",[])),
+            processed_counts=list(item.get("processed_counts",[])), messages=list(item.get("messages",[])),
+        )
+    return dict(final=final, masks=masks)
+
+
+def retain_result(s, result, source="original"):
+    latest=compact_latest(result,s.get("latest"),source)
+    retain(s,"latest",latest)
+
+
 class AnyType(str):
     def __ne__(self, other):
         return False
@@ -342,10 +436,20 @@ async def execute_entry(processor, inputs, settings, node=None, prompt=None, ext
             s["state"] = "processing"
             announce(s)
             result = processor(**inputs, settings=s["settings"], unique_id=node)
+            from . import consume_realized_seed
+            realized=consume_realized_seed(node)
+            if realized is not None:
+                actual=normalize(s["settings"]);actual["global_seed"]["realized_seed"]=realized
+                effective_metadata(prompt,extra,node,actual)
             s["state"] = "completed"
         else:
-            result = tuple(inputs["image"].clone() for _ in range(9))
+            from .preview import make_bundle
+            from .masks import make_mask_bundle
+            image=inputs["image"].clone()
+            reason="Skipped or cancelled before processing"
+            result = (image,make_bundle(image,bypass_reason=reason),make_mask_bundle(bypass_reason=reason))
             s["state"] = "passed"
+        retain_result(s,result,"original")
         return result
     except BaseException as exc:
         s["state"], s["error"] = "failed", str(exc)
@@ -429,10 +533,13 @@ def register(server):
                 s = get_session(data["token"], data["owner"])
                 if not view(s)["can_rerun"]:
                     raise ValueError("Wait for the current workflow to finish before rerunning.")
+                if image_source_changed(s["prompt"], data["prompt"], str(data["target"])):
+                    return web.json_response(dict(error="Connected upstream inputs changed; evaluating the current branch.", code="upstream_changed"), status=409)
                 previous = s["state"]
                 job = str(uuid.uuid4())
                 graph = replay_graph(s, data["prompt"], str(data["target"]), data["settings"], job)
                 s["state"] = "queued"
+                s["queue_mode"] = "retained"
                 s["created"] = time.monotonic()
             import execution
             valid = await execution.validate_prompt(job, graph, None)
@@ -451,4 +558,140 @@ def register(server):
         except (ValueError, TypeError, KeyError) as exc:
             if s is not None and previous is not None:
                 s["state"] = previous
+            return web.json_response(dict(error=str(exc)), status=400)
+
+    @server.routes.post("/workflowx_configurator/detailer_x/selective_rerun")
+    async def selective_rerun(request):
+        """Queue one processor against the retained node input or latest output."""
+        safe(request)
+        s = None
+        previous = None
+        try:
+            data = await request.json()
+            source=str(data.get("source",""));mask_mode=str(data.get("mask_mode","remask"));stage=str(data.get("stage",""))
+            if source not in ("original","output"):
+                raise ValueError("Selective refinement source must be original or output")
+            if mask_mode not in ("reuse","remask"):
+                raise ValueError("Selective refinement mask mode must be reuse or remask")
+            effective=normalize(data["settings"])
+            if stage not in effective["order"]:
+                raise ValueError(f"Processor is no longer available: {stage}")
+            with LOCK:
+                s = get_session(data["token"], data["owner"])
+                availability=view(s)
+                allowed=availability["can_refine_original"] if source=="original" else availability["can_refine_output"]
+                if not allowed:
+                    raise ValueError("Retained source unavailable or DetailerX is busy. Complete an ordinary run first.")
+                previous = s["state"]
+                job = str(uuid.uuid4())
+                graph = selective_graph(s,data["prompt"],str(data["target"]),effective,job,stage,source,mask_mode)
+                s["state"] = "queued"
+                s["queue_mode"] = "selective"
+                s["created"] = time.monotonic()
+                s["error"] = ""
+            import execution
+            valid = await execution.validate_prompt(job, graph, None)
+            if not valid[0]:
+                raise ValueError(f"Selective refinement graph is not supported: {valid[1]}")
+            extra = copy.deepcopy(data.get("extra_data", {}))
+            extra["client_id"] = data.get("client_id")
+            extra["detailer_x_effective"] = {str(data["target"]): effective}
+            extra["detailer_x_selective"] = dict(stage=stage,source=source,mask_mode=mask_mode)
+            with LOCK:
+                s["prompt_id"] = job
+                number = server.number
+                server.number += 1
+                server.prompt_queue.put((number, job, graph, extra, valid[2], {}))
+            announce(s)
+            return web.json_response(dict(prompt_id=job,stage=stage,source=source,mask_mode=mask_mode))
+        except (ValueError, TypeError, KeyError) as exc:
+            if s is not None and previous is not None:
+                s["state"] = previous
+            return web.json_response(dict(error=str(exc)), status=400)
+
+    @server.routes.post("/workflowx_configurator/detailer_x/connected_selective_rerun")
+    async def connected_selective_rerun(request):
+        """Evaluate the current input branch, then run only one processor."""
+        safe(request)
+        s=None
+        try:
+            data=await request.json()
+            target=str(data["target"]);stage=str(data.get("stage",""));owner=str(data.get("owner",""))
+            if not 1 <= len(owner) <= 200:
+                raise ValueError("Invalid owner")
+            effective=normalize(data["settings"])
+            if stage not in effective["order"]:
+                raise ValueError(f"Processor is no longer available: {stage}")
+            job=str(uuid.uuid4())
+            graph=connected_graph(data["prompt"],target,effective,owner)
+            payload=dict(prompt=graph,prompt_id=job)
+            prepare_prompt(payload)
+            graph=payload["prompt"]
+            run_settings=json.loads(graph[target]["inputs"]["settings"])
+            graph[target]["class_type"]=CONNECTED_SELECTIVE
+            graph[target]["inputs"]["stage"]=stage
+            with LOCK:
+                s=get_session(run_settings["_run"],owner)
+                s["state"]="queued"
+                s["queue_mode"]="connected_selective"
+            import execution
+            valid=await execution.validate_prompt(job,graph,None)
+            if not valid[0]:
+                raise ValueError(f"Connected selective refinement is not supported: {valid[1]}")
+            extra=copy.deepcopy(data.get("extra_data",{}))
+            extra["client_id"]=data.get("client_id")
+            extra["detailer_x_effective"]={target:effective}
+            extra["detailer_x_selective"]=dict(stage=stage,source="original",mask_mode="remask",connected=True)
+            number=server.number;server.number+=1
+            server.prompt_queue.put((number,job,graph,extra,valid[2],{}))
+            announce(s)
+            LOG.info("[DetailerX #%s] queued connected selective refinement · %s — %d nodes",target,stage,len(graph))
+            return web.json_response({**view(s),"prompt_id":job,"stage":stage,"source":"original","mask_mode":"remask"})
+        except (ValueError,TypeError,KeyError) as exc:
+            if s is not None:
+                s["state"],s["error"]="failed",str(exc)
+                announce(s)
+            return web.json_response(dict(error=str(exc)),status=400)
+
+    @server.routes.post("/workflowx_configurator/detailer_x/connected_rerun")
+    async def connected_rerun(request):
+        """Queue the target branch from current connections, excluding unrelated outputs."""
+        safe(request)
+        s=None
+        try:
+            data = await request.json()
+            target = str(data["target"])
+            owner=str(data.get("owner", ""))
+            if not 1 <= len(owner) <= 200:
+                raise ValueError("Invalid owner")
+            job = str(uuid.uuid4())
+            graph = connected_graph(data["prompt"], target, data["settings"], owner)
+            payload = dict(prompt=graph, prompt_id=job)
+            prepare_prompt(payload)
+            graph = payload["prompt"]
+            run_settings=json.loads(graph[target]["inputs"]["settings"])
+            with LOCK:
+                s=get_session(run_settings["_run"],owner)
+                s["state"]="queued"
+                s["queue_mode"]="connected"
+            import execution
+            valid = await execution.validate_prompt(job, graph, None)
+            if not valid[0]:
+                raise ValueError(f"Connected DetailerX branch is not supported: {valid[1]}")
+            extra = copy.deepcopy(data.get("extra_data", {}))
+            extra["client_id"] = data.get("client_id")
+            effective = normalize(data["settings"])
+            effective["entry"]["pause"] = False
+            effective["entry"]["skip"] = False
+            extra["detailer_x_effective"] = {target: effective}
+            number = server.number
+            server.number += 1
+            server.prompt_queue.put((number, job, graph, extra, valid[2], {}))
+            announce(s)
+            LOG.info("[DetailerX #%s] queued connected branch — %d nodes", target, len(graph))
+            return web.json_response({**view(s),"prompt_id":job})
+        except (ValueError, TypeError, KeyError) as exc:
+            if s is not None:
+                s["state"],s["error"]="failed",str(exc)
+                announce(s)
             return web.json_response(dict(error=str(exc)), status=400)

@@ -2,6 +2,8 @@
 
 The processing compatibility layer follows algorithms from these installed projects:
 
+- Segment Anything 2 / SAM 2.1, Meta Platforms: official inference implementation and configurations vendored for package-local loading. Apache-2.0; `licenses/SAM2-Apache-2.0.txt`.
+
 - ComfyUI-Impact-Pack, ltdrdata: detector/SAM hint handling, crop sizing, feathering and truncated-schedule sampling behavior. GPL-3.0; license in `licenses/Impact-GPL-3.0.txt`. The adapted processing module is distributed under GPL-3.0.
 - ComfyUI_LayerStyle, chflame163: image adjustments and grain algorithm. MIT; `licenses/LayerStyle-MIT.txt`.
 - Allor, Nourepide: radial lens behavior, adapted with finite-center and rectangular-size corrections. MIT; `licenses/Allor-MIT.txt`.
@@ -10,4 +12,4 @@ The processing compatibility layer follows algorithms from these installed proje
 - ComfyUI_Comfyroll_CustomNodes, RockOfFire and Akatsuzi: upscale resize behavior, based on ComfyUI core and WAS image resize. Used as a behavior reference; model execution uses ComfyUI core and Spandrel.
 - ComfyUI-RH-DLSS5: isolated backend source snapshot in `vendor/dlss`, including native bridge build sources. MIT; `licenses/RH-DLSS5-MIT.txt`. The callback honors ComfyUI cancellation, and the host transport supports native Windows execution with bounded, interruptible I/O and teardown. Its original public node registrations are not exported by WorkflowX.
 
-Installed Python libraries retain their own licenses. NVIDIA runtime binaries and model weights are user-supplied local assets, not included in source releases. `assets/manifest.json` records the exact local source paths, file sizes and SHA-256 hashes. Provisioning copies existing files; it does not download or publish them.
+Installed Python libraries retain their own licenses. NVIDIA runtime binaries and most model weights are user-supplied local assets, not included in source releases. `assets/manifest.json` records source paths or official URLs, file sizes and SHA-256 hashes. Provisioning copies existing files and can optionally download the seven pinned official Meta SAM1/SAM2.1 checkpoints; it does not download other model/runtime assets or publish binaries.

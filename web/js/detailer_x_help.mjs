@@ -26,12 +26,20 @@ export const HELP = {
   bbox_threshold:"Detector confidence cutoff (0–1). Higher values reject uncertain detections.",
   bbox_dilation:"Expand positive or shrink negative detection masks, in pixels.",
   bbox_crop_factor:"Multiplier expanding the crop around the detected box to provide context.",
-  sam_detection_hint:"Point/box hints used by shared SAM to refine the detected region mask.",
+  detector_proposal:"Choose the effective Ultralytics proposal mask. Native preserves a SEGM checkpoint's shaped mask; Bounding box replaces it with a solid rectangle before dilation. BBOX checkpoints are rectangular in either mode.",
+  sam_detection_hint:"SAM1 point-hint pattern. Center-1 is the general default; use horizontal/vertical for elongated targets, mask-area with a reliable SEGM proposal, mask-point-bbox for small ambiguous targets, or none for box-only guidance.",
   sam_dilation:"Expand or shrink the SAM mask in pixels after segmentation.",
   sam_threshold:"SAM confidence cutoff (0–1); the best mask is used if none reaches the cutoff.",
   sam_bbox_expansion:"Expand the bounding-box hint passed to SAM, in pixels.",
   sam_mask_hint_threshold:"Foreground cutoff for mask-area SAM point hints.",
   sam_mask_hint_use_negative:"Whether background points help SAM reject areas outside the target. Names retain workflow compatibility.",
+  sam_strategy:"Choose how this detailer creates its mask. Inherit uses the node-wide SAM default, Detector only uses the Ultralytics proposal directly, and Override SAM uses a complete SAM configuration saved only for this detailer.",
+  sam3_mode:"Refine detector uses the full image with a detector-box prompt and no text. Hybrid uses the full image with a detector-box prompt plus the mask concept; the box remains a soft SAM3 prompt. BBox controlled crops to each detector box, runs concept-guided SAM3 only on that crop, pastes the mask back, and hard-limits it to the detector box. Fully text-guided searches the full image using the mask concept without Ultralytics.",
+  sam3_constraint:"Controls SAM3 after detector-assisted refinement. Bounding box clips to the detector box, Detector mask intersects with the original proposal, and No post-constraint accepts the complete returned SAM3 mask.",
+  mask_concept:"Text used only to find or refine the mask with SAM3. It never changes the diffusion enhancement prompt.",
+  sam3_threshold:"Confidence threshold applied to SAM3 mask results. Higher values reject uncertain regions.",
+  sam3_refine_iterations:"Number of SAM3 mask-refinement passes, where supported. More passes can improve boundaries but cost additional time.",
+  keep_model_loaded:"Retain this checkpoint in DetailerX's two-model CPU cache after the stage. Only the actively executing model is moved to the GPU.",
   drop_size:"Ignore detections smaller than this pixel size.",
   inpaint_model:"Use core inpaint conditioning for an inpaint-compatible model. Leave off for ordinary text-to-image models.",
   noise_mask_feather:"Blur noise-mask edges in pixels. Enables differential diffusion when needed, preserving an existing upstream patch.",
@@ -79,7 +87,19 @@ export const HELP = {
   detail:"DLSS detail control; workflow baseline is 0.3.",
   color:"DLSS color control; workflow baseline is 0.3.",
 };
-export function helpText(section,key) {
+const SAM_HINT_HELP={
+  "center-1":"Center-1: one positive point at the detector-box center, plus the box. Recommended general default.",
+  "horizontal-2":"Horizontal-2: two positive points across the horizontal centerline, plus the box. Useful for wide targets.",
+  "vertical-2":"Vertical-2: two positive points down the vertical centerline, plus the box. Useful for tall targets.",
+  "rect-4":"Rect-4: four positive points spread across the horizontal and vertical centerlines, plus the box. Gives broader interior coverage.",
+  "diamond-4":"Diamond-4: four interior positive points distributed through the detector region, plus the box. Useful when one center point covers too little.",
+  "mask-area":"Mask-area: samples foreground points from the detector proposal and can add background points. Best with a reliable SEGM detector.",
+  "mask-points":"Mask-points: uses the centers of all detections as point prompts without individual box prompts. It can combine or merge related regions, so use cautiously.",
+  "mask-point-bbox":"Mask-point-bbox: combines the detector box with one positive center point. Recommended for small or visually ambiguous targets.",
+  "none":"None: sends the detector box without positive point hints. Useful when the bounding box is already tight and reliable.",
+};
+export function helpText(section,key,value) {
+  if(key==="sam_detection_hint"&&value in SAM_HINT_HELP)return SAM_HINT_HELP[value];
   const finishing={R:'Red channel offset in 8-bit levels (-255 to 255).',G:'Green channel offset in 8-bit levels (-255 to 255).',B:'Blue channel offset in 8-bit levels (-255 to 255).',gamma:'Power-law gamma: 1 is neutral; larger values darken midtones.',adjust_type:'Tonal region receiving the color balance adjustment.',cyan_red:'Red-channel adjustment in the selected tonal range.',magenta_green:'Green-channel adjustment in the selected tonal range.',yellow_blue:'Yellow/blue adjustment in the selected tonal range.',preserve_luminosity:'Rescale adjusted colors to retain their original luminance where possible.',kelvin:'Source illuminant in Kelvin, corrected toward 6500 K. Lower source Kelvin cools the image. 6500 is an exact no-op. Approximate correction, not automatic white balance or tint correction.',lens_shape:'Shape of the radial lens effect.',lens_edge:'Around uses the image bounds; symmetric uses a centered square radial field.',lens_curvy:'Curvature of the radial effect.',lens_zoom:'Scale of the radial field.',lens_aperture:'Strength of radial pixel displacement.',blur_intensity:'Even blur control; 2 adds no extra blur. Larger values soften outer regions.',magnitude:'Uniform pixel perturbation amplitude as a fraction of 255 intensity levels.',grain_size:'GrainNet conditioning size; controls the learned grain pattern.',strength:'Amount of learned monochrome grain added to RGB.',lut:'Portable .cube LUT asset from internal or installed LayerStyle locations.',color_space:'Linear applies LUT directly; log uses the reference gamma-encoded mapping.',lut_strength:'LUT blend percentage, 0–100.',initial_jpeg_quality:'JPEG quality of the camera simulation roundtrip. Returns pixels; does not save a file.',vignette_strength:'Darkening toward image corners.',chroma_aberr_strength:'Seeded red/blue channel displacement in pixels.',bayer_demosaic:'Simulate sensor mosaic and reconstruction; may soften fine detail.',iso_noise_scale:'Reference sensor gain/noise scale. 1 is baseline; changing it also changes brightness.',sensor_read_noise:'Standard deviation of sensor read noise in 8-bit levels.',hot_pixel_prob:'Fraction of pixels replaced by bright sensor defects.',banding_strength:'Strength of horizontal sensor banding.',motion_blur_kernel:'Horizontal blur kernel in pixels; even values are rounded up to odd.',cycles:'Number of in-memory JPEG compression/decompression passes.',min_quality:'Minimum randomized JPEG quality per pass.',max_quality:'Maximum randomized JPEG quality per pass.'};
   if(section==='color_balance'&&key==='magenta_green')return 'Reference convention: positive adds magenta and subtracts green; negative adds green.';
   if(finishing[key])return finishing[key];

@@ -77,11 +77,14 @@ def test_detail_rgb_rgba_composite(monkeypatch, source_channels, decoded_channel
             if decode_mode=="oom": raise mm.OOM_EXCEPTION("test")
             return decoded
         def decode_tiled(self, *args, **kwargs): return decoded
-    out = p.detail(image,s,dict(config.DEFAULTS["sam"],enabled=False),None,None,VAE(),[],[])
+    out,debug = p.detail(image,s,dict(config.DEFAULTS["sam"],enabled=False),None,None,VAE(),[],[],True)
     assert out.shape == image.shape
     assert torch.isfinite(out).all()
     assert torch.allclose(out[...,:3],torch.full_like(out[...,:3],191/255))
     if source_channels==4: assert torch.equal(out[...,3],image[...,3])
+    assert debug["detector"].shape==debug["refined"].shape==debug["blend"].shape==(2,16,24)
+    assert torch.all(debug["detector"]==1) and torch.all(debug["refined"]==1)
+    assert torch.any(debug["blend"]>0) and debug["processed_counts"]==[1,1]
 
 
 @pytest.mark.parametrize("shape", [(1,8,8,1),(1,8,8,8),(8,8,3),(0,8,8,3)])
@@ -136,7 +139,7 @@ def test_routes_validate_origin_and_library_requests(monkeypatch,tmp_path):
     instance=SimpleNamespace(routes=web.RouteTableDef(),add_on_prompt_handler=lambda handler:None)
     monkeypatch.setitem(sys.modules,"server",SimpleNamespace(PromptServer=SimpleNamespace(instance=instance)))
     monkeypatch.setattr(presets,"LIBRARY",tmp_path/"presets.json")
-    monkeypatch.setattr(detailer_x.assets,"inventory",lambda kind:[])
+    monkeypatch.setattr(detailer_x.assets,"inventory",lambda kind,**kwargs:[])
     detailer_x.register_routes()
     post=next(route.handler for route in instance.routes if route.path.endswith('/presets') and route.method=="POST")
     get=next(route.handler for route in instance.routes if route.path.endswith('/config') and route.method=="GET")
@@ -151,7 +154,7 @@ def test_routes_validate_origin_and_library_requests(monkeypatch,tmp_path):
         request.headers={"Origin":"https://other.example"}
         with pytest.raises(web.HTTPForbidden):await post(request)
         metadata=json.loads((await get(None)).body)
-        assert metadata["defaults"]["version"]==3
+        assert metadata["defaults"]["version"]==5
         assert {"flux2","krea2"} <= set(metadata["schedulers"])
         assert len(metadata["presets"])==12
     asyncio.run(exercise())

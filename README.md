@@ -312,6 +312,12 @@ The frontend changes visible controls according to the selected model. Pending r
 
 ## Image editing, processing, and swapping
 
+### DetailerX, Preview, and Masks
+
+**Node IDs / category:** `WorkflowX_DetailerX`, `WorkflowX_DetailerXPreview`, `WorkflowX_DetailerXMasks` · `WorkflowX/Image`
+
+DetailerX runs an ordered, draggable chain of upscaling, class-aware SAM detailers, realism processors, and DLSS5. It accepts MODEL, VAE, CLIP, positive/negative CONDITIONING, and IMAGE, then returns `final_image`, structured `processor_images`, and `detailer_masks`. Global SAM is the inherited default; each detailer can use its detector directly or override SAM1, SAM2.1, or SAM3. SAM3 includes BBox-controlled crop isolation for concept guidance that must remain inside each detector box. Repeatable custom detailers support detector-free, fully text-guided SAM3 concepts. Connect the structured outputs to DetailerX Preview and DetailerX Masks to inspect cumulative stages and detector/raw-SAM/final masks. See the [DetailerX guide](docs/detailer_x.md).
+
 ### Image ProcessorX
 
 ![Image ProcessorX](docs/images/workflowx-image-processor-x.png)

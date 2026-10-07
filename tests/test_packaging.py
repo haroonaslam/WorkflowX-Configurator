@@ -69,7 +69,11 @@ def _install_comfy_stubs():
 
     server = types.ModuleType("server")
     server.PromptServer = types.SimpleNamespace(
-        instance=types.SimpleNamespace(routes=_Routes(), app=types.SimpleNamespace(router=_Router()))
+        instance=types.SimpleNamespace(
+            routes=_Routes(),
+            app=types.SimpleNamespace(router=_Router()),
+            add_on_prompt_handler=lambda _handler: None,
+        )
     )
     sys.modules.setdefault("server", server)
 
@@ -92,7 +96,7 @@ def _load_package():
 
 def test_combined_package_exports_workflowx_and_afj_nodes():
     module = _load_package()
-    assert len(module.NODE_CLASS_MAPPINGS) == 66
+    assert len(module.NODE_CLASS_MAPPINGS) == 76
     voice = module.NODE_CLASS_MAPPINGS["WorkflowX_VoiceChangerX"]
     assert module.NODE_DISPLAY_NAME_MAPPINGS["WorkflowX_VoiceChangerX"] == "Voice ChangerX"
     assert voice.CATEGORY == "WorkflowX/Audio"

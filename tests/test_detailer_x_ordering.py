@@ -17,7 +17,7 @@ def settings():
 def test_migration_hidden_and_validation():
     old={'version':2,'realism':{'enabled':False},'ui':{'realism_collapsed':True}}
     s=config.normalize(old)
-    assert s['version']==3
+    assert s['version']==5
     assert all(not s[n]['enabled'] and s['visible'][n] for n in config.LEGACY_REALISM)
     assert all(not s['visible'][n] for n in config.ADVANCED)
     s['gamma']['enabled']=True
@@ -39,14 +39,19 @@ def test_order_outputs_cache_and_visibility(monkeypatch):
     s['order'].remove('gamma');s['order'].append('gamma')
     image=torch.zeros(2,3,5,4)
     run=lambda:dx.DetailerX().process(None,None,None,[],[],image,s)
-    out=run()
-    assert torch.equal(out[0],image+1)
-    assert torch.equal(out[7],image+11)
-    assert torch.equal(out[6],image+111) and torch.equal(out[8],image+111)
+    final,bundle,masks=run()
+    assert torch.equal(final,image+111)
+    assert [item['id'] for item in bundle['stages']]==['upscaler','dlss5','gamma']
+    assert torch.equal(bundle['stages'][0]['image'],image+1)
+    assert torch.equal(bundle['stages'][1]['image'],image+11)
+    assert torch.equal(bundle['stages'][2]['image'],image+111)
     calls.clear();s['visible']['face']=False;run();assert calls==[]
     s['order'].remove('gamma');s['order'].insert(0,'gamma')
-    out=run();assert calls==['gamma']
-    assert torch.equal(out[6],image+100) and torch.equal(out[0],image+101)
+    final,bundle,masks=run();assert calls==['gamma']
+    assert torch.equal(final,image+111)
+    assert [item['id'] for item in bundle['stages']]==['gamma','upscaler','dlss5']
+    assert torch.equal(bundle['stages'][0]['image'],image+100)
+    assert torch.equal(bundle['stages'][1]['image'],image+101)
 
 @pytest.mark.parametrize('name',list(config.ADVANCED))
 def test_advanced_batch_alpha_fixed_seed(name,monkeypatch):

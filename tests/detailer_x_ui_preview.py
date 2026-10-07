@@ -20,7 +20,7 @@ PAGE='''<!doctype html><html><head><meta name="viewport" content="width=device-w
 <main id="nodes" style="display:flex;flex-wrap:wrap;gap:24px;margin-top:16px"></main>
 <script type="module">import '/web/js/detailer_x.js';</script></body></html>'''
 APP='''let ext,nextId=1; export const app={graph:{id:'entry-preview',change(){}},registerExtension(e){ext=e;start();},async graphToPrompt(){return {workflow:{},output:{[window.dxNode.id]:{class_type:'WorkflowX_DetailerX',inputs:{settings:window.dxNode.widgets[0].serializeValue()}}}}}};
-class Node{constructor(){this.id=nextId++;this.graph=app.graph;this.widgets=[{name:'settings',value:'{}',inputEl:{style:{}}}];this.properties={};this.inputs=Array(6);this.outputs=Array(9);this.size=[520,950];this.onNodeCreated();}
+class Node{constructor(){this.id=nextId++;this.graph=app.graph;this.widgets=[{name:'settings',value:'{}',inputEl:{style:{}}}];this.properties={};this.inputs=Array(6);this.outputs=Array(2);this.size=[520,950];this.onNodeCreated();}
 setDirtyCanvas(){} setSize(size){this.size=size;if(this.host){this.host.style.width=size[0]+'px';this.host.style.height=(size[1]-220)+'px';}}
 addDOMWidget(name,type,element,options){this.host=element;document.querySelector('#nodes').append(element);const w={name,type,element,options};this.widgets.push(w);return w;}}
 async function start(){await ext.beforeRegisterNodeDef(Node,{name:'WorkflowX_DetailerX'});window.dxNode=new Node();window.copyNode=()=>{const data={};window.dxNode.onSerialize(data);const copy=new Node();copy.onConfigure(JSON.parse(JSON.stringify(data)));window.dxCopy=copy;};}'''
