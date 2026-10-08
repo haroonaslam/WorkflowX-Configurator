@@ -146,7 +146,18 @@ test("advanced image source row exposes thumbnail browsing and owned upload", ()
   assert.match(source, /button\("Browse Thumbnails"/);
   assert.match(source, /button\("Upload Photo"/);
   assert.match(source, /upload.addEventListener\("click", \(\) => fileInput.click\(\)\)/);
-  assert.match(source, /root\.append\(sourceActions, modes, outputSnap, resample, toggles, preview\)/);
+  assert.match(source, /root\.append\(sourceActions, mainControls, configPanel, preview\)/);
+});
+
+test("advanced settings live in a non-sizing config overlay", () => {
+  const source = fs.readFileSync(new URL("../web/js/load_image_x_adv.js", import.meta.url), "utf8");
+  assert.match(source, /button\("Config", "workflowx-lixa-config-button"\)/);
+  assert.match(source, /mainControls\.append\(loadMode, configButton\)/);
+  assert.match(source, /configPanel\.append\(modes, outputSnap, resample, toggles\)/);
+  assert.match(source, /child !== preview && child !== configPanel/);
+  assert.match(source, /configPanel\.hidden = !ui\.configOpen/);
+  assert.match(source, /document\.removeEventListener\("pointerdown", dismissConfig, true\)/);
+  assert.match(source, /document\.removeEventListener\("keydown", handleConfigKeydown, true\)/);
 });
 
 test("advanced image UI accepts dropped image files through ComfyUI's upload endpoint", () => {
@@ -174,7 +185,8 @@ test("load mode defaults, validation and serialized snapshots", () => {
 test("compact controls and all image ingestion paths share the mode-aware queue", () => {
   const source = fs.readFileSync(new URL("../web/js/load_image_x_adv.js", import.meta.url), "utf8");
   assert.doesNotMatch(source, /shiftResample|Previous resampling filter|Next resampling filter/);
-  assert.match(source, /resample.append\(select, loadMode\)/);
+  assert.match(source, /resample\.appendChild\(select\)/);
+  assert.match(source, /mainControls\.append\(loadMode, configButton\)/);
   assert.match(source, /uploadQueue = uploadQueue.then/);
   assert.match(source, /crypto.randomUUID/);
   assert.match(source, /window.addEventListener\("paste", pasteImage, true\)/);

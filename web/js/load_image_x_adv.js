@@ -43,7 +43,7 @@ function installCSS() {
   style.textContent = `
     .workflowx-lixa {
       --lixa-accent:${ACCENT}; width:100%; height:100%; min-height:0; box-sizing:border-box; container-type:inline-size;
-      padding:4px 8px 8px; display:flex; flex-direction:column; gap:7px; overflow:hidden;
+      position:relative; padding:4px 8px 8px; display:flex; flex-direction:column; gap:7px; overflow:hidden;
       color:#d9dce2; font:11px ui-sans-serif,system-ui,sans-serif; letter-spacing:0;
     }
     .workflowx-lixa *, .workflowx-lixa *::before, .workflowx-lixa *::after { box-sizing:border-box; }
@@ -53,6 +53,16 @@ function installCSS() {
     .workflowx-lixa-browse { width:100%; min-width:0; height:36px; border:1px solid #5876a4; border-radius:4px;
       background:#263952; color:#f2f6ff; cursor:pointer; font-weight:650; }
     .workflowx-lixa-browse:hover { border-color:var(--lixa-accent); background:#304b6d; }
+    .workflowx-lixa-main-controls { height:32px; flex:none; display:grid;
+      grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:6px; }
+    .workflowx-lixa-main-controls select, .workflowx-lixa-config-button { width:100%; min-width:0; height:32px;
+      border:1px solid #4b5058; border-radius:4px; background:#202226; color:#d9dce2; cursor:pointer; padding:0 7px; }
+    .workflowx-lixa-config-button:hover, .workflowx-lixa-config-button[aria-expanded="true"] {
+      border-color:var(--lixa-accent); color:#fff; background:#304b6d; }
+    .workflowx-lixa-config-panel { position:absolute; z-index:8; left:8px; right:8px; top:86px; bottom:8px;
+      min-height:0; padding:8px; border:1px solid #5876a4; border-radius:5px; background:#1b1d21f5;
+      box-shadow:0 8px 24px rgba(0,0,0,.45); display:flex; flex-direction:column; gap:7px; overflow:auto; }
+    .workflowx-lixa-config-panel[hidden] { display:none; }
     .workflowx-lixa-modes { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:5px; flex:none; }
     .workflowx-lixa-chip, .workflowx-lixa-toggle, .workflowx-lixa-segment button, .workflowx-lixa-ratio,
     .workflowx-lixa-command, .workflowx-lixa-swap {
@@ -97,7 +107,7 @@ function installCSS() {
     .workflowx-lixa-live { color:var(--lixa-accent); font-weight:650; text-align:center; }
     .workflowx-lixa-snaprow { height:28px; flex:none; display:flex; align-items:center; justify-content:center; gap:5px; }
     .workflowx-lixa-snaprow .workflowx-lixa-chip { width:34px; height:26px; padding:0; font-size:9px; }
-    .workflowx-lixa-resample { height:32px; flex:none; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; }
+    .workflowx-lixa-resample { height:32px; flex:none; display:grid; grid-template-columns:minmax(0,1fr); gap:6px; }
     .workflowx-lixa-resample button, .workflowx-lixa-resample select { border:1px solid #4b5058; border-radius:4px;
       background:#202226; color:#d9dce2; cursor:pointer; }
     .workflowx-lixa-resample select { width:100%; min-width:0; padding:0 5px; }
@@ -193,6 +203,18 @@ function createAdvancedUI(node, imageWidget, stateWidget, uploadWidget) {
   const upload = button("Upload Photo", "workflowx-lixa-browse");
   upload.title = "Upload an image to ComfyUI input";
   sourceActions.append(browse, upload);
+  const mainControls = document.createElement("div");
+  mainControls.className = "workflowx-lixa-main-controls";
+  const configButton = button("Config", "workflowx-lixa-config-button");
+  configButton.setAttribute("aria-expanded", "false");
+  const configPanel = document.createElement("div");
+  configPanel.className = "workflowx-lixa-config-panel";
+  configPanel.id = `workflowx-lixa-config-${node.id}`;
+  configPanel.hidden = true;
+  configPanel.setAttribute("role", "dialog");
+  configPanel.setAttribute("aria-label", "Image processing settings");
+  configButton.setAttribute("aria-controls", configPanel.id);
+  configButton.title = "Open image processing settings";
   const modes = document.createElement("div");
   modes.className = "workflowx-lixa-modes";
   const outputSnap = document.createElement("div");
@@ -201,8 +223,10 @@ function createAdvancedUI(node, imageWidget, stateWidget, uploadWidget) {
   resample.className = "workflowx-lixa-resample";
   // Native selects must receive their default mouse/keyboard behavior without
   // the canvas interpreting the interaction as node selection or dragging.
-  for (const event of ["pointerdown", "mousedown", "click", "keydown", "keyup"]) {
-    resample.addEventListener(event, e => e.stopPropagation());
+  for (const container of [mainControls, resample]) {
+    for (const event of ["pointerdown", "mousedown", "click", "keydown", "keyup"]) {
+      container.addEventListener(event, e => e.stopPropagation());
+    }
   }
   const toggles = document.createElement("div");
   toggles.className = "workflowx-lixa-toggles";
@@ -228,16 +252,40 @@ function createAdvancedUI(node, imageWidget, stateWidget, uploadWidget) {
   resizeHandle.title = "Resize node";
   resizeHandle.setAttribute("aria-label", "Resize node");
   preview.append(canvas, status, dropOverlay, resizeHandle);
-  root.append(sourceActions, modes, outputSnap, resample, toggles, preview);
+  configPanel.append(modes, outputSnap, resample, toggles);
+  root.append(sourceActions, mainControls, configPanel, preview);
 
   const ui = {
-    root, source: null, sourcePath: "", imageBox: null, drag: null, panel: null,
+    root, source: null, sourcePath: "", imageBox: null, drag: null, panel: null, configOpen: false,
     loadSequence: 0, state: normalizeAdvState(stateWidget.value || DEFAULT_ADV_STATE),
     widget: null, resizeObserver: null, imagePoll: null, portalCard: null,
     output: { width: 0, height: 0 }, pendingBrowserSelection: false, disposed: false,
   };
   // Native text widgets may otherwise serialize an obsolete hidden textarea.
   stateWidget.serializeValue = () => JSON.stringify(ui.state);
+
+  function setConfigOpen(open) {
+    ui.configOpen = Boolean(open);
+    configPanel.hidden = !ui.configOpen;
+    configButton.setAttribute("aria-expanded", String(ui.configOpen));
+    configButton.textContent = ui.configOpen ? "Close Config" : "Config";
+    if (ui.configOpen) configPanel.scrollTop = 0;
+  }
+
+  configButton.addEventListener("click", () => setConfigOpen(!ui.configOpen));
+  const dismissConfig = (event) => {
+    if (!ui.configOpen || configPanel.contains(event.target) || configButton.contains(event.target)) return;
+    setConfigOpen(false);
+  };
+  document.addEventListener("pointerdown", dismissConfig, true);
+  const handleConfigKeydown = (event) => {
+    if (event.key !== "Escape" || !ui.configOpen) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setConfigOpen(false);
+    configButton.focus();
+  };
+  document.addEventListener("keydown", handleConfigKeydown, true);
 
   function markChanged() {
     node.graph?.setDirtyCanvas?.(true, true);
@@ -246,7 +294,9 @@ function createAdvancedUI(node, imageWidget, stateWidget, uploadWidget) {
   }
 
   function fixedContentHeight() {
-    const children = [...root.children].filter((child) => child !== preview && child.offsetParent !== null);
+    const children = [...root.children].filter(
+      (child) => child !== preview && child !== configPanel && child.offsetParent !== null,
+    );
     const content = children.reduce((sum, child) => sum + Math.ceil(child.offsetHeight || child.getBoundingClientRect().height || 0), 0);
     return Math.max(0, content + Math.max(0, children.length) * 7 + 12);
   }
@@ -551,6 +601,9 @@ function createAdvancedUI(node, imageWidget, stateWidget, uploadWidget) {
       select.appendChild(option);
     }
     select.addEventListener("change", () => commitState({ ...ui.state, resample: select.value }));
+    resample.appendChild(select);
+
+    mainControls.replaceChildren();
     const loadMode = document.createElement("select");
     loadMode.setAttribute("aria-label", "Load mode");
     loadMode.title = "Normal: uploads to inputs. Direct: replaces this node's temporary image; restart may clear it. Applies to the next upload, drop, or image paste.";
@@ -565,7 +618,7 @@ function createAdvancedUI(node, imageWidget, stateWidget, uploadWidget) {
       upload.title = ui.state.load_mode === "direct" ? "Upload a replaceable temporary image (not saved to inputs)" : "Upload an image to ComfyUI input";
     });
     upload.title = ui.state.load_mode === "direct" ? "Upload a replaceable temporary image (not saved to inputs)" : "Upload an image to ComfyUI input";
-    resample.append(select, loadMode);
+    mainControls.append(loadMode, configButton);
 
     toggles.replaceChildren();
     const cropToggle = button(`Crop: ${ui.state.crop_enabled ? "On" : "Off"}`, "workflowx-lixa-toggle");
@@ -580,7 +633,7 @@ function createAdvancedUI(node, imageWidget, stateWidget, uploadWidget) {
 
     if (ui.state.crop_enabled) {
       renderSnapRow(cropSnap, "Crop Snap", "crop_snap");
-      if (!cropSnap.isConnected) preview.before(cropSnap);
+      if (!cropSnap.isConnected) configPanel.appendChild(cropSnap);
     } else cropSnap.remove();
     updateOutput();
   }
@@ -1007,6 +1060,8 @@ function createAdvancedUI(node, imageWidget, stateWidget, uploadWidget) {
 
   ui.dispose = () => {
     ui.disposed = true;
+    document.removeEventListener("pointerdown", dismissConfig, true);
+    document.removeEventListener("keydown", handleConfigKeydown, true);
     window.removeEventListener("paste", pasteImage, true);
     ui.resizeObserver?.disconnect();
     window.clearInterval(ui.imagePoll);
