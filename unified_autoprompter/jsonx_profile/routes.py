@@ -14,10 +14,11 @@ from ..profiles import (
     normalize_format,
     normalize_generation_type,
 )
+from ..prompt_presets import resolve_text as resolve_prompt_presets
 
 
 ROUTE_PREFIX = "/workflowx/unified_autoprompter/jsonx"
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 
 class CancellationRegistry:
@@ -72,11 +73,13 @@ def _instructions_from_fields(fields: Any) -> str:
             ("Reference image note", data.get("image_note")),
             ("Extra instructions", data.get("extra_instructions")),
         )
-    return "\n".join(
+    instructions = "\n".join(
         f"{label}: {str(value).strip()}" if label else str(value).strip()
         for label, value in items
         if str(value or "").strip()
     )
+    resolved, _activated = resolve_prompt_presets(instructions)
+    return resolved
 
 
 def _negative_text(prompt: Any) -> str:

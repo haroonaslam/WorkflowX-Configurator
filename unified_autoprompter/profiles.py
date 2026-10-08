@@ -378,7 +378,7 @@ def profiles_payload() -> dict:
                 "jsonx_config": dict(profile.jsonx_config),
             })
     return {
-        "schema_version": 7,
+        "schema_version": 8,
         "reference_schema_version": REFERENCE_SCHEMA_VERSION,
         "jsonx_reference_schema_version": JSONX_REFERENCE_SCHEMA_VERSION,
         "profiles": profile_items,

@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "generation_types": {
     "text_to_image": {"label": "Text to Image", "filename": "text-to-image.md", "output_medium": "image", "reference_supported": false},
     "image_to_image": {"label": "Image to Image", "filename": "image-to-image.md", "output_medium": "image", "reference_supported": true},
@@ -16,6 +16,7 @@
     "tags": {"label": "Tags", "contract_prefix": "tags_output"}
   },
   "nsfw_files": {"image": "nsfw-image.md", "video": "nsfw-video.md"},
+  "audit_file": "audit.md",
   "profiles": [
     {
       "key": "ideogram4",
@@ -51,6 +52,18 @@
       "enabled_generation_types": ["text_to_image", "image_to_image"],
       "default_generation_type": "text_to_image",
       "negative_supported": true,
+      "builtin": true
+    },
+    {
+      "key": "qwen_image_2_1",
+      "label": "Qwen Image 2.1",
+      "folder": "Qwen Image 2.1",
+      "media_type": "image",
+      "enabled_formats": ["natural"],
+      "default_format": "natural",
+      "enabled_generation_types": ["text_to_image", "image_to_image"],
+      "default_generation_type": "text_to_image",
+      "negative_supported": false,
       "builtin": true
     },
     {

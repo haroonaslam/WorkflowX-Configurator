@@ -19,6 +19,7 @@ DEPRECATED_IDS = {
     "KVGC_ConfigSelectorAdvanced",
     "WorkflowXAuKChainedCloneReviewStep",
     "WorkflowXAuKSegmentFinalize",
+    "WorkflowX_SaveImageJpg",
 }
 DEPRECATED_NAMES = {
     "Group Configurator",
@@ -26,7 +27,21 @@ DEPRECATED_NAMES = {
     "Config Selector Advanced",
 }
 FRONTEND_ONLY_TYPES = {"Note"}
-EXAMPLE_COVERAGE_EXEMPT_IDS = {"H3RCPrepareThumbnail"}
+INTERNAL_IDS = {
+    "WorkflowX_DetailerXCapture",
+    "WorkflowX_DetailerXSnapshot",
+    "WorkflowX_DetailerXReplay",
+    "WorkflowX_DetailerXSelective",
+    "WorkflowX_DetailerXConnectedSelective",
+}
+EXAMPLE_COVERAGE_EXEMPT_IDS = {
+    "H3RCPrepareThumbnail",
+    "WorkflowX_Downloader",
+    "WorkflowX_ViewImageFormat",
+    "WorkflowX_DetailerX",
+    "WorkflowX_DetailerXPreview",
+    "WorkflowX_DetailerXMasks",
+}
 
 
 def _package():
@@ -39,7 +54,7 @@ def _package():
 
 
 def _active_node_ids():
-    return set(_package().NODE_CLASS_MAPPINGS) - DEPRECATED_IDS
+    return set(_package().NODE_CLASS_MAPPINGS) - DEPRECATED_IDS - INTERNAL_IDS
 
 
 def _example_documents():
@@ -70,7 +85,7 @@ def _heading_slug(text):
 def test_readme_is_the_complete_active_node_reference():
     text = README.read_text(encoding="utf-8")
     active = _active_node_ids()
-    assert len(active) == 60
+    assert len(active) == 65
     missing = sorted(node_id for node_id in active if f"`{node_id}`" not in text)
     assert missing == [], missing
     for heading in (
@@ -238,7 +253,7 @@ def test_live_object_info_contains_example_node_types_when_comfyui_is_running():
 
     package_ids = set(_package().NODE_CLASS_MAPPINGS)
     assert package_ids <= set(object_info)
-    assert len(package_ids) == 65
+    assert len(package_ids) == 77
     example_types = {
         node["type"]
         for document in _example_documents().values()

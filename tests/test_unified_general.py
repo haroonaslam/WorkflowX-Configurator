@@ -82,7 +82,7 @@ def general_routes(monkeypatch, tmp_path):
 
 
 def payload(**overrides):
-    return {"schema_version": 7, "general_schema_version": 1, "backend": "openai", "model": "test-model", "fields": {"prompt_text": "  user\r\ntext  ", "detail": "high"}, **overrides}
+    return {"schema_version": 8, "general_schema_version": 1, "backend": "openai", "model": "test-model", "fields": {"prompt_text": "  user\r\ntext  ", "detail": "high"}, **overrides}
 
 
 @pytest.mark.parametrize("answer", ['  prose\n\n', '```json\n{"x":1}\n```', '{"positive":"p","negative":"n"}', '{"anything":[1,2]}'])
@@ -214,3 +214,153 @@ def test_general_preview_rejects_nonvision_and_cancel_is_not_failure(general_rou
     assert status == 409
     assert "cancelled" in result["error"]
     assert "interrupted runtime" not in caplog.text
+
+
+def test_general_audit_only_isolated_payload_and_exact_fallback(general_routes, monkeypatch):
+    routes, call, _ = general_routes
+    candidate = "  ## Shot 1\r\nKeep \"EXACT\" and <Picture 1>.  "
+    calls = []
+
+    monkeypatch.setattr(routes, "audit_block", lambda: "GLOBAL AUDIT")
+
+    async def dispatch(data, system, user, images, format_, cancel, stage="single"):
+        calls.append((data, system, user, images, format_, stage, cancel))
+        # Changing the heading makes validation fail; Audit only must return
+        # the exact visible textbox value as a successful HTTP fallback.
+        return "## Shot 2\nKeep \"EXACT\" and <Picture 1>."
+
+    monkeypatch.setattr(routes, "dispatch_provider", dispatch)
+    status, result = call("/general/generate", payload(
+        audit_mode="audit_only",
+        preset="ignored.txt",
+        images_b64=["not-an-image"],
+        fields={"prompt_text": candidate, "raw_prompt_text": "ignored connected text"},
+    ))
+    assert status == 200
+    assert result["prompt"] == candidate
+    assert result["negative"] == ""
+    assert result["audit"]["status"] == "failed"
+    assert len(calls) == 1
+    data, system, user, images, format_, stage, _cancel = calls[0]
+    assert system == "GLOBAL AUDIT"
+    assert user == candidate
+    assert images == []
+    assert format_ == "natural"
+    assert stage == "audit"
+    assert data["system_prompt_preset"] == "none"
+
+
+def test_standard_add_audit_pass_preserves_negative_and_isolates_second_call(general_routes, monkeypatch):
+    routes, call, _ = general_routes
+    calls = []
+    monkeypatch.setattr(routes, "audit_block", lambda: "GLOBAL AUDIT")
+
+    async def dispatch(data, system, user, images, format_, cancel, stage="single"):
+        calls.append((system, user, images, format_, stage))
+        if stage == "audit":
+            return "refined positive"
+        return '{"positive":"primary positive","negative":"keep negative"}'
+
+    monkeypatch.setattr(routes, "dispatch_provider", dispatch)
+    request = {
+        "schema_version": 8,
+        "reference_schema_version": 2,
+        "backend": "openai",
+        "model": "test-model",
+        "target_model": "sdxl",
+        "prompt_format": "natural",
+        "generation_type": "text_to_image",
+        "negative_enabled": True,
+        "audit_mode": "add_pass",
+        "fields": {"prompt_text": "make an image"},
+    }
+    status, result = call("/generate", request)
+    assert status == 200, result
+    assert len(calls) == 2
+    assert calls[0][4] == "single"
+    assert calls[1] == ("GLOBAL AUDIT", "primary positive", [], "natural", "audit")
+    assert result["positive"] == "refined positive"
+    assert result["negative"] == "keep negative"
+    assert result["audit"] == {"mode": "add_pass", "status": "completed", "changed": True, "error": ""}
+
+
+def test_standard_audit_only_ignores_generation_inputs_and_image_requirements(general_routes, monkeypatch):
+    routes, call, _ = general_routes
+    candidate = "  candidate exactly  "
+    calls = []
+    monkeypatch.setattr(routes, "audit_block", lambda: "GLOBAL AUDIT")
+
+    async def dispatch(data, system, user, images, format_, cancel, stage="single"):
+        calls.append((system, user, images, format_, stage))
+        return "candidate exactly"
+
+    monkeypatch.setattr(routes, "dispatch_provider", dispatch)
+    status, result = call("/generate", {
+        "schema_version": 8,
+        "reference_schema_version": 2,
+        "backend": "openai",
+        "model": "test-model",
+        "target_model": "sdxl",
+        "prompt_format": "natural",
+        "generation_type": "image_to_image",
+        "negative_enabled": True,
+        "nsfw_enabled": True,
+        "audit_mode": "audit_only",
+        "images_b64": ["invalid ignored image"],
+        "fields": {
+            "prompt_text": candidate,
+            "raw_prompt_text": "ignored connected prompt",
+        },
+    })
+    assert status == 200, result
+    assert calls == [("GLOBAL AUDIT", candidate, [], "natural", "audit")]
+    assert result["positive"] == "candidate exactly"
+    assert result["negative"] == ""
+    assert result["negative_enabled"] is False
+    assert result["nsfw_enabled"] is False
+    assert result["connected_image_count"] == 0
+    assert result["audit"]["status"] == "completed"
+    assert result["audit"]["changed"] is False
+
+
+def test_audit_provider_failure_falls_back_but_audit_cancellation_does_not(general_routes, monkeypatch):
+    routes, call, _ = general_routes
+    monkeypatch.setattr(routes, "audit_block", lambda: "GLOBAL AUDIT")
+    call_count = 0
+
+    async def fail_audit(data, system, user, images, format_, cancel, stage="single"):
+        nonlocal call_count
+        call_count += 1
+        if stage == "audit":
+            raise RuntimeError("audit provider unavailable")
+        return '{"positive":"primary positive","negative":"keep negative"}'
+
+    monkeypatch.setattr(routes, "dispatch_provider", fail_audit)
+    request = {
+        "schema_version": 8, "reference_schema_version": 2,
+        "backend": "openai", "model": "test-model", "target_model": "sdxl",
+        "prompt_format": "natural", "generation_type": "text_to_image",
+        "negative_enabled": True, "audit_mode": "add_pass",
+        "fields": {"prompt_text": "make an image"},
+    }
+    status, result = call("/generate", request)
+    assert status == 200
+    assert call_count == 2
+    assert result["positive"] == "primary positive"
+    assert result["negative"] == "keep negative"
+    assert result["audit"]["status"] == "failed"
+    assert result["audit"]["changed"] is False
+    assert "unavailable" in result["audit"]["error"]
+
+    async def cancel_audit(data, system, user, images, format_, cancel, stage="single"):
+        cancel.set()
+        raise RuntimeError("provider interrupted")
+
+    monkeypatch.setattr(routes, "dispatch_provider", cancel_audit)
+    status, result = call("/general/generate", payload(
+        audit_mode="audit_only",
+        generation_id="audit-cancel",
+        fields={"prompt_text": "candidate"},
+    ))
+    assert status == 409
+    assert "cancelled" in result["error"]

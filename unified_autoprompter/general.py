@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from .folder_registry import prompt_root
+from .prompt_presets import resolve_text as resolve_prompt_presets
 
 GENERAL_SCHEMA_VERSION = 1
 
@@ -53,4 +54,5 @@ def build_inputs(data: dict, image_count: int) -> tuple[str, str]:
             system = preset_path(name).read_bytes().decode("utf-8")
         except (OSError, UnicodeError) as exc:
             raise GeneralInputError("The preset could not be read as UTF-8 text. Check the file and try again.") from exc
-    return system, user
+    resolved, _activated = resolve_prompt_presets(user)
+    return system, resolved

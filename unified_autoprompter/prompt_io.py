@@ -7,6 +7,7 @@ from typing import Any
 from .profiles import FORMAT_JSON, FORMAT_TAGS, normalize_format
 
 BBOX_JSON_TARGETS = {"ideogram4", "krea2"}
+COLOR_PALETTE_TARGETS = {"ideogram4", "flux2_dev", "flux_klein", "jsonx"}
 MINIMAX_H3_TARGETS = {"minimax_h3_official", "minimax_h3_alternate"}
 
 
@@ -33,9 +34,9 @@ def _strip_color_palette_values(value: Any) -> Any:
 
 
 def strip_color_palettes_from_prompt(target_model: str, prompt_format: str, text: str) -> str:
-    """Remove Ideogram/Krea-style color palette metadata from a JSON prompt string."""
+    """Remove meaningful profile-owned color palette metadata from JSON output."""
     raw = str(text or "").strip()
-    if normalize_format(target_model, prompt_format) != FORMAT_JSON or not raw:
+    if target_model not in COLOR_PALETTE_TARGETS or normalize_format(target_model, prompt_format) != FORMAT_JSON or not raw:
         return raw
     parsed = extract_json_object(raw)
     if parsed is None:
@@ -88,7 +89,7 @@ def build_outputs(
         prompt = final_prompt
     else:
         prompt = assemble_prompt(positive, negative, negative_enabled, prompt_format)
-    if disable_color_palette:
+    if disable_color_palette and target_model in COLOR_PALETTE_TARGETS and prompt_format == FORMAT_JSON:
         positive = strip_color_palettes_from_prompt(target_model, prompt_format, positive)
         prompt = strip_color_palettes_from_prompt(target_model, prompt_format, prompt)
     return (prompt, positive, negative)

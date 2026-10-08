@@ -96,7 +96,7 @@ def _load_package():
 
 def test_combined_package_exports_workflowx_and_afj_nodes():
     module = _load_package()
-    assert len(module.NODE_CLASS_MAPPINGS) == 76
+    assert len(module.NODE_CLASS_MAPPINGS) == 77
     voice = module.NODE_CLASS_MAPPINGS["WorkflowX_VoiceChangerX"]
     assert module.NODE_DISPLAY_NAME_MAPPINGS["WorkflowX_VoiceChangerX"] == "Voice ChangerX"
     assert voice.CATEGORY == "WorkflowX/Audio"
@@ -164,6 +164,9 @@ def test_combined_package_exports_workflowx_and_afj_nodes():
     assert module.NODE_DISPLAY_NAME_MAPPINGS["WorkflowX_ImageProcessorX"] == "Image ProcessorX"
     assert module.NODE_CLASS_MAPPINGS["WorkflowX_ImageProcessorX"].RETURN_TYPES == ("IMAGE",)
     assert module.NODE_CLASS_MAPPINGS["WorkflowX_ImageProcessorX"].CATEGORY == "WorkflowX/Image Compare"
+    assert "WorkflowX_Downloader" in module.NODE_CLASS_MAPPINGS
+    assert module.NODE_DISPLAY_NAME_MAPPINGS["WorkflowX_Downloader"] == "WorkflowX Downloader"
+    assert module.NODE_CLASS_MAPPINGS["WorkflowX_Downloader"].CATEGORY == "WorkflowX/Utilities"
     assert module.WEB_DIRECTORY == "./web/js"
 
 

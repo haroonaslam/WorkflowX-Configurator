@@ -10,13 +10,14 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 
-REFERENCE_SCHEMA_VERSION = 1
+REFERENCE_SCHEMA_VERSION = 2
 REFERENCE_ROOT = Path(__file__).with_name("reference")
 ORIGINAL_ROOT = REFERENCE_ROOT / "original"
 CURRENT_ROOT = REFERENCE_ROOT / "current_use"
 MANIFEST_FILENAME = "manifest.json"
 JSONX_SUBTREE = "JsonX"
 NSFW_FILENAMES = {"image": "nsfw-image.md", "video": "nsfw-video.md"}
+AUDIT_FILENAME = "audit.md"
 SUPPORTING_FILENAMES = {
     "with_reference_supported": "with_reference_supported.md",
     "without_reference_supported": "without_reference_supported.md",
@@ -82,6 +83,8 @@ def validate_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
         raise ReferenceStoreError("Reference manifest needs generation-type mappings.")
     if not isinstance(formats, dict) or not formats:
         raise ReferenceStoreError("Reference manifest needs output-format mappings.")
+    if _safe_relative(manifest.get("audit_file") or "") != AUDIT_FILENAME:
+        raise ReferenceStoreError(f"Reference manifest audit_file must be {AUDIT_FILENAME!r}.")
     seen_keys: set[str] = set()
     seen_folders: set[str] = set()
     for profile in _manifest_profiles(manifest):
@@ -115,7 +118,14 @@ def validate_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
 
 
 def _load_manifest(root: Path) -> dict[str, Any]:
-    return validate_manifest(_read_json(root / MANIFEST_FILENAME))
+    manifest = _read_json(root / MANIFEST_FILENAME)
+    # Upgrade an existing editable bundle in memory so bootstrap_current_use()
+    # can add the new global audit block and then persist the complete v2 bundle.
+    if root == CURRENT_ROOT and int(manifest.get("schema_version") or 0) == 1:
+        manifest = dict(manifest)
+        manifest["schema_version"] = REFERENCE_SCHEMA_VERSION
+        manifest["audit_file"] = AUDIT_FILENAME
+    return validate_manifest(manifest)
 
 
 def _markdown_files(root: Path) -> dict[str, str]:
@@ -150,13 +160,14 @@ def _validate_file_inventory(manifest: dict[str, Any], files: dict[str, Any]) ->
         path = _safe_relative(raw_path)
         parts = PurePosixPath(path).parts
         is_nsfw = path in set(NSFW_FILENAMES.values())
+        is_audit = path == AUDIT_FILENAME
         is_profile_markdown = (
             len(parts) == 3
             and parts[0] in folders
             and parts[1] in {"split", "Supporting"}
             and parts[2].endswith(".md")
         )
-        if not is_nsfw and not is_profile_markdown:
+        if not is_nsfw and not is_audit and not is_profile_markdown:
             raise ReferenceStoreError(f"Unsupported reference bundle path: {path}.")
         if not isinstance(raw_text, str):
             raise ReferenceStoreError(f"Reference file {path} must contain text.")
@@ -164,6 +175,8 @@ def _validate_file_inventory(manifest: dict[str, Any], files: dict[str, Any]) ->
     for filename in NSFW_FILENAMES.values():
         if not normalized.get(filename, "").strip():
             raise ReferenceStoreError(f"Required global block {filename} is empty or missing.")
+    if not normalized.get(AUDIT_FILENAME, "").strip():
+        raise ReferenceStoreError(f"Required global block {AUDIT_FILENAME} is empty or missing.")
     generation_types = manifest["generation_types"]
     formats = manifest["formats"]
     for profile in _manifest_profiles(manifest):
@@ -290,6 +303,9 @@ def bootstrap_current_use() -> None:
             if key not in target:
                 target[key] = copy.deepcopy(value)
                 changed = True
+    if not current["manifest"].get("audit_file"):
+        current["manifest"]["audit_file"] = str(original["manifest"].get("audit_file") or AUDIT_FILENAME)
+        changed = True
     for path, text in original["files"].items():
         if path not in current["files"]:
             current["files"][path] = text
@@ -305,6 +321,15 @@ def current_bundle() -> dict[str, Any]:
 
 def original_bundle() -> dict[str, Any]:
     return _bundle_from_root(ORIGINAL_ROOT)
+
+
+def audit_block() -> str:
+    bundle = current_bundle()
+    filename = _safe_relative(bundle["manifest"].get("audit_file") or AUDIT_FILENAME)
+    text = str(bundle["files"].get(filename) or "").strip()
+    if not text:
+        raise ReferenceStoreError(f"Required global block {filename} is empty or missing.")
+    return text
 
 
 def save_current_bundle(payload: dict[str, Any]) -> dict[str, Any]:
@@ -408,7 +433,7 @@ def resolve_profile_file(profile_key: str, relative: str) -> tuple[str, str]:
 
 def resolve_global_file(filename: str) -> tuple[str, str]:
     path = _safe_relative(filename)
-    if path not in set(NSFW_FILENAMES.values()):
+    if path not in {*NSFW_FILENAMES.values(), AUDIT_FILENAME}:
         raise ReferenceStoreError(f"Unknown global reference block: {path}.")
     bundle = current_bundle()
     return path, bundle["files"].get(path, "")

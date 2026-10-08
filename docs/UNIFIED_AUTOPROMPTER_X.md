@@ -11,10 +11,12 @@ The source-to-field and reverse-payload review is recorded in the [Canonical Gui
 1. Select a target profile.
 2. Select one of that profile's supported generation types.
 3. Select an output format.
-4. Enter the request in **Prompt instructions**, or enable a connected `raw_prompt_text` input.
+4. Enter the request in **Prompt instructions**, or enable a connected `raw_prompt_text` input. Type `@` to insert a saved character or scene preset.
 5. Keep **Detail level** as a separate explicit instruction.
 6. Optionally connect images as prompt-authoring evidence. The selected generation type determines how their role is described.
-7. Choose a provider from the **Provider** dropdown, expand **Model settings**, and generate.
+7. Choose **On Generate** for manual authoring or **On Queue** to author a fresh prompt whenever this node is included in a queued graph.
+8. Optionally select **Add audit pass** or **Audit only**.
+9. Choose a provider from the **Provider** dropdown, expand **Model settings**, and generate or queue.
 
 The NSFW checkbox adds exactly one shared Markdown block selected by output medium: Image or Video. It does not change Gemini or provider safety settings.
 
@@ -38,6 +40,7 @@ Built-in support:
 | Profiles | Supported generation types | Default |
 | --- | --- | --- |
 | Image profiles | Text to Image, Image to Image | Text to Image |
+| Qwen Image 2.1 | Text to Image, Image to Image; Natural output only; no negative channel | Text to Image |
 | JsonX | Text to Image, Image to Image | Text to Image |
 | WAN 2.2, LTX 2.3 | Text to Video, First Frame, First–Last Frame | Text to Video |
 | MiniMax H3 Official | Text to Video, First Frame, First–Last Frame, Last Frame, Reference to Video | Text to Video |
@@ -65,6 +68,24 @@ The user input contains only:
 - detail level.
 
 Actual images are transmitted separately in the provider's multimodal payload. The **Preview** page separates the exact system text, exact user text, and submitted authoring media from **Local routing only** data such as activated relative filenames and sanitized provider parameters. Local routing metadata is never inserted into the model prompt. Preview and generation call the same Markdown payload builder.
+
+## Working modes
+
+**On Generate** updates the saved outputs only when you press **Generate**. Ordinary workflow queues reuse that saved prompt, which is useful when prompt authoring and image/video generation should be separate operations.
+
+**On Queue** requests a fresh authored prompt whenever a queued graph includes Unified Autoprompter X. The queue waits for that request to finish before downstream nodes run. If the node is not part of the queued execution path, no prompt request is made.
+
+## Audit modes
+
+**None** returns the generated or saved text without an audit request. **Add audit pass** generates normally, then sends the result through an independent second provider call; if that call fails, Unified retains the newly generated prompt. **Audit only** skips generation and audits the visible **Prompt instructions** exactly as the source text. It ignores connected prompt text and authoring images; if the audit fails, the visible text is retained.
+
+The audit instruction is an independently editable global Markdown block in `unified_autoprompter/reference/current_use/audit.md`, with its packaged default under `reference/original`. Audit validation preserves the selected output contract: JSON must remain valid JSON, required headings and reference tokens remain intact, shot markers are preserved, and quoted text is not silently rewritten into a different structure. Cancellation still preserves the previous successful output.
+
+## Prompt presets
+
+Open **Presets** to create reusable character or scene records. Each preset stores a name, `@tag`, type, optional target profile, and adaptation guidance. Typing `@` in **Prompt instructions** opens autocomplete; choosing a tag expands the matching preset into the authoring request.
+
+Packaged presets live under `unified_autoprompter/prompt_presets/original`, and the editable runtime catalog lives under `prompt_presets/current_use`. Built-in presets can be edited and reset to their packaged form but not deleted. Custom presets can be edited or deleted.
 
 ## Providers
 
@@ -144,7 +165,7 @@ Natural output always follows the validated two-call path. Stage 1 remains in me
 
 Standard profiles use a dedicated reference schema independently from the existing Unified/JsonX schema. Packaged defaults are immutable under `unified_autoprompter/reference/original`; runtime and UI always load `unified_autoprompter/reference/current_use`. On upgrade, newly packaged profiles and files are copied into `current_use` only when missing, so existing edits are not overwritten. Direct filesystem edits become active on the next Preview or Generate request without restarting ComfyUI.
 
-The standard editor has two modes. **Profiles** provides Overview, Common Profile Rules, Generation Paths, Reference Usage, Output Contracts, and Preview. **Global NSFW Rules** provides exactly two editors: Image and Video. Every textarea contains the exact corresponding Markdown string, including headings, lists, tags, blank lines, and line endings.
+The standard editor has two modes. **Profiles** provides Overview, Common Profile Rules, Generation Paths, Reference Usage, Output Contracts, and Preview. **Global Rules** provides Audit, Image NSFW, and Video NSFW editors. Every textarea contains the exact corresponding Markdown string, including headings, lists, tags, blank lines, and line endings.
 
 - **Common Profile Rules** edits `split/common.md`.
 - **Generation Paths** edits the selected enabled generation type's mapped file. Enabling a type without a file exposes a blank editor, and Save creates it.
@@ -152,11 +173,11 @@ The standard editor has two modes. **Profiles** provides Overview, Common Profil
 - **Output Contracts** selects one profile-wide contract by Natural/JSON/Tags and negative on/off; it is not duplicated per generation path.
 - **Preview** reads the last saved `current_use`, which is also the generation source. Save draft edits before previewing them.
 
-Save transactionally replaces only `current_use`. Revert discards unsaved modal edits. Reset Profile restores one built-in profile from `original`; Reset All restores all built-ins and both NSFW files while preserving custom profiles. Duplicate copies exact current Markdown into a custom profile. Import creates an unsaved draft, while Export downloads the last saved versioned bundle.
+Save transactionally replaces only `current_use`. Revert discards unsaved modal edits. Reset Profile restores one built-in profile from `original`; Reset All restores all built-ins and the global Audit/Image/Video files while preserving custom profiles. Duplicate copies exact current Markdown into a custom profile. Import creates an unsaved draft, while Export downloads the last saved versioned bundle.
 
 The standard manifest stores routing metadata only: profile keys and labels, folder mappings, media type, enabled/default formats and generation types, negative support, reference capability, filename mappings, and the reference schema version. It contains no model-facing instructions. JsonX has a separate manifest and reference-schema handshake; legacy profile JSON is not a JsonX prompt source.
 
-The frontend/backend Unified handshake remains version 7. Standard Markdown references and JsonX Markdown references each have an independent version-1 handshake. If any browser/backend pair is stale, generation stops and asks you to restart ComfyUI and hard-refresh instead of sending an incompatible payload.
+The frontend/backend Unified handshake is version 8. Standard Markdown references use schema version 2; JsonX Markdown references and prompt presets each use their own version-1 handshake. If any browser/backend pair is stale, generation stops and asks you to restart ComfyUI and hard-refresh instead of sending an incompatible payload.
 
 ## Preserved controls
 
@@ -169,7 +190,7 @@ The frontend/backend Unified handshake remains version 7. Standard Markdown refe
 
 ### Schema mismatch after updating
 
-Restart ComfyUI and hard-refresh the browser. The node deliberately refuses to mix v7 JavaScript with an older Python route or the reverse.
+Restart ComfyUI and hard-refresh the browser. The node deliberately refuses to mix v8 JavaScript with an older Python route or the reverse.
 
 ### Image guidance error
 

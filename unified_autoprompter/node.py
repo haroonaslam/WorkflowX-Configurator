@@ -104,6 +104,10 @@ class UnifiedAutoprompterX:
                     "STRING",
                     {"default": "", "multiline": True, "tooltip": "Managed by the WorkflowX UI."},
                 ),
+                "audit_mode": (
+                    ["none", "add_pass", "audit_only"],
+                    {"default": "none", "tooltip": "UI-managed prompt audit mode."},
+                ),
             },
             "optional": _FlexibleOptionalInputs(),
         }
@@ -122,6 +126,7 @@ class UnifiedAutoprompterX:
         generated_positive: str = "",
         generated_negative: str = "",
         final_prompt: str = "",
+        audit_mode: str = "none",
         image=None,
         bbox_json: str = "",
         raw_prompt_text: str = "",

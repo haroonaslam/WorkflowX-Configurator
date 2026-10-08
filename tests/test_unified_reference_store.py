@@ -1,5 +1,6 @@
 import copy
 import importlib.util
+import json
 import pathlib
 import shutil
 import sys
@@ -111,6 +112,30 @@ def test_reference_store_save_reset_and_bootstrap_never_write_original():
         assert {path.relative_to(original): path.read_bytes() for path in original.rglob("*") if path.is_file()} == original_before
 
 
+def test_reference_store_migrates_v1_current_bundle_with_audit_block():
+    _profiles, store, _builder = _modules()
+    with tempfile.TemporaryDirectory() as temporary:
+        root = pathlib.Path(temporary) / "reference"
+        original = root / "original"
+        current = root / "current_use"
+        shutil.copytree(ROOT / "unified_autoprompter" / "reference" / "original", original)
+        shutil.copytree(original, current)
+        manifest_path = current / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["schema_version"] = 1
+        manifest.pop("audit_file", None)
+        manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+        (current / "audit.md").unlink()
+        store.REFERENCE_ROOT = root
+        store.ORIGINAL_ROOT = original
+        store.CURRENT_ROOT = current
+
+        migrated = store.current_bundle()
+        assert migrated["reference_schema_version"] == 2
+        assert migrated["manifest"]["audit_file"] == "audit.md"
+        assert migrated["files"]["audit.md"] == store.original_bundle()["files"]["audit.md"]
+
+
 def test_reference_bundle_rejects_traversal_and_materializes_blank_enabled_path_files():
     _profiles, store, _builder = _modules()
     bundle = store.current_bundle()
@@ -133,10 +158,15 @@ def test_reference_bundle_rejects_traversal_and_materializes_blank_enabled_path_
 
 def test_frontend_uses_markdown_editor_and_separate_reference_schema_handshake():
     source = (ROOT / "web" / "js" / "unified_autoprompter.js").read_text(encoding="utf-8")
-    assert "const REFERENCE_SCHEMA_VERSION = 1" in source
+    assert "const REFERENCE_SCHEMA_VERSION = 2" in source
     assert "openMarkdownProfileSettings" in source
     assert "Common Profile Rules" in source
-    assert "Global NSFW Rules" in source
+    assert "Global Rules" in source
+    assert "audit.md" in source
+    assert '"workflowx-uap-modal workflowx-uap-preset-modal"' in source
+    assert '"Saved presets"' in source
+    assert 'field(editor, "Profile details", profileDetails)' in source
+    assert 'field(editor, "Adaptation guidance", guidance)' in source
     assert "Image NSFW rules" in source
     assert "Video NSFW rules" in source
     assert "reference/current_use" in source
@@ -164,7 +194,8 @@ def test_reference_root_has_only_original_and_current_use_with_complete_catalogs
         path.relative_to(current).as_posix(): path.read_bytes()
         for path in current.rglob("*") if path.is_file()
     }
-    assert current_files == original_files
+    assert set(original_files).issubset(current_files)
+    assert current_files["audit.md"] == original_files["audit.md"]
     assert "manifest.json" in original_files
     assert "nsfw-image.md" in original_files
     assert "nsfw-video.md" in original_files
@@ -176,8 +207,8 @@ def test_standard_profiles_payload_contains_routing_metadata_not_instruction_tex
     profiles, _store, _builder = _modules()
     payload = profiles.profiles_payload()
     standard = [profile for profile in payload["profiles"] if profile["engine"] == "standard"]
-    assert len(standard) == 12
-    assert payload["reference_schema_version"] == 1
+    assert len(standard) == 13
+    assert payload["reference_schema_version"] == 2
     for profile in standard:
         assert profile["notes"] == ""
         assert set(profile) == {
@@ -328,3 +359,122 @@ def test_atomic_write_failure_restores_previous_current_use_tree():
             for path in current.rglob("*") if path.is_file()
         }
         assert after == before
+
+
+def test_prompt_presets_crud_resolution_and_atomic_failure():
+    _profiles, _store, builder = _modules()
+    presets = sys.modules["workflowx_unified_reference_test.prompt_presets"]
+    with tempfile.TemporaryDirectory() as directory:
+        root = pathlib.Path(directory)
+        original = root / "original"
+        current = root / "current_use"
+        shutil.copytree(ROOT / "unified_autoprompter" / "prompt_presets" / "original", original)
+        presets.PRESET_ROOT = root
+        presets.ORIGINAL_ROOT = original
+        presets.CURRENT_ROOT = current
+
+        listed = presets.list_presets()
+        assert [(item["id"], item["builtin"]) for item in listed] == [
+            ("shum1la", True), ("living_room", True),
+        ]
+        shum1la = next(item for item in listed if item["id"] == "shum1la")
+        assert "adult woman" in shum1la["profile_markdown"]
+        assert "explicitly attributed" in shum1la["adaptation_guidance"]
+        assert "## Adaptation guidance" in shum1la["markdown"]
+        source = "@LIVINGROOM1 with @ShUmIlA, then @shumila again; keep @unknown."
+        resolved, activated = presets.resolve_text(source)
+        assert [item["id"] for item in activated] == ["living_room", "shum1la"]
+        assert resolved.count("## Scene preset: Living Room") == 1
+        assert resolved.count("## Character preset: Shum1la") == 1
+        assert resolved.endswith("Living Room with Shum1la, then Shum1la again; keep @unknown.")
+        assert presets.resolve_text("no preset tags") == ("no preset tags", [])
+        assert builder.build_user_prompt({"prompt_text": source}, target_model="qwen_image_2_1") == resolved
+
+        presets.save_preset({
+            "type": "scene", "name": "Studio", "tag": "studio1",
+            "profile_markdown": "A stable studio.",
+            "adaptation_guidance": "Adapt requested lighting.",
+        })
+        custom = next(item for item in presets.list_presets() if item["tag"] == "studio1")
+        assert custom["builtin"] is False
+        assert custom["profile_markdown"] == "A stable studio."
+        assert custom["adaptation_guidance"] == "Adapt requested lighting."
+        try:
+            presets.save_preset({"type": "character", "name": "Duplicate", "tag": "STUDIO1", "markdown": "Body"})
+        except presets.PromptPresetError as error:
+            assert "already used" in str(error)
+        else:
+            raise AssertionError("Duplicate tags must be rejected.")
+
+        original_shum1la = (original / "shum1la.md").read_bytes()
+        presets.save_preset({
+            "id": "shum1la", "type": "character", "name": "Edited",
+            "tag": "shumila", "markdown": "Edited body.",
+        })
+        assert next(item for item in presets.list_presets() if item["id"] == "shum1la")["name"] == "Edited"
+        presets.reset_preset("shum1la")
+        assert (current / "shum1la.md").read_bytes() == original_shum1la
+
+        before = (current / f"{custom['id']}.md").read_bytes()
+        real_replace = presets.os.replace
+        presets.os.replace = lambda *_args: (_ for _ in ()).throw(OSError("atomic failure"))
+        try:
+            try:
+                presets.save_preset({**custom, "name": "Should not persist"})
+            except OSError as error:
+                assert "atomic failure" in str(error)
+            else:
+                raise AssertionError("The simulated atomic failure was not raised.")
+        finally:
+            presets.os.replace = real_replace
+        assert (current / f"{custom['id']}.md").read_bytes() == before
+
+        presets.delete_preset(custom["id"])
+        assert all(item["id"] != custom["id"] for item in presets.list_presets())
+        for invalid in (
+            {"type": "other", "name": "Bad", "tag": "bad", "markdown": "Body"},
+            {"type": "scene", "name": "Bad", "tag": "bad tag", "markdown": "Body"},
+            {"type": "scene", "name": "Bad", "tag": "bad", "markdown": ""},
+        ):
+            try:
+                presets.save_preset(invalid)
+            except presets.PromptPresetError:
+                pass
+            else:
+                raise AssertionError("Invalid preset metadata must be rejected.")
+
+
+def test_audit_validation_preserves_json_shape_and_text_contracts():
+    _modules()
+    audit = _load_module("unified_autoprompter/audit.py", "workflowx_unified_reference_test.audit")
+    source_json = '{"shots":[{"text":"A","duration":2}],"negative":"none"}'
+    accepted = audit.validate_result(source_json, '{"shots":[{"text":"B","duration":3}],"negative":"clean"}')
+    assert json.loads(accepted)["shots"][0]["text"] == "B"
+    assert json.loads(audit.validate_result('[{"x":1}]', '[{"x":2}]')) == [{"x": 2}]
+    for changed in (
+        '{"shots":[],"negative":"none"}',
+        '{"shots":[{"text":"B"}],"negative":"none"}',
+        '{"shots":[{"text":"B","duration":"2"}],"negative":"none"}',
+        "not json",
+    ):
+        try:
+            audit.validate_result(source_json, changed)
+        except audit.AuditValidationError:
+            pass
+        else:
+            raise AssertionError("Changed JSON structure must fail audit validation.")
+
+    structured = '## Shot 1\nUse <Picture 1>. Say "Exact dialogue".\n\nPositive:\nKeep.'
+    assert audit.validate_result(structured, structured.replace("Keep.", "Keep coherent."))
+    for changed in (
+        structured.replace("## Shot 1", "## Shot 2"),
+        structured.replace("<Picture 1>", "<Picture 2>"),
+        structured.replace('"Exact dialogue"', '"Changed dialogue"'),
+        "",
+    ):
+        try:
+            audit.validate_result(structured, changed)
+        except audit.AuditValidationError:
+            pass
+        else:
+            raise AssertionError("Changed structured text contract must fail audit validation.")

@@ -118,6 +118,7 @@ def test_prompt_profiles_capture_allowed_formats_and_negative_rules():
         "ideogram4",
         "sdxl",
         "qwen_image",
+        "qwen_image_2_1",
         "flux1_dev",
         "flux2_dev",
         "flux_klein",
@@ -138,7 +139,7 @@ def test_prompt_profiles_capture_allowed_formats_and_negative_rules():
     assert profiles.normalize_format("minimax_h3_official", "json") == "natural"
     assert profiles.normalize_format("minimax_h3_alternate", "tags") == "natural"
     for profile in profiles.profile_options():
-        if profile in {"minimax_h3_official", "minimax_h3_alternate"}:
+        if profile in {"qwen_image_2_1", "minimax_h3_official", "minimax_h3_alternate"}:
             assert profiles.supports_negative(profile) is False
         else:
             assert profiles.supports_negative(profile) is True
@@ -148,7 +149,7 @@ def test_granular_defaults_cover_enabled_formats_and_image_modes():
     profiles, _prompt_io, _prompt_builder, _node, _profile_config = _load_package_modules()
     store = importlib.import_module("workflowx_unified_autoprompter_test.reference_store")
     bundle = store.current_bundle()
-    assert len(bundle["manifest"]["profiles"]) == 12
+    assert len(bundle["manifest"]["profiles"]) == 13
     assert "video_to_video" in bundle["manifest"]["generation_types"]
     for metadata in bundle["manifest"]["profiles"]:
         folder = metadata["folder"]
@@ -164,6 +165,50 @@ def test_granular_defaults_cover_enabled_formats_and_image_modes():
     assert set(all_profiles["jsonx"].generation_paths) == {"text_to_image", "image_to_image"}
     assert all_profiles["minimax_h3_official"].negative_supported is False
     assert all_profiles["krea2"].json_supported is True
+
+
+def test_qwen_image_2_1_uses_standard_blocks_without_skill_only_contracts():
+    profiles, prompt_io, prompt_builder, _node, _profile_config = _load_package_modules()
+
+    profile = profiles.get_profile("qwen_image_2_1")
+    assert profile.enabled_formats() == ("natural",)
+    assert profile.negative_supported is False
+    assert tuple(profile.generation_paths) == ("text_to_image", "image_to_image")
+
+    cases = (
+        ("text_to_image", 0, "without_reference_unsupported.md"),
+        ("text_to_image", 2, "without_reference_unsupported.md"),
+        ("image_to_image", 0, "without_reference_supported.md"),
+        ("image_to_image", 1, "with_reference_supported.md"),
+        ("image_to_image", 9, "with_reference_supported.md"),
+    )
+    for generation_type, reference_count, reference_file in cases:
+        system, activated = prompt_builder.assemble_system_prompt(
+            "qwen_image_2_1",
+            "natural",
+            True,
+            reference_count=reference_count,
+            generation_type=generation_type,
+        )
+        assert [item["kind"] for item in activated] == [
+            "common", "generation_type", "reference_usage", "output_contract",
+        ]
+        assert activated[2]["path"].endswith(reference_file)
+        assert activated[-1]["path"].endswith("natural_output_without_negative.md")
+        for excluded in ("wh_ratio", "ratio_follow", "Shum1la", "<image10>"):
+            assert excluded not in system
+
+    parsed = prompt_io.parse_generation_response(
+        "qwen_image_2_1",
+        "natural",
+        '{"positive":"A complete Qwen Image 2.1 prompt.","negative":""}',
+        negative_enabled=False,
+    )
+    assert parsed == {
+        "prompt": "A complete Qwen Image 2.1 prompt.",
+        "positive": "A complete Qwen Image 2.1 prompt.",
+        "negative": "",
+    }
 
 
 def test_default_profile_config_includes_krea2_json_bbox_order():
@@ -336,7 +381,13 @@ def test_live_and_default_profile_catalogs_are_byte_identical():
         path.relative_to(current): path.read_bytes()
         for path in current.rglob("*") if path.is_file()
     }
-    assert current_files == original_files
+    # current_use is intentionally editable. Every packaged default must still
+    # be present, while user-owned edits and materialized blank route files are
+    # allowed to differ from original.
+    assert set(original_files).issubset(current_files)
+    assert current_files[pathlib.Path("audit.md")] == original_files[pathlib.Path("audit.md")]
+    qwen_common = pathlib.Path("Qwen Image 2.1/split/common.md")
+    assert current_files[qwen_common] == original_files[qwen_common]
 
 
 def test_v7_canonical_contracts_are_path_specific_and_fully_visible():
@@ -858,6 +909,54 @@ def test_disable_color_palette_strips_json_output_without_mutating_response():
     assert parsed_positive == parsed_prompt
     assert negative == ""
     assert "color_palette" in raw
+
+    # A stale hidden toggle must not alter an unsupported profile.
+    krea_prompt, krea_positive, _ = prompt_io.build_outputs(
+        "krea2", "json", positive=raw, final_prompt=raw,
+        disable_color_palette=True,
+    )
+    assert json.loads(krea_prompt)["style_description"]["color_palette"] == ["#FFFFFF", "#111111"]
+    assert krea_positive == krea_prompt
+
+
+def test_conditional_bbox_palette_and_audit_controls_match_supported_profiles():
+    _profiles, prompt_io, _prompt_builder, _node, _profile_config = _load_package_modules()
+    assert prompt_io.BBOX_JSON_TARGETS == {"ideogram4", "krea2"}
+    assert prompt_io.COLOR_PALETTE_TARGETS == {"ideogram4", "flux2_dev", "flux_klein", "jsonx"}
+    source = (ROOT / "web" / "js" / "unified_autoprompter.js").read_text(encoding="utf-8")
+    assert 'const COLOR_PALETTE_TARGETS = new Set(["ideogram4", "flux2_dev", "flux_klein", "jsonx"])' in source
+    assert 'bboxJsonToggle.classList.toggle("workflowx-uap-hidden", jsonx || !isBboxLayoutTarget(state.target_model))' in source
+    assert 'disablePaletteToggle.classList.toggle("workflowx-uap-hidden", !(state.prompt_format === "json" && COLOR_PALETTE_TARGETS.has(state.target_model)))' in source
+    assert 'auditField.classList.toggle("workflowx-uap-hidden", jsonx)' in source
+    assert 'buildDom("label", "workflowx-uap-label", "Working mode")' in source
+    assert '{ value: "on_generate", label: "On Generate"' in source
+    assert '{ value: "on_queue", label: "On Queue"' in source
+    assert 'const executionGrid = buildDom("div", "workflowx-uap-grid")' in source
+
+
+def test_unified_on_queue_mode_awaits_generation_before_fresh_serialization():
+    source = (ROOT / "web" / "js" / "unified_autoprompter.js").read_text(encoding="utf-8")
+
+    assert 'working_mode: ["on_generate", "on_queue"].includes(saved.working_mode)' in source
+    assert "function installQueueGenerationHooks()" in source
+    assert 'app.queuePrompt = async function (...args)' in source
+    assert 'app.graphToPrompt = async function (...args)' in source
+    assert 'entry?.class_type === TARGET_NODE' in source
+    assert 'generated = (await node.__workflowXUapGenerateOnQueue()) || generated;' in source
+    assert 'return generated ? originalGraphToPrompt(...args) : initial;' in source
+    assert 'if (state.working_mode !== "on_queue") return false;' in source
+    assert 'await generatePrompt();' in source
+    assert 'throw new Error(status.textContent || "Unified Prompter could not generate a prompt for this queue.")' in source
+
+
+def test_unified_audit_status_distinguishes_refined_from_unchanged():
+    source = (ROOT / "web" / "js" / "unified_autoprompter.js").read_text(encoding="utf-8")
+    routes = (ROOT / "unified_autoprompter" / "routes.py").read_text(encoding="utf-8")
+
+    assert "Prompt audited and refined." in source
+    assert "Audit complete; no changes needed." in source
+    assert 'Last audit: ${audit.changed ? "refined" : "unchanged"}.' in source
+    assert '"changed": audit_result_changed' in routes
 
 
 def test_json_generation_response_keeps_wrapper_negative_for_downstream_nodes():
@@ -2044,7 +2143,7 @@ def test_unified_frontend_collapses_provider_model_settings_and_refits_the_node(
     assert "scheduleVisibleContentResize();" in source
     assert 'modelSettingsBtn.textContent = "Profile settings"' in source
     assert 'modelSettingsBtn.addEventListener("click", openMarkdownProfileSettings)' in source
-    assert 'const REFERENCE_SCHEMA_VERSION = 1' in source
+    assert 'const REFERENCE_SCHEMA_VERSION = 2' in source
     assert '"Common Profile Rules"' in source
     assert "openJsonXSettingsModal" not in source
     assert "Unified JsonX Settings" not in source
@@ -2075,7 +2174,7 @@ def test_unified_frontend_uses_one_persisted_prompt_editor_and_detail_selector()
     assert "idea: saved.idea" not in default_state
     assert "promptArea.placeholder = promptInstructionsPlaceholder(profile)" in source
     assert "prompt_text: state.prompt_text" in source
-    assert "const hasTextSeed = Boolean(rawPromptText || String(state.prompt_text || \"\").trim())" in source
+    assert 'const hasTextSeed = Boolean((auditOnly ? "" : rawPromptText) || String(state.prompt_text || "").trim())' in source
 
 
 def test_unified_jsonx_field_compiler_uses_prompt_text_and_connected_override():
@@ -2257,7 +2356,7 @@ def test_unified_frontend_exposes_provider_aware_openai_controls_and_discovery()
     assert 'const discoveryScope = isJsonXProfile() ? "jsonx" : "standard"' in source
     assert 'openaiDetectedServerType = "auto"' in source
     assert 'body: JSON.stringify({' in source
-    assert "const FRONTEND_SCHEMA_VERSION = 7" in source
+    assert "const FRONTEND_SCHEMA_VERSION = 8" in source
     assert 'field(topGrid, "Provider", providerSelect)' in source
     assert 'field(topGrid, "Generation type", generationTypeSelect)' in source
     assert "NSFW instructions" in source
@@ -2293,7 +2392,7 @@ def test_unified_frontend_uses_effective_images_and_transparent_profile_editor_c
     assert "activated_blocks" in source
     assert "Local routing only" in source
     assert "Exact system text" in source
-    assert 'const nsfwMode = buildDom("button", "", "Global NSFW Rules")' in source
+    assert 'const nsfwMode = buildDom("button", "", "Global Rules")' in source
     assert 'let editorMode = "profiles"' in source
     assert "function renderGlobalNsfw()" in source
     nsfw_surface = markdown_surface.split("function renderGlobalNsfw()", 1)[1].split("function renderPreview", 1)[0]
@@ -2594,6 +2693,46 @@ def test_unified_jsonx_frontend_reports_natural_validation_reasons():
     assert 'diagnostics.initial_error&&`Initial: ${diagnostics.initial_error}`' in source
     assert 'diagnostics.repair_error&&`Repair: ${diagnostics.repair_error}`' in source
     assert 'data.natural_fallback?" · used canonical JsonX prose fallback.":"."' in source
+
+
+def test_grok_and_deepseek_keys_use_dedicated_stale_safe_storage():
+    source = (ROOT / "web" / "js" / "unified_autoprompter.js").read_text(encoding="utf-8")
+
+    for storage_key in (
+        "workflowx_unified_autoprompter_grok_api_key",
+        "workflowx_unified_autoprompter_deepseek_api_key",
+        "workflowx_unified_jsonx_grok_api_key",
+        "workflowx_unified_jsonx_deepseek_api_key",
+    ):
+        assert storage_key in source
+
+    assert "function loadDedicatedApiKey(storageKey, legacyValue = \"\")" in source
+    assert "api_key: loadDedicatedApiKey(GROK_KEY_STORAGE_KEY, browserProvider.grok?.api_key)" in source
+    assert "api_key: loadDedicatedApiKey(DEEPSEEK_KEY_STORAGE_KEY, browserProvider.deepseek?.api_key)" in source
+    assert "api_key: loadDedicatedApiKey(JSONX_GROK_KEY, source.grok?.api_key)" in source
+    assert "api_key: loadDedicatedApiKey(JSONX_DEEPSEEK_KEY, source.deepseek?.api_key)" in source
+
+    assert "let grokKeyDirty = false;" in source
+    assert "let deepseekKeyDirty = false;" in source
+    assert "if (grokKeyDirty) storeDedicatedApiKey(GROK_KEY_STORAGE_KEY, extended.grok.api_key);" in source
+    assert "if (deepseekKeyDirty) storeDedicatedApiKey(DEEPSEEK_KEY_STORAGE_KEY, extended.deepseek.api_key);" in source
+    assert "if (grokKeyDirty) storeDedicatedApiKey(JSONX_GROK_KEY, extended.grok.api_key);" in source
+    assert "if (deepseekKeyDirty) storeDedicatedApiKey(JSONX_DEEPSEEK_KEY, extended.deepseek.api_key);" in source
+
+    assert source.count("grok: withoutApiKey(") >= 2
+    assert source.count("deepseek: withoutApiKey(") >= 2
+    assert "saveProviderSettings(\"standard\", saved);\n    return {\n      ...saved,\n      grok: extended.grok,\n      deepseek: extended.deepseek," in source
+
+
+def test_unified_profile_selection_survives_async_profile_loading_and_refresh():
+    source = (ROOT / "web" / "js" / "unified_autoprompter.js").read_text(encoding="utf-8")
+
+    assert 'setWidgetValue(node, "target_model", state.target_model);' in source
+    assert 'setWidgetValue(node, "target_model", outputTarget);' not in source
+    assert "let profilesLoaded = false;" in source
+    assert "if (!profilesLoaded && state.target_model && !options.some((item) => item.value === state.target_model))" in source
+    assert "options.push({ value: state.target_model, label: state.target_model });" in source
+    assert "profilesLoaded = true;\n    refreshProfiles();" in source
 
 
 def test_unified_local_mtp_runtime_and_frontend_controls_are_isolated():

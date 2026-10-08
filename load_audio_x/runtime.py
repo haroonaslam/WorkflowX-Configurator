@@ -197,6 +197,9 @@ def list_media_files(folder_paths_module=None) -> list[str]:
 
 def find_ffmpeg() -> str | None:
     candidates: list[str] = []
+    workflowx_ffmpeg = os.environ.get("WORKFLOWX_FORCE_FFMPEG_PATH")
+    if workflowx_ffmpeg:
+        candidates.append(workflowx_ffmpeg)
     try:
         from imageio_ffmpeg import get_ffmpeg_exe
         candidates.append(get_ffmpeg_exe())

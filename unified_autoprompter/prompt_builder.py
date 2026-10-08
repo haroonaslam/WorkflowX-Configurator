@@ -12,6 +12,7 @@ from .reference_store import (
     resolve_profile_file,
     selected_markdown_blocks,
 )
+from .prompt_presets import resolve_text as resolve_prompt_presets
 
 BBOX_LAYOUT_TARGETS = {"ideogram4", "krea2"}
 
@@ -168,7 +169,8 @@ def build_user_prompt(
     generation_type: str = "",
 ) -> str:
     context = _context_block(data, target_model=target_model)
-    return context.strip()
+    resolved, _activated = resolve_prompt_presets(context)
+    return resolved.strip()
 
 
 def example_payload(target_model: str, prompt_format: str) -> str:

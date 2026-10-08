@@ -119,6 +119,12 @@ Uses local CPU processing through PyWORLD; no model downloads or online services
 
 The compact face keeps file selection, waveform playback, draggable trim, duration mode, output format, depth/bitrate, channel layout, sample rate, and Repair controls directly on the node. The gear popup holds bounded recovery diagnostics, cleanup presets, gain/normalization/limiting, silence trim, fades, and permanent-save settings. It accepts common audio containers and the first audio stream of video, tolerantly salvages isolated damaged MP3 frames, and applies a narrowly verified recovery for audio-only AAC M4A files whose `stsz` table is truncated but whose metadata and payload prove an exact reconstruction. The source file is never modified. See the [Load AudioX guide](docs/LOAD_AUDIO_X.md).
 
+### View Image (Format)
+
+**Node ID / category:** `WorkflowX_ViewImageFormat` · `WorkflowX/Image`
+
+Passes an image batch through unchanged while providing the standard WorkflowX preview. Automatic mode follows the connected image format; manual mode lets you choose a save format and its relevant quality/compression settings. See the [View Image (Format) guide](docs/VIEW_IMAGE_FORMAT.md).
+
 ### Working example
 
 ![Image loading and processing workflow](docs/images/workflowx-example-03-image-tools.png)
@@ -130,6 +136,16 @@ The compact face keeps file selection, waveform playback, draggable trim, durati
 Load Diffusion Model X keeps preferred diffusion models visible on the canvas and switches between them with a single active selection. LoraX applies a visible, ordered LoRA stack. Unload Models By Type adds an execution dependency for releasing selected model components after the graph stage you choose.
 
 ![LoraX and Unload Models By Type](docs/images/workflowx-lorax-unload.png)
+
+### WorkflowX Downloader
+
+**Node ID / category:** `WorkflowX_Downloader` · `WorkflowX/Utilities`
+
+Downloads the WorkflowX runtime assets from `haslam/WorkflowX-DL` directly into the active ComfyUI root. Enable **download all** for the complete bundle, or select any combination of DLSS 5, LUTs, Neural Grain, SAM/SAM2.1, Ultralytics detectors, the DetailerX upscaler, FFmpeg, llama.cpp, SAM3, and AuK. Existing matching files are reused unless **force download** is enabled. A downloaded `vendor/ffmpeg/ffmpeg.exe` is activated immediately through `WORKFLOWX_FORCE_FFMPEG_PATH` and is detected automatically on later ComfyUI starts. The public repository needs no token; `HF_TOKEN` is honored automatically if repository access changes.
+
+The node is intentionally always evaluated when present in an active prompt so it can verify or resume interrupted downloads. Mute or remove it after provisioning if the workflow should not check the Hub on every queue.
+
+Repository maintainers can publish a prepared ComfyUI asset tree with `scripts/upload_comfyui_to_hf.ps1`; the script preserves paths relative to the selected ComfyUI root and reads the write credential from `HF_TOKEN`.
 
 ### Load Diffusion Model X
 
@@ -234,7 +250,7 @@ WorkflowX supports natural or structured prompting from images and text, then pr
 | `positive` | `STRING` | Positive prompt channel. |
 | `negative` | `STRING` | Negative prompt channel when enabled. |
 
-**Controls:** one Provider dropdown for Gemini, Grok API, DeepSeek API, OpenAI Compatible, LM Studio, Unsloth Studio, Ollama, or Local GGUF; profile-aware Generation type; Prompt instructions; Detail level; NSFW/negative controls; dynamic Model settings; bounding-box tools; Profile settings; Generate and Cancel. Provider credentials and tuning remain browser-local. See the [complete Autoprompter guide](docs/UNIFIED_AUTOPROMPTER_X.md).
+**Controls:** one Provider dropdown for Gemini, Grok API, DeepSeek API, OpenAI Compatible, LM Studio, Unsloth Studio, Ollama, or Local GGUF; profile-aware Generation type; Prompt instructions; Detail level; On Generate or On Queue working mode; optional Add audit pass or Audit only validation; reusable character/scene presets expanded with `@tag`; NSFW/negative controls; dynamic Model settings; bounding-box tools; Profile settings; Generate and Cancel. Provider credentials and tuning remain browser-local. Qwen Image 2.1 has dedicated Text-to-Image and Image-to-Image natural-prompt guidance without a negative channel. See the [complete Autoprompter guide](docs/UNIFIED_AUTOPROMPTER_X.md).
 
 Connected images are optional prompt-authoring evidence and never select the downstream generation path. Image-capable paths switch between with-reference and inferred-reference instructions; text-only paths can inspect connected media and combine visible evidence with the user's description without exposing reference commentary downstream. Standard-profile instructions are Markdown-backed: packaged defaults live under `unified_autoprompter/reference/original`, while the editable runtime copy lives under `reference/current_use`. Profile Settings edits the exact Common, selected Generation Path, Reference Usage, Output Contract, and Image/Video NSFW files without reformatting them. JsonX has an independently managed `reference/original/JsonX` and `reference/current_use/JsonX` subtree with exact editors for paths, conditions, user templates, context templates, presets, and stage contracts. Preview and dispatch share their respective backend payload builders and keep routing metadata out of model-facing text.
 

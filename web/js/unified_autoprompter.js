@@ -3,13 +3,16 @@ import { graphDockScreenRect } from "./workflowx_graph_dock.mjs";
 
 const TARGET_NODE = "UnifiedAutoprompterX";
 const ROUTE = "/workflowx/unified_autoprompter";
-const FRONTEND_SCHEMA_VERSION = 7;
+const FRONTEND_SCHEMA_VERSION = 8;
 const GENERAL_SCHEMA_VERSION = 1;
 const GENERAL_PROFILE = { key: "general", label: "General", engine: "general", default_format: "natural", formats: { natural: { enabled: true } } };
-const REFERENCE_SCHEMA_VERSION = 1;
+const REFERENCE_SCHEMA_VERSION = 2;
 const JSONX_REFERENCE_SCHEMA_VERSION = 1;
+const PRESET_SCHEMA_VERSION = 1;
 const GEMINI_KEY_STORAGE_KEY = "workflowx_unified_autoprompter_gemini_api_key";
 const OPENAI_KEY_STORAGE_KEY = "workflowx_unified_autoprompter_openai_api_key";
+const GROK_KEY_STORAGE_KEY = "workflowx_unified_autoprompter_grok_api_key";
+const DEEPSEEK_KEY_STORAGE_KEY = "workflowx_unified_autoprompter_deepseek_api_key";
 const OPENAI_BASE_URL_STORAGE_KEY = "workflowx_unified_autoprompter_openai_base_url";
 const MODEL_SELECTION_STORAGE_KEY = "workflowx_unified_autoprompter_model_selection";
 const ADDITIONAL_LOCAL_MODEL_PATHS_STORAGE_KEY = "workflowx_unified_autoprompter_additional_local_model_paths";
@@ -42,6 +45,8 @@ const JSONX_ROUTE = `${ROUTE}/jsonx`;
 const JSONX_SETTINGS_KEY = "workflowx_unified_jsonx_provider_settings";
 const JSONX_GEMINI_KEY = "workflowx_unified_jsonx_gemini_api_key";
 const JSONX_OPENAI_KEY = "workflowx_unified_jsonx_openai_api_key";
+const JSONX_GROK_KEY = "workflowx_unified_jsonx_grok_api_key";
+const JSONX_DEEPSEEK_KEY = "workflowx_unified_jsonx_deepseek_api_key";
 const STANDARD_PROVIDER_SETTINGS_KEY = "workflowx_unified_provider_settings_v5";
 const JSONX_PROVIDER_SETTINGS_KEY = "workflowx_unified_jsonx_provider_settings_v5";
 const PROVIDERS = [
@@ -91,6 +96,33 @@ function loadProviderSettings(engine = "standard") {
 function saveProviderSettings(engine, settings) {
   const key = engine === "jsonx" ? JSONX_PROVIDER_SETTINGS_KEY : STANDARD_PROVIDER_SETTINGS_KEY;
   localStorage.setItem(key, JSON.stringify(settings && typeof settings === "object" ? settings : {}));
+}
+
+function loadDedicatedApiKey(storageKey, legacyValue = "") {
+  try {
+    const stored = window.localStorage?.getItem(storageKey);
+    if (stored !== null && stored !== undefined) return stored;
+    const legacy = String(legacyValue || "");
+    if (legacy) window.localStorage?.setItem(storageKey, legacy);
+    return legacy;
+  } catch {
+    return String(legacyValue || "");
+  }
+}
+
+function storeDedicatedApiKey(storageKey, value) {
+  try {
+    const key = String(value || "").trim();
+    if (key) window.localStorage?.setItem(storageKey, key);
+    else window.localStorage?.removeItem(storageKey);
+  } catch {
+    // Browser storage can be unavailable in restricted contexts.
+  }
+}
+
+function withoutApiKey(settings) {
+  const { api_key, ...safe } = settings && typeof settings === "object" ? settings : {};
+  return safe;
 }
 
 function optionalNumber(value, integer = false) {
@@ -186,6 +218,7 @@ const BBOX_LAYOUT_TARGETS = {
   ideogram4: { label: "Ideogram 4", order: "yx", orderLabel: "ymin, xmin, ymax, xmax" },
   krea2: { label: "Krea2", order: "xy", orderLabel: "xmin, ymin, xmax, ymax" },
 };
+const COLOR_PALETTE_TARGETS = new Set(["ideogram4", "flux2_dev", "flux_klein", "jsonx"]);
 
 function fallbackRule(enabled, text = "") {
   return {
@@ -234,8 +267,10 @@ let profilesPromise = null;
 let backendSchemaVersion = 0;
 let backendReferenceSchemaVersion = 0;
 let backendJsonXReferenceSchemaVersion = 0;
+let backendPresetSchemaVersion = 0;
 let profileLoadError = "";
 const graphDocks = new Set();
+const unifiedQueueNodes = new Set();
 let dockRAF = 0;
 let dockWakesInstalled = false;
 let dockModalObserver = null;
@@ -1131,6 +1166,104 @@ function injectStyle() {
   flex: 1 1 auto;
   min-width: 260px;
 }
+.workflowx-uap-preset-modal {
+  height: min(680px, 86vh);
+  width: min(940px, 94vw);
+}
+.workflowx-uap-preset-body {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: 230px minmax(0, 1fr);
+  min-height: 0;
+}
+.workflowx-uap-preset-sidebar {
+  border-right: 1px solid #303842;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  padding: 10px;
+}
+.workflowx-uap-preset-list {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 5px;
+  min-height: 0;
+  overflow: auto;
+}
+.workflowx-uap-preset-item {
+  background: #171c21;
+  border: 1px solid #303842;
+  border-radius: 6px;
+  color: #dbe3ea;
+  cursor: pointer;
+  padding: 8px;
+  text-align: left;
+}
+.workflowx-uap-preset-item.active {
+  background: #223143;
+  border-color: #7bafd1;
+}
+.workflowx-uap-preset-item small {
+  color: #91a0ad;
+  display: block;
+  margin-top: 3px;
+}
+.workflowx-uap-preset-new-actions {
+  display: grid;
+  gap: 6px;
+}
+.workflowx-uap-preset-editor {
+  display: grid;
+  gap: 9px;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 12px;
+}
+.workflowx-uap-preset-meta {
+  display: grid;
+  gap: 9px;
+  grid-template-columns: 150px minmax(0, 1fr) minmax(0, 1fr);
+}
+.workflowx-uap-preset-editor .workflowx-uap-text.profile-details {
+  min-height: 150px;
+}
+.workflowx-uap-preset-editor .workflowx-uap-text.adaptation-guidance {
+  min-height: 105px;
+}
+@media (max-width: 720px) {
+  .workflowx-uap-preset-modal { height: min(760px, 94vh); }
+  .workflowx-uap-preset-body { grid-template-columns: 1fr; }
+  .workflowx-uap-preset-sidebar { border-bottom: 1px solid #303842; border-right: 0; max-height: 190px; }
+  .workflowx-uap-preset-meta { grid-template-columns: 1fr; }
+}
+.workflowx-uap-tag-suggestions {
+  background: #111820;
+  border: 1px solid #3a5368;
+  border-radius: 7px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.45);
+  display: grid;
+  gap: 2px;
+  max-height: 210px;
+  min-width: 230px;
+  overflow: auto;
+  padding: 5px;
+  position: fixed;
+  z-index: 10050;
+}
+.workflowx-uap-tag-suggestion {
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  color: #dce7ef;
+  cursor: pointer;
+  padding: 7px 9px;
+  text-align: left;
+}
+.workflowx-uap-tag-suggestion:hover,
+.workflowx-uap-tag-suggestion.active { background: #243747; }
+.workflowx-uap-tag-suggestion small { color: #8fa4b4; margin-left: 7px; }
 .workflowx-uap-hidden {
   display: none !important;
 }
@@ -1411,6 +1544,40 @@ function markDirty() {
   app.canvas?.setDirty?.(true, true);
 }
 
+function installQueueGenerationHooks() {
+  if (app.__workflowXUapQueueGenerationPatched || typeof app.queuePrompt !== "function" || typeof app.graphToPrompt !== "function") return;
+  const originalQueuePrompt = app.queuePrompt.bind(app);
+  const originalGraphToPrompt = app.graphToPrompt.bind(app);
+  let queueDepth = 0;
+
+  app.queuePrompt = async function (...args) {
+    queueDepth += 1;
+    try {
+      return await originalQueuePrompt(...args);
+    } finally {
+      queueDepth = Math.max(0, queueDepth - 1);
+    }
+  };
+
+  app.graphToPrompt = async function (...args) {
+    const initial = await originalGraphToPrompt(...args);
+    if (queueDepth <= 0) return initial;
+    const activeIds = new Set(Object.entries(initial?.output || {})
+      .filter(([, entry]) => entry?.class_type === TARGET_NODE)
+      .map(([id]) => String(id)));
+    const generators = [...unifiedQueueNodes].filter((node) =>
+      activeIds.has(String(node?.id)) && typeof node.__workflowXUapGenerateOnQueue === "function"
+    );
+    let generated = false;
+    for (const node of generators) {
+      generated = (await node.__workflowXUapGenerateOnQueue()) || generated;
+    }
+    return generated ? originalGraphToPrompt(...args) : initial;
+  };
+
+  app.__workflowXUapQueueGenerationPatched = true;
+}
+
 function option(select, value, label) {
   const item = document.createElement("option");
   item.value = value;
@@ -1428,6 +1595,7 @@ async function loadProfiles() {
         backendSchemaVersion = Number(data?.schema_version || 0);
         backendReferenceSchemaVersion = Number(data?.reference_schema_version || 0);
         backendJsonXReferenceSchemaVersion = Number(data?.jsonx_reference_schema_version || 0);
+        backendPresetSchemaVersion = Number(data?.preset_schema_version || 0);
         if (Number(data?.general_schema_version || 0) !== GENERAL_SCHEMA_VERSION) {
           throw new Error("General frontend/backend mismatch. Restart ComfyUI and hard-refresh the browser.");
         }
@@ -1446,6 +1614,12 @@ async function loadProfiles() {
         if (backendJsonXReferenceSchemaVersion !== JSONX_REFERENCE_SCHEMA_VERSION) {
           throw new Error(
             `Unified JsonX reference schema mismatch (frontend ${JSONX_REFERENCE_SCHEMA_VERSION}, backend ${backendJsonXReferenceSchemaVersion || "missing"}). ` +
+            "Restart ComfyUI and hard-refresh the browser.",
+          );
+        }
+        if (backendPresetSchemaVersion !== PRESET_SCHEMA_VERSION) {
+          throw new Error(
+            `Unified prompt preset schema mismatch (frontend ${PRESET_SCHEMA_VERSION}, backend ${backendPresetSchemaVersion || "missing"}). ` +
             "Restart ComfyUI and hard-refresh the browser.",
           );
         }
@@ -1709,6 +1883,12 @@ function defaultState(node) {
     negative_enabled: saved.negative_enabled == null
       ? Boolean(widgetValue(node, "negative_enabled", false))
       : Boolean(saved.negative_enabled),
+    audit_mode: ["none", "add_pass", "audit_only"].includes(saved.audit_mode || widgetValue(node, "audit_mode", "none"))
+      ? (saved.audit_mode || widgetValue(node, "audit_mode", "none"))
+      : "none",
+    working_mode: ["on_generate", "on_queue"].includes(saved.working_mode)
+      ? saved.working_mode
+      : "on_generate",
     prompt_text: saved.prompt_text || "",
     detail: saved.detail || "high",
     enable_bbox_json_input: saved.enable_bbox_json_input == null
@@ -1786,8 +1966,14 @@ function defaultState(node) {
     speculative_mode: saved.speculative_mode || "auto",
     mtp_draft_tokens: saved.mtp_draft_tokens || 2,
     seed: saved.seed ?? -1,
-    grok: { ...(browserProvider.grok || {}) },
-    deepseek: { ...(browserProvider.deepseek || {}) },
+    grok: {
+      ...(browserProvider.grok || {}),
+      api_key: loadDedicatedApiKey(GROK_KEY_STORAGE_KEY, browserProvider.grok?.api_key),
+    },
+    deepseek: {
+      ...(browserProvider.deepseek || {}),
+      api_key: loadDedicatedApiKey(DEEPSEEK_KEY_STORAGE_KEY, browserProvider.deepseek?.api_key),
+    },
     lm_studio: { ...(browserProvider.lm_studio || {}) },
     unsloth: { ...(browserProvider.unsloth || {}) },
     generated_positive: generatedPositive,
@@ -1874,7 +2060,8 @@ function stripColorPalettesFromPrompt(text, promptFormat) {
 
 function outputTextForState(state, text, promptFormat) {
   if ((state.last_generation?.target_model || state.target_model) === "general") return String(text ?? "");
-  return state.disable_color_palette
+  const target = state.last_generation?.target_model || state.target_model;
+  return state.disable_color_palette && COLOR_PALETTE_TARGETS.has(target) && promptFormat === "json"
     ? stripColorPalettesFromPrompt(text, promptFormat)
     : String(text || "");
 }
@@ -1899,7 +2086,7 @@ function syncOutputWidgets(node, state, activeProfile) {
   const outputPositive = outputTextForState(state, positive, outputFormat);
   const outputFinalPrompt = outputTextForState(state, finalPrompt, outputFormat);
 
-  setWidgetValue(node, "target_model", outputTarget);
+  setWidgetValue(node, "target_model", state.target_model);
   setWidgetValue(node, "prompt_format", outputFormat);
   setWidgetValue(node, "generation_type", state.generation_type || activeProfile?.default_generation_type || "text_to_image");
   setWidgetValue(node, "nsfw_enabled", Boolean(state.nsfw_enabled));
@@ -1907,10 +2094,13 @@ function syncOutputWidgets(node, state, activeProfile) {
   setWidgetValue(node, "enable_bbox_json_input", Boolean(state.enable_bbox_json_input));
   setWidgetValue(node, "enable_text_input", Boolean(state.enable_text_input));
   setWidgetValue(node, "refresh_vram", Boolean(state.refresh_vram));
-  setWidgetValue(node, "disable_color_palette", Boolean(state.disable_color_palette));
+  setWidgetValue(node, "disable_color_palette", Boolean(
+    state.disable_color_palette && COLOR_PALETTE_TARGETS.has(outputTarget) && outputFormat === "json",
+  ));
   setWidgetValue(node, "generated_positive", positive || "");
   setWidgetValue(node, "generated_negative", negative || "");
   setWidgetValue(node, "final_prompt", finalPrompt || "");
+  setWidgetValue(node, "audit_mode", state.audit_mode || "none");
   setWidgetValue(node, "ui_state", JSON.stringify(serializableState({ ...state, prompt_format: state.target_model === "general" ? state.prompt_format : promptFormat }), null, 2));
   markDirty();
   return outputFinalPrompt || outputPositive;
@@ -2510,6 +2700,7 @@ function clamp01(value) {
 function setupUnifiedAutoprompter(node) {
   if (node.__workflowXUnifiedAutoprompterReady) return;
   node.__workflowXUnifiedAutoprompterReady = true;
+  installQueueGenerationHooks();
   injectStyle();
 
   for (const name of [
@@ -2525,6 +2716,7 @@ function setupUnifiedAutoprompter(node) {
     "generated_positive",
     "generated_negative",
     "final_prompt",
+    "audit_mode",
     "ui_state",
   ]) {
     hideWidget(node, name);
@@ -2717,6 +2909,10 @@ function setupUnifiedAutoprompter(node) {
   const grokPanel = buildDom("div", "workflowx-uap-panel");
   const grokGrid = buildDom("div", "workflowx-uap-grid");
   const grokKeyInput = createInput("password");
+  let grokKeyDirty = false;
+  const markGrokKeyDirty = () => { grokKeyDirty = true; };
+  grokKeyInput.addEventListener("input", markGrokKeyDirty);
+  grokKeyInput.addEventListener("change", markGrokKeyDirty);
   const grokModelSelect = createSelect();
   const grokModelInput = createInput("text");
   const grokTimeoutInput = createInput("number");
@@ -2777,6 +2973,10 @@ function setupUnifiedAutoprompter(node) {
   const deepseekPanel = buildDom("div", "workflowx-uap-panel");
   const deepseekGrid = buildDom("div", "workflowx-uap-grid");
   const deepseekKeyInput = createInput("password");
+  let deepseekKeyDirty = false;
+  const markDeepseekKeyDirty = () => { deepseekKeyDirty = true; };
+  deepseekKeyInput.addEventListener("input", markDeepseekKeyDirty);
+  deepseekKeyInput.addEventListener("change", markDeepseekKeyDirty);
   const deepseekModelSelect = createSelect();
   const deepseekModelInput = createInput("text");
   const deepseekTimeoutInput = createInput("number");
@@ -3107,6 +3307,58 @@ function setupUnifiedAutoprompter(node) {
   setSelectOptions(detailSelect, ["concise", "balanced", "high", "very high"], state.detail);
   field(wrap, "Prompt instructions", promptArea);
   field(wrap, "Detail level", detailSelect);
+  const auditSelect = createSelect();
+  const auditOptions = [
+    { value: "none", label: "No audit", short: "No extra provider call.", help: "Use the current generation flow with no audit block and no extra provider call." },
+    { value: "add_pass", label: "Add audit pass", short: "Generate, then audit. Failure keeps generation.", help: "Generate normally, then refine the generated prompt in one independent audit call. If it fails, keep the generated prompt." },
+    { value: "audit_only", label: "Audit only", short: "Audit textbox only. Failure keeps textbox.", help: "Skip generation and refine the visible Prompt instructions text in one audit call. If it fails, keep that text." },
+  ];
+  setSelectOptions(auditSelect, auditOptions.map(({value,label}) => ({value,label})), state.audit_mode || "none");
+  const executionGrid = buildDom("div", "workflowx-uap-grid");
+  const auditField = buildDom("div", "workflowx-uap-field");
+  auditField.appendChild(buildDom("label", "workflowx-uap-label", "Audit"));
+  auditField.appendChild(auditSelect);
+  const auditHelp = buildDom("div", "workflowx-uap-field-help");
+  auditField.appendChild(auditHelp);
+  const auditResult = buildDom("div", "workflowx-uap-field-help");
+  auditField.appendChild(auditResult);
+  executionGrid.appendChild(auditField);
+  const workingModeSelect = createSelect();
+  const workingModeOptions = [
+    { value: "on_generate", label: "On Generate", short: "Button generates; queue reuses saved output.", help: "Generate only when the node's Generate button is clicked. Workflow queues reuse the saved result." },
+    { value: "on_queue", label: "On Queue", short: "Queue waits for a fresh prompt.", help: "Generate and wait for a fresh prompt whenever this node is included in a queued workflow." },
+  ];
+  setSelectOptions(workingModeSelect, workingModeOptions.map(({value,label}) => ({value,label})), state.working_mode || "on_generate");
+  const workingModeField = buildDom("div", "workflowx-uap-field");
+  workingModeField.appendChild(buildDom("label", "workflowx-uap-label", "Working mode"));
+  workingModeField.appendChild(workingModeSelect);
+  const workingModeHelp = buildDom("div", "workflowx-uap-field-help");
+  workingModeField.appendChild(workingModeHelp);
+  executionGrid.appendChild(workingModeField);
+  wrap.appendChild(executionGrid);
+  const refreshAuditHelp = () => {
+    const selected = auditOptions.find((item) => item.value === auditSelect.value) || auditOptions[0];
+    auditSelect.title = selected.help;
+    for (const item of auditSelect.options) item.title = auditOptions.find((entry) => entry.value === item.value)?.help || "";
+    auditHelp.textContent = selected.short;
+  };
+  refreshAuditHelp();
+  const refreshAuditResult = () => {
+    const audit = state.last_generation?.audit || null;
+    auditResult.textContent = audit?.status === "completed"
+      ? `Last audit: ${audit.changed ? "refined" : "unchanged"}.`
+      : audit?.status === "failed"
+        ? "Last audit: failed; fallback retained."
+        : "";
+  };
+  refreshAuditResult();
+  const refreshWorkingModeHelp = () => {
+    const selected = workingModeOptions.find((item) => item.value === workingModeSelect.value) || workingModeOptions[0];
+    workingModeSelect.title = selected.help;
+    for (const item of workingModeSelect.options) item.title = workingModeOptions.find((entry) => entry.value === item.value)?.help || "";
+    workingModeHelp.textContent = selected.short;
+  };
+  refreshWorkingModeHelp();
 
   const ideogramPanel = buildDom("div", "workflowx-uap-panel");
   const ideogramLayoutArea = createTextarea(3);
@@ -3162,7 +3414,7 @@ function setupUnifiedAutoprompter(node) {
   disablePaletteInput.type = "checkbox";
   disablePaletteInput.checked = Boolean(state.disable_color_palette);
   disablePaletteToggle.appendChild(disablePaletteInput);
-  disablePaletteToggle.appendChild(document.createTextNode("disable color pallet"));
+  disablePaletteToggle.appendChild(document.createTextNode("disable color palette"));
   disablePaletteToggle.title = "Remove color_palette blocks from generated JSON output";
   imageRow.appendChild(nsfwToggle);
   imageRow.appendChild(negativeToggle);
@@ -3183,10 +3435,14 @@ function setupUnifiedAutoprompter(node) {
   const modelSettingsBtn = buildDom("button", "workflowx-uap-btn", "Profile settings");
   modelSettingsBtn.type = "button";
   modelSettingsBtn.title = "Edit prompt profiles and JsonX generation settings";
+  const presetsBtn = buildDom("button", "workflowx-uap-btn", "Presets");
+  presetsBtn.type = "button";
+  presetsBtn.title = "Create and edit character or scene prompt presets used by @tag";
   toolsRow.appendChild(positivePreviewBtn);
   toolsRow.appendChild(negativePreviewBtn);
   toolsRow.appendChild(ideogramBtn);
   toolsRow.appendChild(modelSettingsBtn);
+  toolsRow.appendChild(presetsBtn);
   const generalPreviewBtn = buildDom("button", "workflowx-uap-btn workflowx-uap-hidden", "Payload preview");
   generalPreviewBtn.type = "button";
   toolsRow.appendChild(generalPreviewBtn);
@@ -3196,6 +3452,7 @@ function setupUnifiedAutoprompter(node) {
   const generateBtn = buildDom("button", "workflowx-uap-btn primary", "Generate");
   generateBtn.type = "button";
   generateBtn.title = "Generate and save the prompt using the active profile and provider";
+  generateBtn.textContent = state.audit_mode === "audit_only" ? "Audit prompt" : "Generate";
   const cancelJsonXBtn = buildDom("button", "workflowx-uap-btn", "Cancel");
   cancelJsonXBtn.type = "button";
   cancelJsonXBtn.title = "Stop the active generation and keep the previous output";
@@ -3216,6 +3473,7 @@ function setupUnifiedAutoprompter(node) {
 
   let profiles = FALLBACK_PROFILES.map(ensureProfileShape);
   let profilesByKey = profileMap(profiles);
+  let profilesLoaded = false;
 
   function activeProfile() {
     if (state.target_model === "general") return GENERAL_PROFILE;
@@ -3246,6 +3504,184 @@ function setupUnifiedAutoprompter(node) {
     status.classList.toggle("error", Boolean(isError));
   }
 
+  let promptPresets = [];
+  const tagSuggestions = buildDom("div", "workflowx-uap-tag-suggestions workflowx-uap-hidden");
+  document.body.appendChild(tagSuggestions);
+  let tagSuggestionIndex = 0;
+  let tagMatch = null;
+
+  async function refreshPromptPresets() {
+    const data = await fetchJsonChecked(`${ROUTE}/prompt_presets`, {}, "Prompt presets");
+    if (Number(data.preset_schema_version || 0) !== PRESET_SCHEMA_VERSION) {
+      throw new Error("Prompt preset schema mismatch. Restart ComfyUI and hard-refresh the browser.");
+    }
+    promptPresets = Array.isArray(data.presets) ? data.presets : [];
+    return promptPresets;
+  }
+
+  function activeTagMatch() {
+    const caret = Number(promptArea.selectionStart || 0);
+    const before = promptArea.value.slice(0, caret);
+    const match = before.match(/(?:^|[^A-Za-z0-9_@])@([A-Za-z0-9_-]*)$/);
+    if (!match) return null;
+    const at = before.lastIndexOf("@", caret - 1);
+    return at < 0 ? null : { start: at, end: caret, query: match[1].toLowerCase() };
+  }
+
+  function closeTagSuggestions() {
+    tagSuggestions.classList.add("workflowx-uap-hidden");
+    tagSuggestions.replaceChildren();
+    tagMatch = null;
+  }
+
+  function chooseTagPreset(preset) {
+    if (!tagMatch) return;
+    promptArea.setRangeText(`@${preset.tag}`, tagMatch.start, tagMatch.end, "end");
+    closeTagSuggestions();
+    promptArea.focus();
+    syncPreview();
+  }
+
+  function renderTagSuggestions() {
+    tagMatch = activeTagMatch();
+    if (!tagMatch || !promptPresets.length) { closeTagSuggestions(); return; }
+    const matches = promptPresets.filter((preset) =>
+      String(preset.tag || "").toLowerCase().startsWith(tagMatch.query) ||
+      String(preset.name || "").toLowerCase().includes(tagMatch.query),
+    ).slice(0, 10);
+    if (!matches.length) { closeTagSuggestions(); return; }
+    tagSuggestionIndex = Math.min(tagSuggestionIndex, matches.length - 1);
+    tagSuggestions.replaceChildren();
+    matches.forEach((preset, index) => {
+      const item = buildDom("button", `workflowx-uap-tag-suggestion${index === tagSuggestionIndex ? " active" : ""}`);
+      item.type = "button";
+      item.append(document.createTextNode(`@${preset.tag} — ${preset.name}`));
+      item.appendChild(buildDom("small", "", preset.type));
+      item.addEventListener("pointerdown", (event) => { event.preventDefault(); chooseTagPreset(preset); });
+      tagSuggestions.appendChild(item);
+    });
+    const rect = promptArea.getBoundingClientRect();
+    tagSuggestions.style.left = `${Math.max(8, rect.left)}px`;
+    tagSuggestions.style.top = `${Math.min(window.innerHeight - 230, rect.bottom + 4)}px`;
+    tagSuggestions.classList.remove("workflowx-uap-hidden");
+    tagSuggestions.__matches = matches;
+  }
+
+  promptArea.addEventListener("input", () => { tagSuggestionIndex = 0; renderTagSuggestions(); });
+  promptArea.addEventListener("click", renderTagSuggestions);
+  promptArea.addEventListener("blur", () => setTimeout(closeTagSuggestions, 120));
+  promptArea.addEventListener("keydown", (event) => {
+    if (tagSuggestions.classList.contains("workflowx-uap-hidden")) return;
+    const matches = tagSuggestions.__matches || [];
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      tagSuggestionIndex = (tagSuggestionIndex + (event.key === "ArrowDown" ? 1 : -1) + matches.length) % matches.length;
+      renderTagSuggestions();
+    } else if ((event.key === "Enter" || event.key === "Tab") && matches[tagSuggestionIndex]) {
+      event.preventDefault();
+      chooseTagPreset(matches[tagSuggestionIndex]);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      closeTagSuggestions();
+    }
+  });
+
+  async function openPromptPresets() {
+    try { await refreshPromptPresets(); }
+    catch (error) { setStatus(`Presets error: ${error.message}`, true); return; }
+    const backdrop = buildDom("div", "workflowx-uap-modal-backdrop");
+    const modal = buildDom("div", "workflowx-uap-modal workflowx-uap-preset-modal");
+    const head = buildDom("div", "workflowx-uap-modal-head");
+    head.appendChild(buildDom("div", "workflowx-uap-modal-title", "Unified PrompterX · Character and Scene Presets"));
+    const close = buildDom("button", "workflowx-uap-btn", "Close");
+    close.type = "button"; close.onclick = () => backdrop.remove(); head.appendChild(close); modal.appendChild(head);
+
+    const body = buildDom("div", "workflowx-uap-preset-body");
+    const sidebar = buildDom("div", "workflowx-uap-preset-sidebar");
+    sidebar.appendChild(buildDom("div", "workflowx-uap-label", "Saved presets"));
+    const presetList = buildDom("div", "workflowx-uap-preset-list");
+    sidebar.appendChild(presetList);
+    const newActions = buildDom("div", "workflowx-uap-preset-new-actions");
+    const createCharacter = buildDom("button", "workflowx-uap-btn", "New character");
+    const createScene = buildDom("button", "workflowx-uap-btn", "New scene");
+    createCharacter.type = "button"; createScene.type = "button";
+    newActions.append(createCharacter, createScene); sidebar.appendChild(newActions);
+    body.appendChild(sidebar);
+
+    const editor = buildDom("div", "workflowx-uap-preset-editor");
+    const meta = buildDom("div", "workflowx-uap-preset-meta");
+    const type = createSelect(); setSelectOptions(type, [{value:"character",label:"Character"},{value:"scene",label:"Scene"}], "character");
+    const name = createInput("text");
+    const tag = createInput("text"); tag.placeholder = "tag without @";
+    field(meta, "Type", type); field(meta, "Name", name); field(meta, "Tag", tag); editor.appendChild(meta);
+    const profileDetails = createTextarea(9);
+    profileDetails.classList.add("profile-details");
+    profileDetails.placeholder = "Stable character or scene traits used as the preset baseline.";
+    const guidance = createTextarea(6);
+    guidance.classList.add("adaptation-guidance");
+    guidance.placeholder = "How the model should adapt this preset to explicit prompt details.";
+    field(editor, "Profile details", profileDetails);
+    field(editor, "Adaptation guidance", guidance);
+    body.appendChild(editor); modal.appendChild(body);
+
+    const foot = buildDom("div", "workflowx-uap-modal-foot");
+    const save = buildDom("button", "workflowx-uap-btn primary", "Save");
+    const reset = buildDom("button", "workflowx-uap-btn", "Reset built-in");
+    const remove = buildDom("button", "workflowx-uap-btn", "Delete custom");
+    const message = buildDom("div", "workflowx-uap-modal-message");
+    for (const button of [save, reset, remove]) button.type = "button";
+    foot.append(save, reset, remove, message); modal.appendChild(foot); backdrop.appendChild(modal); document.body.appendChild(backdrop); stopGraphEvents(modal);
+    backdrop.addEventListener("mousedown", (event) => { if (event.target === backdrop) backdrop.remove(); });
+    let selectedId = "";
+    const selectedPreset = () => promptPresets.find((preset) => preset.id === selectedId) || null;
+    const renderSavedPresets = () => {
+      presetList.replaceChildren();
+      for (const preset of promptPresets) {
+        const item = buildDom("button", `workflowx-uap-preset-item${preset.id === selectedId ? " active" : ""}`, preset.name);
+        item.type = "button";
+        item.appendChild(buildDom("small", "", `@${preset.tag} · ${preset.type}${preset.builtin ? " · built-in" : ""}`));
+        item.addEventListener("click", () => { selectedId = preset.id; refill(selectedId); message.textContent = ""; });
+        presetList.appendChild(item);
+      }
+    };
+    const refill = (preferred = selectedId) => {
+      selectedId = promptPresets.some((preset) => preset.id === preferred) ? preferred : (promptPresets[0]?.id || "");
+      const preset = selectedPreset();
+      renderSavedPresets();
+      if (!preset) return;
+      type.value = preset.type; name.value = preset.name; tag.value = preset.tag;
+      profileDetails.value = preset.profile_markdown ?? preset.markdown ?? "";
+      guidance.value = preset.adaptation_guidance || "";
+      reset.disabled = !preset.builtin; remove.disabled = Boolean(preset.builtin);
+    };
+    const beginNew = (presetType) => {
+      selectedId = ""; type.value = presetType; name.value = ""; tag.value = ""; profileDetails.value = "";
+      guidance.value = "Integrate this preset naturally into the user prompt. Explicit user instructions override matching defaults; retain unmentioned defaults and include only details relevant to the requested composition.";
+      renderSavedPresets();
+      reset.disabled = true; remove.disabled = true; name.focus(); message.textContent = `Creating a new ${presetType} preset.`;
+    };
+    createCharacter.onclick = () => beginNew("character"); createScene.onclick = () => beginNew("scene");
+    save.onclick = async () => {
+      save.disabled = true;
+      try {
+        const data = await fetchJsonChecked(`${ROUTE}/prompt_presets`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:selectedId,type:type.value,name:name.value,tag:tag.value,profile_markdown:profileDetails.value,adaptation_guidance:guidance.value})}, "Save prompt preset");
+        promptPresets = data.presets || []; selectedId = selectedId || promptPresets.find((preset) => preset.tag === tag.value.trim().replace(/^@/, "").toLowerCase())?.id || ""; refill(selectedId); message.textContent = "Preset saved."; setStatus("Prompt preset saved.");
+      } catch (error) { message.textContent = `Save error: ${error.message}`; }
+      finally { save.disabled = false; }
+    };
+    reset.onclick = async () => {
+      if (!selectedId) return;
+      try { const data = await fetchJsonChecked(`${ROUTE}/prompt_presets/reset`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:selectedId})}, "Reset prompt preset"); promptPresets = data.presets || []; refill(selectedId); message.textContent = "Built-in preset restored."; }
+      catch (error) { message.textContent = `Reset error: ${error.message}`; }
+    };
+    remove.onclick = async () => {
+      const preset = selectedPreset(); if (!preset || preset.builtin || !window.confirm(`Delete ${preset.name}?`)) return;
+      try { const data = await fetchJsonChecked(`${ROUTE}/prompt_presets/delete`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:selectedId})}, "Delete prompt preset"); promptPresets = data.presets || []; selectedId = promptPresets[0]?.id || ""; refill(selectedId); message.textContent = "Custom preset deleted."; }
+      catch (error) { message.textContent = `Delete error: ${error.message}`; }
+    };
+    refill(promptPresets[0]?.id || "");
+  }
+
   function refreshBackends() {
     applyActiveProviderSettingsToControls();
     const backend = providerBackend();
@@ -3263,11 +3699,15 @@ function setupUnifiedAutoprompter(node) {
   }
 
   function refreshProfiles() {
-    setSelectOptions(targetSelect, [GENERAL_PROFILE, ...profiles].map((profile) => ({
+    const options = [GENERAL_PROFILE, ...profiles].map((profile) => ({
       value: profile.key,
       label: profile.label || profile.key,
-    })), state.target_model);
-    state.target_model = targetSelect.value;
+    }));
+    if (!profilesLoaded && state.target_model && !options.some((item) => item.value === state.target_model)) {
+      options.push({ value: state.target_model, label: state.target_model });
+    }
+    setSelectOptions(targetSelect, options, state.target_model);
+    state.target_model = targetSelect.value || state.target_model;
     refreshFormats();
   }
 
@@ -3282,6 +3722,8 @@ function setupUnifiedAutoprompter(node) {
     if (general) {
       promptArea.placeholder = "Enter your instructions. An optional preset supplies the system instructions.";
       ideogramBtn.classList.add("workflowx-uap-hidden");
+      auditField.classList.remove("workflowx-uap-hidden");
+      generateBtn.textContent = state.audit_mode === "audit_only" ? "Audit prompt" : "Generate";
       closeDock(node, "ideogram");
       refreshGeneralPresets();
       refreshBackends();
@@ -3314,9 +3756,11 @@ function setupUnifiedAutoprompter(node) {
     negativeInput.checked = state.negative_enabled;
     negativeInput.disabled = !negativeSupported;
     negativeToggle.classList.toggle("workflowx-uap-hidden", jsonx || !negativeSupported);
-    bboxJsonToggle.classList.toggle("workflowx-uap-hidden", jsonx);
+    bboxJsonToggle.classList.toggle("workflowx-uap-hidden", jsonx || !isBboxLayoutTarget(state.target_model));
     ideogramBtn.classList.toggle("workflowx-uap-hidden", jsonx || !isBboxLayoutTarget(state.target_model));
-    disablePaletteToggle.classList.toggle("workflowx-uap-hidden", jsonx);
+    disablePaletteToggle.classList.toggle("workflowx-uap-hidden", !(state.prompt_format === "json" && COLOR_PALETTE_TARGETS.has(state.target_model)));
+    auditField.classList.toggle("workflowx-uap-hidden", jsonx);
+    generateBtn.textContent = jsonx ? "Generate" : (state.audit_mode === "audit_only" ? "Audit prompt" : "Generate");
     modelSettingsBtn.textContent = "Profile settings";
     refreshBackends();
     syncPreview();
@@ -3327,6 +3771,8 @@ function setupUnifiedAutoprompter(node) {
     state.general_preset = generalPresetSelect.value || "none";
     state.prompt_text = promptArea.value;
     state.detail = detailSelect.value;
+    state.audit_mode = auditSelect.value || "none";
+    state.working_mode = workingModeSelect.value || "on_generate";
     if (state.target_model !== "general") state.generation_type = generationTypeSelect.value;
     state.nsfw_enabled = nsfwInput.checked;
     state.enable_bbox_json_input = bboxJsonInput.checked;
@@ -3376,6 +3822,7 @@ function setupUnifiedAutoprompter(node) {
   function syncPreview() {
     readFieldsIntoState();
     refreshThinkingControls();
+    refreshAuditResult();
     const prompt = syncOutputWidgets(node, state, activeProfile());
     preview.textContent = prompt || "(Generate or type prompt output to preview here.)";
     updateOutputDocks();
@@ -3974,7 +4421,7 @@ function setupUnifiedAutoprompter(node) {
     const title = buildDom("div", "workflowx-uap-modal-title", "Unified PrompterX Profile Settings");
     const modeButtons = buildDom("div", "workflowx-uap-settings-segment");
     const profilesMode = buildDom("button", "active", "Profiles");
-    const nsfwMode = buildDom("button", "", "Global NSFW Rules");
+    const nsfwMode = buildDom("button", "", "Global Rules");
     const close = buildDom("button", "workflowx-uap-btn", "×");
     close.title = "Close without saving editor changes";
     for (const button of [profilesMode, nsfwMode, close]) button.type = "button";
@@ -4287,9 +4734,10 @@ function setupUnifiedAutoprompter(node) {
     }
 
     function renderGlobalNsfw() {
-      content.appendChild(buildDom("div", "workflowx-uap-status", "These two Markdown files are shared by all standard profiles. Exactly one is selected from the generation type's output medium when NSFW instructions are enabled."));
+      content.appendChild(buildDom("div", "workflowx-uap-status", "These Markdown files are shared globally. NSFW rules join normal generation only when enabled; the audit block is sent alone only for a requested audit call."));
       addExactEditor("Image NSFW rules", "nsfw-image.md", 26, "Included for image-output generation types only when NSFW is enabled.");
       addExactEditor("Video NSFW rules", "nsfw-video.md", 26, "Included for video-output generation types only when NSFW is enabled.");
+      addExactEditor("Prompt coherence audit", draft.manifest.audit_file || "audit.md", 26, "Used as the complete system message for Add audit pass or Audit only.");
     }
 
     function renderPreview(profile) {
@@ -4377,7 +4825,7 @@ function setupUnifiedAutoprompter(node) {
       side.style.display = globalMode ? "none" : "flex";
       tabs.style.display = globalMode ? "none" : "flex";
       body.classList.toggle("global-rules-mode", globalMode);
-      title.textContent = globalMode ? "Unified PrompterX Global NSFW Rules" : "Unified PrompterX Profile Settings";
+      title.textContent = globalMode ? "Unified PrompterX Global Rules" : "Unified PrompterX Profile Settings";
       content.innerHTML = "";
       if (globalMode) {
         renderGlobalNsfw();
@@ -4513,7 +4961,7 @@ function setupUnifiedAutoprompter(node) {
         savedBundle = clone(data.current);
         draft = clone(savedBundle);
         if (!draft.manifest.profiles.some((profile) => profile.key === selectedKey)) selectedKey = draft.manifest.profiles[0]?.key;
-        status.textContent = "Built-in profiles and global NSFW files restored; custom profiles preserved.";
+        status.textContent = "Built-in profiles and global rule files restored; custom profiles preserved.";
         renderAll();
       } catch (error) { status.textContent = `Reset error: ${error.message}`; }
     });
@@ -6242,8 +6690,14 @@ function setupUnifiedAutoprompter(node) {
           source.openai_lifecycle || (source.unload_after === true ? "unload_after" : "server_managed"),
         ),
         openai_reasoning_effort: normalizeOpenAIReasoning(source.openai_reasoning_effort),
-        grok: { ...(source.grok || {}) },
-        deepseek: { ...(source.deepseek || {}) },
+        grok: {
+          ...(source.grok || {}),
+          api_key: loadDedicatedApiKey(JSONX_GROK_KEY, source.grok?.api_key),
+        },
+        deepseek: {
+          ...(source.deepseek || {}),
+          api_key: loadDedicatedApiKey(JSONX_DEEPSEEK_KEY, source.deepseek?.api_key),
+        },
         lm_studio: { ...(source.lm_studio || {}) },
         unsloth: { ...(source.unsloth || {}) },
         ollama_host: source.ollama_host || DEFAULT_OLLAMA_HOST,
@@ -6273,7 +6727,11 @@ function setupUnifiedAutoprompter(node) {
   }
 
   function saveJsonXProviderSettings(settings) {
-    saveProviderSettings("jsonx", { ...settings });
+    saveProviderSettings("jsonx", {
+      ...settings,
+      grok: withoutApiKey(settings?.grok),
+      deepseek: withoutApiKey(settings?.deepseek),
+    });
   }
 
   function isJsonXProfile(profile = activeProfile()) { return profile?.engine === "jsonx"; }
@@ -6484,9 +6942,20 @@ function setupUnifiedAutoprompter(node) {
   function persistJsonXProviderFromControls(overrides = {}) {
     const previous = jsonxProviderSettings();
     const backend = overrides.backend || previous.backend || "gemini";
+    const extended = extendedProviderSettingsFromControls();
+    extended.grok.api_key = grokKeyDirty
+      ? extended.grok.api_key
+      : loadDedicatedApiKey(JSONX_GROK_KEY, extended.grok.api_key);
+    extended.deepseek.api_key = deepseekKeyDirty
+      ? extended.deepseek.api_key
+      : loadDedicatedApiKey(JSONX_DEEPSEEK_KEY, extended.deepseek.api_key);
+    if (grokKeyDirty) storeDedicatedApiKey(JSONX_GROK_KEY, extended.grok.api_key);
+    if (deepseekKeyDirty) storeDedicatedApiKey(JSONX_DEEPSEEK_KEY, extended.deepseek.api_key);
+    grokKeyDirty = false;
+    deepseekKeyDirty = false;
     const provider = {
       ...previous,
-      ...extendedProviderSettingsFromControls(),
+      ...extended,
       backend,
       gemini_model: geminiModelSelect.value || previous.gemini_model || "",
       gemini_timeout: Number(timeoutInput.value || 180),
@@ -6529,6 +6998,16 @@ function setupUnifiedAutoprompter(node) {
 
   function persistStandardProviderFromControls(overrides = {}) {
     const extended = extendedProviderSettingsFromControls();
+    extended.grok.api_key = grokKeyDirty
+      ? extended.grok.api_key
+      : loadDedicatedApiKey(GROK_KEY_STORAGE_KEY, extended.grok.api_key);
+    extended.deepseek.api_key = deepseekKeyDirty
+      ? extended.deepseek.api_key
+      : loadDedicatedApiKey(DEEPSEEK_KEY_STORAGE_KEY, extended.deepseek.api_key);
+    if (grokKeyDirty) storeDedicatedApiKey(GROK_KEY_STORAGE_KEY, extended.grok.api_key);
+    if (deepseekKeyDirty) storeDedicatedApiKey(DEEPSEEK_KEY_STORAGE_KEY, extended.deepseek.api_key);
+    grokKeyDirty = false;
+    deepseekKeyDirty = false;
     state.backend = overrides.backend || state.backend || "gemini";
     state.grok = extended.grok;
     state.deepseek = extended.deepseek;
@@ -6556,11 +7035,17 @@ function setupUnifiedAutoprompter(node) {
       local_model: localModelSelect.value || "",
       local_timeout: Number(localTimeoutInput.value || 180),
       ...extended,
+      grok: withoutApiKey(extended.grok),
+      deepseek: withoutApiKey(extended.deepseek),
       thinking_level: thinkingLevelSelect.value,
       thinking_budget: Number(thinkingBudgetInput.value || 2048),
     };
     saveProviderSettings("standard", saved);
-    return saved;
+    return {
+      ...saved,
+      grok: extended.grok,
+      deepseek: extended.deepseek,
+    };
   }
 
   function connectedImages() {
@@ -6733,17 +7218,20 @@ function setupUnifiedAutoprompter(node) {
 
   function generalRequest() {
     if (profileLoadError || backendSchemaVersion !== FRONTEND_SCHEMA_VERSION) throw new Error(profileLoadError || "Restart ComfyUI and hard-refresh the browser.");
-    const images = connectedImages();
+    const auditOnly = state.audit_mode === "audit_only";
+    const images = auditOnly ? [] : connectedImages();
     if (images.length > MAX_AUTHORING_IMAGES) throw new Error("General accepts at most nine connected images.");
-    const connected = state.enable_text_input && state.connected_raw_prompt_text_available ? String(state.connected_raw_prompt_text || "") : "";
+    const connected = !auditOnly && state.enable_text_input && state.connected_raw_prompt_text_available ? String(state.connected_raw_prompt_text || "") : "";
     if (state.enable_text_input && !connected.trim()) setStatus("Connected text is unavailable; using Prompt instructions.");
-    if (!connected.trim() && !state.prompt_text.trim() && !images.length) throw new Error("Enter a prompt or connect an image.");
+    if (auditOnly && !state.prompt_text.trim()) throw new Error("Enter Prompt instructions before using Audit only.");
+    if (!auditOnly && !connected.trim() && !state.prompt_text.trim() && !images.length) throw new Error("Enter a prompt or connect an image.");
     return {
       ...activeProviderPayload(false, images), schema_version: FRONTEND_SCHEMA_VERSION,
       general_schema_version: GENERAL_SCHEMA_VERSION, target_model: "general",
       preset: state.general_preset || "none", images_b64: images,
       fields: { prompt_text: state.prompt_text, raw_prompt_text: connected },
       refresh_vram: Boolean(state.refresh_vram),
+      audit_mode: state.audit_mode || "none",
     };
   }
 
@@ -6801,8 +7289,14 @@ function setupUnifiedAutoprompter(node) {
     try {
       const data = await fetchJsonChecked(`${ROUTE}/general/generate`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)}, "Generate General");
       state.generated_positive = data.positive; state.generated_negative = ""; state.final_prompt = data.prompt;
-      state.last_generation = {positive:data.positive,negative:"",prompt:data.prompt,target_model:"general",prompt_format:"natural",negative_enabled:false,generated_at:new Date().toISOString()};
-      syncPreview(); setStatus("Generation complete.");
+      state.last_generation = {positive:data.positive,negative:"",prompt:data.prompt,target_model:"general",prompt_format:"natural",negative_enabled:false,generated_at:new Date().toISOString(),audit:data.audit||null};
+      syncPreview();
+      const audit = data.audit || {};
+      if (audit.status === "failed") setStatus(`Audit failed; ${state.audit_mode === "audit_only" ? "textbox prompt" : "generated prompt"} retained: ${audit.error}`, true);
+      else if (audit.status === "completed") setStatus(audit.changed
+        ? (state.audit_mode === "audit_only" ? "Prompt audited and refined." : "Prompt generated and refined by audit.")
+        : (state.audit_mode === "audit_only" ? "Audit complete; no changes needed." : "Prompt generated; audit found no changes needed."));
+      else setStatus("Generation complete.");
     } catch (error) { logGenerationFailure(error); setStatus(error.message,true); }
     finally { activeGenerationId = ""; setBusy(false); }
   }
@@ -6842,18 +7336,19 @@ try{const response=await fetch(`${JSONX_ROUTE}/generate`,{method:"POST",headers:
     if (state.target_model === "general") { readFieldsIntoState(); return generateGeneral(); }
     if (isJsonXProfile()) { readFieldsIntoState(); return generateJsonXPrompt(); }
     readFieldsIntoState();
+    const auditOnly = state.audit_mode === "audit_only";
     const rawPromptText = state.enable_text_input && state.connected_raw_prompt_text_available
       ? String(state.connected_raw_prompt_text || "").trim()
       : "";
     const textInputLinked = inputIsLinked(node, "raw_prompt_text");
-    const textInputWarning = state.enable_text_input && (!textInputLinked || !state.connected_raw_prompt_text_available || !rawPromptText)
+    const textInputWarning = !auditOnly && state.enable_text_input && (!textInputLinked || !state.connected_raw_prompt_text_available || !rawPromptText)
       ? "Connected raw_prompt_text is enabled but missing or unreadable; using Prompt instructions."
       : "";
-    const imageResolution = effectiveGenerationImages();
+    const imageResolution = auditOnly ? { connected: [], submitted: [], ignoredCount: 0, imageState: null, rule: GENERATION_TYPE_MAP.get(state.generation_type) } : effectiveGenerationImages();
     const images = imageResolution.submitted;
     const ignoredNotice = ignoredImageNotice(imageResolution);
     const linkedImageCount = linkedReferenceImageInputNames(node).length;
-    const hasTextSeed = Boolean(rawPromptText || String(state.prompt_text || "").trim());
+    const hasTextSeed = Boolean((auditOnly ? "" : rawPromptText) || String(state.prompt_text || "").trim());
     const hasConnectedImage = images.length > 0;
     const hasUnresolvedConnectedImage = Boolean(
       linkedImageCount > imageResolution.connected.length
@@ -6876,7 +7371,9 @@ try{const response=await fetch(`${JSONX_ROUTE}/generate`,{method:"POST",headers:
       setStatus(profileLoadError || "Unified schema mismatch. Restart ComfyUI and hard-refresh the browser.", true);
       return;
     }
-    try { validateSelectedGeneration(imageResolution); } catch (error) { setStatus(error.message, true); return; }
+    if (!auditOnly) {
+      try { validateSelectedGeneration(imageResolution); } catch (error) { setStatus(error.message, true); return; }
+    }
     let providerPayload;
     try { providerPayload = activeProviderPayload(false, images); } catch (error) { setStatus(error.message, true); return; }
     activeGenerationId = `uap-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -6891,6 +7388,7 @@ try{const response=await fetch(`${JSONX_ROUTE}/generate`,{method:"POST",headers:
       generation_type: state.generation_type,
       nsfw_enabled: Boolean(state.nsfw_enabled),
       negative_enabled: state.negative_enabled,
+      audit_mode: state.audit_mode || "none",
       refresh_vram: state.refresh_vram,
       image_b64: images[0] || "",
       images_b64: images,
@@ -6928,9 +7426,19 @@ try{const response=await fetch(`${JSONX_ROUTE}/generate`,{method:"POST",headers:
         prompt_format: state.prompt_format,
         negative_enabled: state.negative_enabled,
         generated_at: new Date().toISOString(),
+        audit: data.audit || null,
       };
       syncPreview();
-      setStatus(`${ignoredNotice ? `${ignoredNotice} ` : ""}Prompt generated.`);
+      const audit = data.audit || {};
+      if (audit.status === "failed") {
+        setStatus(`${ignoredNotice ? `${ignoredNotice} ` : ""}Audit failed; ${state.audit_mode === "audit_only" ? "textbox prompt" : "generated prompt"} retained: ${audit.error}`, true);
+      } else if (audit.status === "completed") {
+        setStatus(`${ignoredNotice ? `${ignoredNotice} ` : ""}${audit.changed
+          ? (state.audit_mode === "audit_only" ? "Prompt audited and refined." : "Prompt generated and refined by audit.")
+          : (state.audit_mode === "audit_only" ? "Audit complete; no changes needed." : "Prompt generated; audit found no changes needed.")}`);
+      } else {
+        setStatus(`${ignoredNotice ? `${ignoredNotice} ` : ""}Prompt generated.`);
+      }
     } catch (error) {
       syncPreview();
       logGenerationFailure(error);
@@ -6941,6 +7449,19 @@ try{const response=await fetch(`${JSONX_ROUTE}/generate`,{method:"POST",headers:
     }
   }
 
+  node.__workflowXUapGenerateOnQueue = async () => {
+    if (state.working_mode !== "on_queue") return false;
+    if (activeGenerationId) throw new Error("Unified Prompter generation is already in progress; wait before queueing.");
+    const previousGeneration = state.last_generation;
+    setStatus("Workflow queued · generating prompt before submission...");
+    await generatePrompt();
+    if (state.last_generation === previousGeneration) {
+      throw new Error(status.textContent || "Unified Prompter could not generate a prompt for this queue.");
+    }
+    return true;
+  };
+  unifiedQueueNodes.add(node);
+
   const stateInputs = [
     targetSelect,
     formatSelect,
@@ -6948,6 +7469,8 @@ try{const response=await fetch(`${JSONX_ROUTE}/generate`,{method:"POST",headers:
     providerSelect,
     promptArea,
     detailSelect,
+    auditSelect,
+    workingModeSelect,
     ideogramLayoutArea,
     ideogramPaletteInput,
     bboxJsonInput,
@@ -7026,6 +7549,10 @@ try{const response=await fetch(`${JSONX_ROUTE}/generate`,{method:"POST",headers:
 
     promptArea.value = state.prompt_text;
     detailSelect.value = state.detail;
+    auditSelect.value = state.audit_mode || "none";
+    refreshAuditHelp();
+    workingModeSelect.value = state.working_mode || "on_generate";
+    refreshWorkingModeHelp();
     nsfwInput.checked = Boolean(state.nsfw_enabled);
     negativeInput.checked = Boolean(state.negative_enabled);
     bboxJsonInput.checked = Boolean(state.enable_bbox_json_input);
@@ -7050,10 +7577,22 @@ try{const response=await fetch(`${JSONX_ROUTE}/generate`,{method:"POST",headers:
   formatSelect.addEventListener("change", () => {
     state.prompt_format = formatSelect.value;
     state.final_prompt = "";
-    syncPreview();
+    refreshFormats();
   });
   generationTypeSelect.addEventListener("change", () => {
     state.generation_type = generationTypeSelect.value;
+    syncPreview();
+  });
+  auditSelect.addEventListener("change", () => {
+    state.audit_mode = auditSelect.value || "none";
+    refreshAuditHelp();
+    generateBtn.textContent = state.audit_mode === "audit_only" ? "Audit prompt" : "Generate";
+    syncPreview();
+    scheduleVisibleContentResize();
+  });
+  workingModeSelect.addEventListener("change", () => {
+    state.working_mode = workingModeSelect.value || "on_generate";
+    refreshWorkingModeHelp();
     syncPreview();
   });
   nsfwInput.addEventListener("change", () => {
@@ -7207,6 +7746,7 @@ try{const response=await fetch(`${JSONX_ROUTE}/generate`,{method:"POST",headers:
   negativePreviewBtn.addEventListener("click", () => toggleOutputPreview("negative"));
   ideogramBtn.addEventListener("click", toggleIdeogramLayoutEditor);
   modelSettingsBtn.addEventListener("click", openMarkdownProfileSettings);
+  presetsBtn.addEventListener("click", openPromptPresets);
   generalPreviewBtn.addEventListener("click", previewGeneral);
   refreshPresetsBtn.addEventListener("click", refreshGeneralPresets);
   thinkingLevelSelect.addEventListener("change", scheduleVisibleContentResize);
@@ -7352,23 +7892,32 @@ try{const response=await fetch(`${JSONX_ROUTE}/generate`,{method:"POST",headers:
     closeDock(node, "output_positive");
     closeDock(node, "output_negative");
     closeDock(node, "ideogram");
+    tagSuggestions.remove();
     node.__workflowXUapRestoreState = null;
+    node.__workflowXUapGenerateOnQueue = null;
+    unifiedQueueNodes.delete(node);
   });
 
   loadProfiles().then((loadedProfiles) => {
     profiles = loadedProfiles;
     profilesByKey = profileMap(profiles);
+    profilesLoaded = true;
     refreshProfiles();
     refreshBackends();
     syncPreview();
     if (profileLoadError) setStatus(profileLoadError, true);
     else if (providerBackend() === "local") setTimeout(fetchLocalModels, 0);
+    refreshPromptPresets().catch((error) => setStatus(`Presets error: ${error.message}`, true));
     requestAnimationFrame(resizeNodeToVisibleContent);
   });
 }
 
 app.registerExtension({
   name: "WorkflowX.UnifiedAutoprompterX",
+
+  setup() {
+    installQueueGenerationHooks();
+  },
 
   async beforeRegisterNodeDef(nodeType, nodeData) {
     if (nodeData?.name !== TARGET_NODE) return;
