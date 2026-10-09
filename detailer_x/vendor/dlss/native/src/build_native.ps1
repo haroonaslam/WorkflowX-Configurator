@@ -8,7 +8,7 @@ function Fail([string]$Message) {
 
 $Root = Split-Path -Parent $PSScriptRoot
 $Native = $PSScriptRoot
-$Bin = Join-Path $Native 'bin'
+$Bin = Join-Path $Root 'bin'
 $CallerOut = Join-Path $Root 'runtime\caller'
 
 Write-Host "[DLSS5-NR] PowerShell native builder v0.4.0"
@@ -135,6 +135,12 @@ foreach ($inc in $includeDirs) { $hostCommon += ('/I' + $inc) }
 Run-Cl ($hostCommon + @($hostCpp, '/link', ('/OUT:' + $hostExe)) + ($libDirs | ForEach-Object { '/LIBPATH:' + $_ })) '[3/3] Building Linux/Wine video transport host...'
 
 # Remove intermediary build products created next to the invocation working directory / source.
+$InvocationDir = (Get-Location).Path
+foreach ($artifact in @('caller_shim.obj','caller_shim.exp','caller_shim.lib',
+                         'dlss5nr_bridge.obj','dlss5nr_bridge.exp','dlss5nr_bridge.lib',
+                         'dlss5nr_host.obj')) {
+    Remove-Item -LiteralPath (Join-Path $InvocationDir $artifact) -Force -ErrorAction SilentlyContinue
+}
 Get-ChildItem -Path $Root -Filter '*.obj' -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
 Get-ChildItem -Path $Root -Filter '*.exp' -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
 Get-ChildItem -Path $Root -Filter '*.lib' -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue

@@ -45,19 +45,26 @@ def _load_library(runtime: Path):
     lib = ctypes.WinDLL(str(bridge))
     lib.dlss5nr_init.argtypes = [ctypes.c_int, ctypes.c_wchar_p, ctypes.c_char_p, ctypes.c_int]
     lib.dlss5nr_init.restype = ctypes.c_int
-    # Signature mirrors dlss5nr_host.cpp ProcessFn (dlss5nr_process_v2).
-    lib.dlss5nr_process_v2.argtypes = [
+    process = getattr(lib, "dlss5nr_process_v3", None)
+    if process is None:
+        raise DLSS5Error(
+            "The bundled DLSS bridge predates model-preset support. Rebuild or reinstall "
+            "DetailerX's native runtime, restart ComfyUI, and try again."
+        )
+    process.argtypes = [
         ctypes.POINTER(ctypes.c_float),   # input color (RGB float32, render size)
         ctypes.POINTER(ctypes.c_uint16),  # motion vectors (FP16 bits)
         ctypes.POINTER(ctypes.c_float),   # output color (RGB float32, output size)
         ctypes.c_int, ctypes.c_int,       # input w/h
         ctypes.c_int, ctypes.c_int,       # output w/h
-        ctypes.c_int, ctypes.c_int, ctypes.c_int,  # style, preset, perf_quality
+        ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,  # style, NR preset, model preset, quality
         ctypes.c_float, ctypes.c_float, ctypes.c_float, ctypes.c_float, ctypes.c_float,  # intensity/tone/structure/skin/global_tone
         ctypes.c_int, ctypes.c_int,       # automask, reset
         ctypes.c_char_p, ctypes.c_int,    # error buffer
     ]
-    lib.dlss5nr_process_v2.restype = ctypes.c_int
+    process.restype = ctypes.c_int
+    lib.dlss5nr_applied_model_preset.argtypes = []
+    lib.dlss5nr_applied_model_preset.restype = ctypes.c_int
     lib.dlss5nr_shutdown.argtypes = []
     lib.dlss5nr_shutdown.restype = None
     lib.dlss5nr_version.argtypes = []
@@ -112,12 +119,13 @@ def process_frames(frames, input_w: int, input_h: int, output_w: int, output_h: 
                 source = common.srgb_to_linear(source)
             motion_u16 = np.ascontiguousarray(motion, dtype=np.float16).view(np.uint16)
             output = np.zeros((output_h, output_w, 3), dtype=np.float32)
-            ok = lib.dlss5nr_process_v2(
+            ok = lib.dlss5nr_process_v3(
                 source.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
                 motion_u16.ctypes.data_as(ctypes.POINTER(ctypes.c_uint16)),
                 output.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
                 int(input_w), int(input_h), int(output_w), int(output_h),
-                int(params["style"]), int(params["preset"]), int(params["perf_quality"]),
+                int(params["style"]), int(params["preset"]), int(params["model_preset"]),
+                int(params["perf_quality"]),
                 ctypes.c_float(float(params["intensity"])), ctypes.c_float(float(params["tone"])),
                 ctypes.c_float(float(params["structure"])), ctypes.c_float(float(params["skin"])),
                 ctypes.c_float(float(params["global_tone"])),
@@ -126,6 +134,12 @@ def process_frames(frames, input_w: int, input_h: int, output_w: int, output_h: 
             )
             if not ok:
                 raise DLSS5Error(f"DLSS5 frame {index} failed: {_decode_error(error) or 'unknown error'}")
+            applied = int(lib.dlss5nr_applied_model_preset())
+            if applied != int(params["model_preset"]):
+                raise DLSS5Error(
+                    f"DLSS model preset verification failed: requested {params['model_preset']}, "
+                    f"bridge reported {applied}. Use Default or update the DLSS runtime."
+                )
             if params.get("detail", 1.0) != 1.0 or params.get("color", 1.0) != 1.0:
                 output = common.nr_composite(
                     pixels_u8, output, params["detail"], params["color"],

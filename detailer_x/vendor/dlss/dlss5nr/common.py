@@ -11,14 +11,15 @@ from pathlib import Path
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 
-MAGIC_DNR2 = b"DNR2"
+MAGIC_DNR3 = b"DNR3"
 MAGIC_FRM2 = b"FRM2"
 MAGIC_OUT1 = b"OUT1"
 MAGIC_END1 = b"END1"
 
 # Binary transport between the Python frontend and dlss5nr_host.exe.
-# magic + 12 uint32 fields + five float controls (two-size contract).
-HEADER = struct.Struct("<4sIIIIIIIIIIII5f")
+# magic + 13 uint32 fields + five float controls (two-size contract plus the
+# independent DLSS Super Resolution model preset).
+HEADER = struct.Struct("<4sIIIIIIIIIIIII5f")
 FRAME_HEADER = struct.Struct("<4sII")
 REPLY_HEADER = struct.Struct("<4sIII")
 
@@ -40,12 +41,30 @@ SCALE_TO_PERF_QUALITY = {1.0: 5, 1.5: 2, 1.724: 1, 2.0: 0, 3.0: 3}
 AUTO_BUCKETS = {"1K": 1080, "2K": 1440, "4K": 2160, "8K": 4320}
 
 STYLE_VALUES = {"default": 0, "natural": 1, "cinematic": 2}
+MODEL_PRESET_VALUES = {"Default": 0, "J": 10, "K": 11, "L": 12, "M": 13}
 
 MAX_DIM = 16384
 MAX_LONG_EDGE = 7680
 MAX_SHORT_EDGE = 4320
 MAX_PIXELS = 1 << 28
 MAX_FRAMES = 1_000_000
+
+
+def model_preset_int(value) -> int:
+    """Return the public NVIDIA render-preset enum used by the DLSS carrier."""
+    if isinstance(value, str):
+        try:
+            return MODEL_PRESET_VALUES[value]
+        except KeyError as exc:
+            raise DLSS5Error(
+                f"Unknown DLSS model preset {value!r}; choose Default, J, K, L, or M."
+            ) from exc
+    candidate = int(value)
+    if candidate not in MODEL_PRESET_VALUES.values():
+        raise DLSS5Error(
+            f"Unknown DLSS model preset value {candidate}; choose 0, 10, 11, 12, or 13."
+        )
+    return candidate
 
 
 _MSG_BRAND_RES = (

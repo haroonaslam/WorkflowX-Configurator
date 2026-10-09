@@ -38,6 +38,7 @@ with torch.inference_mode():
     print(json.dumps({"stage":"detector+SAM","detections":len(regions),"mask_pixels":int(mask.sum())}),flush=True)
     for mode,size in [("1x (DLAA / native)",512),("1.5x (Quality)",768)]:
         settings=dict(DEFAULTS["dlss5"],upscaling_mode=mode)
+        if size>512: settings["model_preset"]="J"
         result=p.dlss(image,settings)
         check("DLSS5 "+mode,result,(1,size,size,3))
     if args.sampling_checkpoint:

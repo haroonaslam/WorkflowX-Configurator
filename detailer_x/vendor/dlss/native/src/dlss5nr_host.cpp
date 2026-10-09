@@ -21,21 +21,22 @@
 
 namespace {
 
-constexpr std::uint32_t kDnr2 = 0x32524E44;  // DNR2
+constexpr std::uint32_t kDnr3 = 0x33524E44;  // DNR3
 constexpr std::uint32_t kFrm2 = 0x324D5246;  // FRM2
 constexpr std::uint32_t kOut1 = 0x3154554F;  // OUT1
 constexpr std::uint32_t kEnd1 = 0x31444E45;  // END1
 
 using InitFn = int(__cdecl*)(int, const wchar_t*, char*, int);
 using ProcessFn = int(__cdecl*)(const float*, const std::uint16_t*, float*, int, int, int, int,
-                                 int, int, int, float, float, float, float, float,
+                                 int, int, int, int, float, float, float, float, float,
                                  int, int, char*, int);
 using ShutdownFn = void(__cdecl*)();
+using AppliedPresetFn = int(__cdecl*)();
 
 struct Header {
     std::uint32_t magic, input_width, input_height, output_width, output_height;
     std::uint32_t warmup_frames, frame_count, perf_quality;
-    std::uint32_t profile, preset, style, automask, ui_correction;
+    std::uint32_t model_preset, profile, preset, style, automask, ui_correction;
     float intensity, tone, structure, skin, global_tone;
 };
 struct FrameHeader {
@@ -112,35 +113,36 @@ int wmain(int argc, wchar_t** argv) {
         return 3;
     }
     const auto init = reinterpret_cast<InitFn>(GetProcAddress(bridge, "dlss5nr_init"));
-    const auto process = reinterpret_cast<ProcessFn>(GetProcAddress(bridge, "dlss5nr_process_v2"));
+    const auto process = reinterpret_cast<ProcessFn>(GetProcAddress(bridge, "dlss5nr_process_v3"));
+    const auto applied_preset = reinterpret_cast<AppliedPresetFn>(GetProcAddress(bridge, "dlss5nr_applied_model_preset"));
     const auto shutdown = reinterpret_cast<ShutdownFn>(GetProcAddress(bridge, "dlss5nr_shutdown"));
     const auto version = reinterpret_cast<const char*(__cdecl*)()>(GetProcAddress(bridge, "dlss5nr_version"));
     const auto gpu = reinterpret_cast<const char*(__cdecl*)()>(GetProcAddress(bridge, "dlss5nr_gpu_name"));
-    if (!init || !process || !shutdown) {
-        std::fprintf(stderr, "bridge exports are incomplete (need dlss5nr_process_v2)\n");
+    if (!init || !process || !applied_preset || !shutdown) {
+        std::fprintf(stderr, "bridge exports are incomplete (need dlss5nr_process_v3 and model-preset verification)\n");
         FreeLibrary(bridge);
         return 4;
     }
 
     Header header{};
-    if (!ReadExact(&header, sizeof(header)) || header.magic != kDnr2 ||
+    if (!ReadExact(&header, sizeof(header)) || header.magic != kDnr3 ||
         header.input_width == 0 || header.input_height == 0 || header.output_width == 0 ||
         header.output_height == 0 || header.input_width > 16384 || header.input_height > 16384 ||
         header.output_width > 16384 || header.output_height > 16384 ||
         header.frame_count == 0 || header.frame_count > 1000000) {
-        std::fprintf(stderr, "invalid DNR2 header\n");
+        std::fprintf(stderr, "invalid DNR3 header\n");
         FreeLibrary(bridge);
         return 5;
     }
     if (header.warmup_frames > header.frame_count) {
-        std::fprintf(stderr, "invalid DNR2 warmup frame count\n");
+        std::fprintf(stderr, "invalid DNR3 warmup frame count\n");
         FreeLibrary(bridge);
         return 5;
     }
     const std::uint32_t output_long = std::max(header.output_width, header.output_height);
     const std::uint32_t output_short = std::min(header.output_width, header.output_height);
     if (output_long > 7680 || output_short > 4320) {
-        std::fprintf(stderr, "DNR2 output exceeds the DLSSNR 7680x4320 envelope\n");
+        std::fprintf(stderr, "DNR3 output exceeds the DLSSNR 7680x4320 envelope\n");
         FreeLibrary(bridge);
         return 5;
     }
@@ -188,6 +190,7 @@ int wmain(int argc, wchar_t** argv) {
                                static_cast<int>(header.input_width), static_cast<int>(header.input_height),
                                static_cast<int>(header.output_width), static_cast<int>(header.output_height),
                                static_cast<int>(header.style), static_cast<int>(header.preset),
+                               static_cast<int>(header.model_preset),
                                static_cast<int>(header.perf_quality),
                                header.intensity, header.tone, header.structure, header.skin,
                                header.global_tone,
@@ -197,6 +200,12 @@ int wmain(int argc, wchar_t** argv) {
             const char* message = error[0] ? error : "DLSS5 frame failed";
             std::fprintf(stderr, "DLSS5 frame %u failed: %s\n", expected, message);
             WriteError(expected, message);
+            shutdown();
+            FreeLibrary(bridge);
+            return 9;
+        }
+        if (applied_preset() != static_cast<int>(header.model_preset)) {
+            WriteError(expected, "DLSS model preset verification failed; use Default or update the runtime");
             shutdown();
             FreeLibrary(bridge);
             return 9;

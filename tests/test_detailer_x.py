@@ -14,6 +14,7 @@ from detailer_x import DetailerX, config, assets
 from detailer_x.cache import StageCache, CACHE
 from detailer_x.cache import model_signature, digest
 from detailer_x import processing as p
+from detailer_x.vendor.dlss.dlss5nr import common as dlss_common
 
 def disabled():
     s=copy.deepcopy(config.DEFAULTS)
@@ -40,6 +41,14 @@ def test_roundtrip_and_migration():
     with pytest.raises(ValueError):config.normalize({"face":{"denoise":1.5}})
     with pytest.raises(ValueError):config.normalize({"face":{"enabled":"false"}})
     with pytest.raises(ValueError):config.normalize({"face":{"steps":float("nan")}})
+    assert config.normalize({"dlss5":{"preset":9}})["dlss5"]["preset"]==0
+    assert config.normalize({"dlss5":{"model_preset":"M"}})["dlss5"]["model_preset"]=="M"
+    with pytest.raises(ValueError,match="model_preset"):
+        config.normalize({"dlss5":{"model_preset":"F"}})
+
+def test_dlss_model_preset_wire_values():
+    assert [dlss_common.model_preset_int(value) for value in ("Default","J","K","L","M")]==[0,10,11,12,13]
+    assert dlss_common.HEADER.pack(dlss_common.MAGIC_DNR3,*([0]*13),*([0.0]*5))[:4]==b"DNR3"
 
 def test_final_and_processor_bundle_bypass_outputs_and_alpha():
     image=torch.rand(2,16,24,4)

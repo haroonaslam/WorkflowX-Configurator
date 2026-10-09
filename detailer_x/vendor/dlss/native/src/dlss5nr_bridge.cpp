@@ -158,6 +158,7 @@ static bool g_dlss_output_readable = false;
 static UINT64 g_neural_evaluations = 0;
 static int g_feature_style = -999;
 static int g_feature_preset = -999;
+static int g_feature_model_preset = -999;
 static int g_feature_perf_quality = -999;
 static int g_float_set_slot = -1;
 static int g_uint_set_slot = 3;
@@ -543,7 +544,7 @@ static void ReleaseFeatureAndResources() {
     g_upscale_active = false;
     g_dlss_output_readable = false;
     g_neural_evaluations = 0;
-    g_feature_style = -999; g_feature_preset = -999;
+    g_feature_style = -999; g_feature_preset = -999; g_feature_model_preset = -999;
     g_feature_perf_quality = -999;
     g_hdr_requested = false;
 }
@@ -601,7 +602,7 @@ static bool EnvFlagEnabled(const char* name) {
     return n > 0 && n < sizeof(buf) && buf[0] == '1';
 }
 
-static void SetDLSSCarrierParams(int perf_quality, int reset) {
+static void SetDLSSCarrierParams(int perf_quality, int model_preset, int reset) {
     if (!g_params) return;
 
     // This is the ordinary DLSS Super Resolution contract.  It is deliberately
@@ -619,6 +620,16 @@ static void SetDLSSCarrierParams(int perf_quality, int reset) {
     SetParamUInt("ResourceOutWidth", g_output_width);
     SetParamUInt("ResourceOutHeight", g_output_height);
     SetParamUInt("PerfQualityValue", static_cast<unsigned int>(std::max(0, perf_quality)));
+    // Modern DLSS Super Resolution model presets are separate from the
+    // DLSSNR render-preset hint. Set every quality-specific key so the active
+    // carrier mode receives the same explicit selection. Zero asks NVIDIA to
+    // choose its default for that mode.
+    const unsigned int render_preset = static_cast<unsigned int>(std::max(0, model_preset));
+    SetParamUInt("DLSS.Hint.Render.Preset.DLAA", render_preset);
+    SetParamUInt("DLSS.Hint.Render.Preset.Quality", render_preset);
+    SetParamUInt("DLSS.Hint.Render.Preset.Balanced", render_preset);
+    SetParamUInt("DLSS.Hint.Render.Preset.Performance", render_preset);
+    SetParamUInt("DLSS.Hint.Render.Preset.UltraPerformance", render_preset);
 
     // A video frame has no depth buffer, but DLSS still requires the resource
     // and the feature-create flags.  The bridge uploads a constant R32_FLOAT
@@ -732,18 +743,19 @@ static void SetNeuralParams(
 
 static bool EnsureFeature(
     UINT input_w, UINT input_h, UINT output_w, UINT output_h,
-    int style, int preset, int perf_quality,
+    int style, int preset, int model_preset, int perf_quality,
     float intensity, float tone, float structure, float skin, float global_tone,
     int automask) {
     const bool requested_upscale = input_w != output_w || input_h != output_h;
     const bool hdr_requested = EnvFlagEnabled("DLSS5NR_HDR");
     const bool rebuild = !g_feature || input_w != g_input_width || input_h != g_input_height ||
         output_w != g_output_width || output_h != g_output_height ||
-        style != g_feature_style || preset != g_feature_preset || perf_quality != g_feature_perf_quality ||
+        style != g_feature_style || preset != g_feature_preset || model_preset != g_feature_model_preset ||
+        perf_quality != g_feature_perf_quality ||
         requested_upscale != g_upscale_active || hdr_requested != g_hdr_requested;
     g_hdr_requested = hdr_requested;
     if (!rebuild) {
-        if (g_upscale_active) SetDLSSCarrierParams(perf_quality, 0);
+        if (g_upscale_active) SetDLSSCarrierParams(perf_quality, model_preset, 0);
         SetNeuralParams(style, preset, perf_quality, intensity, tone, structure, skin, global_tone, automask, 0);
         return true;
     }
@@ -764,7 +776,7 @@ static bool EnsureFeature(
     if (!AllocateFrameResources(input_w, input_h, output_w, output_h)) return false;
 
     if (g_upscale_active) {
-        SetDLSSCarrierParams(perf_quality, 1);
+        SetDLSSCarrierParams(perf_quality, model_preset, 1);
         NGXResult carrier = g_core_create(g_cmd.Get(), DLSS_FEATURE_ID, g_params, &g_dlss_feature);
         std::fprintf(stderr, "[dlss5nr] DLSS carrier CreateFeature(1) -> 0x%08X handle=%p (%ux%u -> %ux%u, perf=%d)\n",
                      static_cast<unsigned>(carrier), static_cast<void*>(g_dlss_feature),
@@ -811,6 +823,7 @@ static bool EnsureFeature(
     }
     g_feature_style = style;
     g_feature_preset = preset;
+    g_feature_model_preset = model_preset;
     g_feature_perf_quality = perf_quality;
     return true;
 }
@@ -1098,7 +1111,7 @@ __declspec(dllexport) int __cdecl dlss5nr_init(int gpu_index, const wchar_t* run
 static int ProcessFrame(
     const float* rgb_in, const uint16_t* mvec_in, float* rgb_out,
     int input_width, int input_height, int output_width, int output_height,
-    int style, int preset, int perf_quality,
+    int style, int preset, int model_preset, int perf_quality,
     float intensity, float tone, float structure, float skin, float global_tone,
     int automask, int reset, char* err, int err_cap) {
 
@@ -1124,6 +1137,10 @@ static int ProcessFrame(
         SetError("Unsupported DLSSNR PerfQualityValue %d (expected 0, 1, 2, 3, or 5)", perf_quality);
         CopyError(err, err_cap); return 0;
     }
+    if (!(model_preset == 0 || (model_preset >= 10 && model_preset <= 13))) {
+        SetError("Unsupported DLSS model preset %d (expected Default=0 or J/K/L/M=10/11/12/13)", model_preset);
+        CopyError(err, err_cap); return 0;
+    }
     // The reference video2dlssnr tool runs PerfQualityValue=2 with native-sized
     // inputs: in the shipped NR snippet the selector picks a model preset and
     // does not by itself demand a geometric upscale.  The fixed-ratio guard
@@ -1140,7 +1157,7 @@ static int ProcessFrame(
 
     if (!EnsureFeature(static_cast<UINT>(input_width), static_cast<UINT>(input_height),
                        static_cast<UINT>(output_width), static_cast<UINT>(output_height),
-                       style, preset, perf_quality,
+                       style, preset, model_preset, perf_quality,
                        intensity, tone, structure, skin, global_tone, automask)) {
         CopyError(err, err_cap); return 0;
     }
@@ -1148,7 +1165,7 @@ static int ProcessFrame(
     // frame.  In native mode there is no carrier and the feature-18 params are
     // ready immediately; in upscale mode they are written after the carrier
     // has produced its high-resolution surface below.
-    if (g_upscale_active) SetDLSSCarrierParams(perf_quality, reset ? 1 : 0);
+    if (g_upscale_active) SetDLSSCarrierParams(perf_quality, model_preset, reset ? 1 : 0);
     else SetNeuralParams(style, preset, perf_quality, intensity, tone, structure, skin, global_tone, automask, reset ? 1 : 0);
 
     void* mapped = nullptr;
@@ -1331,8 +1348,25 @@ __declspec(dllexport) int __cdecl dlss5nr_process_v2(
     float intensity, float tone, float structure, float skin, float global_tone,
     int automask, int reset, char* err, int err_cap) {
     return ProcessFrame(rgb_in, mvec_in, rgb_out, input_width, input_height, output_width, output_height,
-                        style, preset, perf_quality, intensity, tone, structure, skin, global_tone,
+                        style, preset, 0, perf_quality, intensity, tone, structure, skin, global_tone,
                         automask, reset, err, err_cap);
+}
+
+// Version-3 export adds the independent DLSS Super Resolution model preset
+// (Default/J/K/L/M) without changing the legacy v2 ABI.
+__declspec(dllexport) int __cdecl dlss5nr_process_v3(
+    const float* rgb_in, const uint16_t* mvec_in, float* rgb_out,
+    int input_width, int input_height, int output_width, int output_height,
+    int style, int preset, int model_preset, int perf_quality,
+    float intensity, float tone, float structure, float skin, float global_tone,
+    int automask, int reset, char* err, int err_cap) {
+    return ProcessFrame(rgb_in, mvec_in, rgb_out, input_width, input_height, output_width, output_height,
+                        style, preset, model_preset, perf_quality, intensity, tone, structure, skin, global_tone,
+                        automask, reset, err, err_cap);
+}
+
+__declspec(dllexport) int __cdecl dlss5nr_applied_model_preset() {
+    return g_feature_model_preset < 0 ? 0 : g_feature_model_preset;
 }
 
 // Keep the original ComfyUI image ABI working in native-size mode.
@@ -1346,7 +1380,7 @@ __declspec(dllexport) int __cdecl dlss5nr_process(
     std::vector<uint16_t> zero_motion(static_cast<size_t>(width) * height * 2u, 0);
     // Legacy image ABI keeps the historical fixed global tone (1.0).
     return ProcessFrame(rgb_in, zero_motion.data(), rgb_out, width, height, width, height,
-                        style, preset, 5, intensity, tone, structure, skin, 1.0f,
+                        style, preset, 0, 5, intensity, tone, structure, skin, 1.0f,
                         automask, reset, err, err_cap);
 }
 

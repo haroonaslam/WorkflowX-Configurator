@@ -277,6 +277,14 @@ test("all preset controls have meaningful help",()=>{
   assert.match(stateModule.helpText("face","cfg"),/negative prompting has no effect/);
   assert.match(stateModule.helpText("face","guidance"),/not the CFG/);
 });
+test("DLSS controls distinguish NR preset, carrier model preset, and post-composite",async()=>{
+  const source=await readFile(new URL("../web/js/detailer_x.js",import.meta.url),"utf8");
+  for(const token of ['preset:{0:"Default",1:"Preset #1",2:"Preset #2",3:"Preset #3"}','model_preset:{Default:"Default — runtime choice"','Post-composite','not additional DLSS model parameters'])assert.match(source,new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")));
+  assert.match(stateModule.helpText("dlss5","intensity"),/nr_intensity/);
+  assert.match(stateModule.helpText("dlss5","model_preset"),/Super Resolution model/);
+  assert.match(stateModule.helpText("dlss5","detail"),/after DLSS finishes/);
+  assert.match(stateModule.helpText("dlss5","color"),/Post-composite chroma/);
+});
 test("SAM1 detection hints expose descriptive labels and contextual help",async()=>{
   const source=await readFile(new URL("../web/js/detailer_x.js",import.meta.url),"utf8");
   const help=await readFile(new URL("../web/js/detailer_x_help.mjs",import.meta.url),"utf8");

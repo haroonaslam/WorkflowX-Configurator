@@ -37,7 +37,7 @@ DEFAULTS = {
     "hsv": dict(enabled=True, H=0, S=-10, V=0),
     "levels": dict(enabled=True, channel="RGB", black_point=0, white_point=249, gray_point=1.0, output_black_point=0, output_white_point=253),
     "sharpen": dict(enabled=True, iterations=1, kernel_size=3),
-    "dlss5": dict(enabled=True, upscaling_mode=DLSS_MODES[0], style="default", preset=0,
+    "dlss5": dict(enabled=True, upscaling_mode=DLSS_MODES[0], style="default", preset=0, model_preset="Default",
         intensity=1.0, tone=1.0, structure=1.25, skin=-1.0, auto_mask="on", motion="auto",
         scene_change_threshold=0.24, batch_mode="temporal sequence", warmup_frames=0,
         backend="auto", channel_order="auto", hdr="off", global_tone=-1.0, detail=0.3, color=0.3),
@@ -75,6 +75,7 @@ CHOICES = {
     "sam_mask_hint_use_negative": ["False", "Small", "Outter"],
     "device": ["Prefer GPU", "CPU", "AUTO"], "channel": ["RGB", "red", "green", "blue"],
     "upscaling_mode": DLSS_MODES, "style": ["default", "natural", "cinematic", "off (bypass NR)"],
+    "preset": [0, 1, 2, 3], "model_preset": ["Default", "J", "K", "L", "M"],
     "auto_mask": ["on", "off"], "motion": ["auto", "nvof", "optical_flow", "none"],
     "batch_mode": ["temporal sequence", "still images"], "backend": ["auto", "windows-bridge", "linux-wine"],
     "channel_order": ["auto", "RGBA", "BGRA"], "hdr": ["off", "on"],
@@ -94,7 +95,7 @@ RANGES = {
     "H": (-255, 255, 1), "S": (-255, 255, 1), "V": (-255, 255, 1),
     "black_point": (0, 255, 1), "white_point": (0, 255, 1), "gray_point": (0.01, 9.99, 0.01),
     "output_black_point": (0, 255, 1), "output_white_point": (0, 255, 1), "iterations": (1, 12, 1), "kernel_size": (1, 16, 1),
-    "preset": (0, 9, 1), "intensity": (0, 2, 0.05), "tone": (0, 2, 0.05), "structure": (0, 2, 0.05),
+    "intensity": (0, 2, 0.05), "tone": (0, 2, 0.05), "structure": (0, 2, 0.05),
     "skin": (-1, 2, 0.05), "global_tone": (-1, 2, 0.05), "detail": (0, 2, 0.05), "color": (0, 1, 0.05),
     "scene_change_threshold": (0.01, 1, 0.01), "warmup_frames": (0, 120, 1), "cache_epoch": (0, 9007199254740991, 1),
 }
@@ -136,6 +137,11 @@ def normalize(value, _preset=True):
             raise ValueError(f"Invalid {section} settings")
         for key, fallback in default.items():
             v = supplied.get(key, fallback)
+            # Early DetailerX builds exposed undocumented numeric NR preset
+            # values 4-9. Current runtimes document only Default/#1/#2/#3;
+            # migrate those old selections to the safe runtime default.
+            if section == "dlss5" and key == "preset" and type(v) is int and 4 <= v <= 9:
+                v = 0
             if key == "sam_override":
                 if not isinstance(v,dict): raise ValueError(f"Invalid DetailerX {section}.sam_override")
                 override=copy.deepcopy(fallback)

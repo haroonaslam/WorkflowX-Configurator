@@ -1,6 +1,6 @@
 export const OUTPUT_DETAILERS = ["face", "breast", "pussy", "hand", "foot"];
 export const DETAILERS = [...OUTPUT_DETAILERS,"hair","anything"];
-export {helpText} from "./detailer_x_help.mjs?v=7";
+export {helpText} from "./detailer_x_help.mjs?v=8";
 export const LEGACY_REALISM = ["brightness", "grain", "hsv", "levels", "sharpen"];
 export const ADVANCED = ["rgb","gamma","color_balance","temperature","lens","pixel_perturb","neural_grain","lut","camera","compression"];
 export const REALISM = [...LEGACY_REALISM,...ADVANCED];
