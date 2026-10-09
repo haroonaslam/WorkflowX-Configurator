@@ -136,7 +136,7 @@
         "image_to_image"
       ],
       "default_generation_type": "text_to_image",
-      "negative_supported": false,
+      "negative_supported": true,
       "builtin": true
     },
     {

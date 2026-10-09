@@ -63,7 +63,7 @@
       "default_format": "natural",
       "enabled_generation_types": ["text_to_image", "image_to_image"],
       "default_generation_type": "text_to_image",
-      "negative_supported": false,
+      "negative_supported": true,
       "builtin": true
     },
     {
