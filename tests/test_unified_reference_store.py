@@ -169,6 +169,9 @@ def test_frontend_uses_markdown_editor_and_separate_reference_schema_handshake()
     assert 'field(editor, "Adaptation guidance", guidance)' in source
     assert "Image NSFW rules" in source
     assert "Video NSFW rules" in source
+    assert 'buildDom("button", "workflowx-uap-btn", "Restore default")' in source
+    assert 'buildDom("button", "workflowx-uap-btn", "Restore full profile default")' in source
+    assert "Restore this instruction item into the draft; Save applies it" in source
     assert "reference/current_use" in source
     assert "reference_schema_version: REFERENCE_SCHEMA_VERSION" in source
     assert 'modelSettingsBtn.addEventListener("click", openMarkdownProfileSettings)' in source
@@ -442,6 +445,24 @@ def test_prompt_presets_crud_resolution_and_atomic_failure():
                 pass
             else:
                 raise AssertionError("Invalid preset metadata must be rejected.")
+
+
+def test_default_audit_allows_complete_constrained_repairs_and_covers_scene_mechanics():
+    original = (ROOT / "unified_autoprompter" / "reference" / "original" / "audit.md").read_text(encoding="utf-8")
+    current = (ROOT / "unified_autoprompter" / "reference" / "current_use" / "audit.md").read_text(encoding="utf-8")
+    assert current == original
+    for requirement in (
+        "constrained coherence revision",
+        "every change necessary",
+        "do not limit the revision to cosmetic wording or isolated edits",
+        "center of mass",
+        "occluders are in front",
+        "horizon and vanishing direction",
+        "contact shadows",
+        "cause-and-effect continuity",
+        "final contradiction scan",
+    ):
+        assert requirement in original
 
 
 def test_audit_validation_preserves_json_shape_and_text_contracts():

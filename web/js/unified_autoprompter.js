@@ -1044,6 +1044,17 @@ function injectStyle() {
   gap: 10px;
   justify-content: space-between;
 }
+.workflowx-uap-settings-card-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.workflowx-uap-settings-card-actions .workflowx-uap-btn {
+  flex: 0 0 auto;
+  padding: 5px 9px;
+}
 .workflowx-uap-settings-card-title {
   color: #eef4f8;
   font-size: 13px;
@@ -3922,14 +3933,25 @@ function setupUnifiedAutoprompter(node) {
     markDirty();
   }
 
+  function stableNodeChromeHeight() {
+    if (Number.isFinite(node.__workflowXUapChromeHeight)) return node.__workflowXUapChromeHeight;
+    node.__workflowXUapMeasuringChrome = true;
+    try {
+      const computed = node.computeSize?.();
+      node.__workflowXUapChromeHeight = Math.max(48, Math.ceil(Number(computed?.[1]) || 0));
+    } finally {
+      node.__workflowXUapMeasuringChrome = false;
+    }
+    return node.__workflowXUapChromeHeight;
+  }
+
   function resizeNodeToVisibleContent() {
     if (!node.__workflowXUapWidget || node.__workflowXUapFitting) return;
     node.__workflowXUapFitting = true;
     try {
       fitNode();
       const width = node.size?.[0] || 440;
-      const computed = node.computeSize?.();
-      const targetHeight = Math.max(260, Math.ceil(computed?.[1] || node.__workflowXUapWidgetHeight + 80));
+      const targetHeight = Math.max(260, Math.ceil(node.__workflowXUapWidgetHeight + stableNodeChromeHeight()));
       if (Math.abs((node.size?.[1] || 0) - targetHeight) > 4) {
         node.setSize?.([width, targetHeight]);
       }
@@ -4035,8 +4057,8 @@ function setupUnifiedAutoprompter(node) {
     const add = buildDom("button", "workflowx-uap-btn", "Add");
     const duplicate = buildDom("button", "workflowx-uap-btn", "Duplicate");
     const remove = buildDom("button", "workflowx-uap-btn", "Delete");
-    const resetOne = buildDom("button", "workflowx-uap-btn", "Reset profile");
-    resetOne.title = "Immediately restore the selected built-in JsonX profile from reference/original/JsonX";
+    const resetOne = buildDom("button", "workflowx-uap-btn", "Restore profile");
+    resetOne.title = "Restore the selected built-in JsonX profile into this draft; Save applies it";
     for (const button of [add, duplicate, remove, resetOne]) { button.type = "button"; sideActions.appendChild(button); }
     const items = buildDom("div", "workflowx-uap-settings-items");
     side.appendChild(search); side.appendChild(sideActions); side.appendChild(items);
@@ -4083,13 +4105,44 @@ function setupUnifiedAutoprompter(node) {
       const used = new Set(draft.manifest.profiles.map((profile) => profile.folder));
       let suffix = clean; let index = 2; while (used.has(`profiles/${suffix}`)) suffix = `${clean}_${index++}`; return `profiles/${suffix}`;
     };
+    const restoreProfileDraft = (profileKey) => {
+      const originalProfile = originalBundle.manifest.profiles.find((profile) => profile.key === profileKey);
+      const draftIndex = draft.manifest.profiles.findIndex((profile) => profile.key === profileKey);
+      if (!originalProfile || draftIndex < 0) return false;
+      const draftProfile = draft.manifest.profiles[draftIndex];
+      const draftPrefix = `${draftProfile.folder}/`;
+      for (const path of Object.keys(draft.files)) if (path.startsWith(draftPrefix)) delete draft.files[path];
+      const originalPrefix = `${originalProfile.folder}/`;
+      for (const [path, text] of Object.entries(originalBundle.files)) {
+        if (path.startsWith(originalPrefix)) draft.files[path] = text;
+      }
+      draft.manifest.profiles[draftIndex] = clone(originalProfile);
+      return true;
+    };
     const addEditor = (label, semanticKey, rows = 20, condition = "") => {
       const card = buildDom("section", "workflowx-uap-settings-card");
       const cardHead = buildDom("div", "workflowx-uap-settings-card-head");
       cardHead.appendChild(buildDom("div", "workflowx-uap-settings-card-title", label));
-      if (condition) cardHead.appendChild(buildDom("div", "workflowx-uap-condition-badge", condition));
       const area = createTextarea(rows); area.value = getFile(semanticKey); area.spellcheck = false;
       area.addEventListener("input", () => setFile(semanticKey, area.value));
+      const profile = currentProfile();
+      const originalProfile = originalBundle.manifest.profiles.find((item) => item.key === profile?.key);
+      const originalFilename = originalBundle.manifest.file_map?.[semanticKey];
+      const originalPath = originalProfile && originalFilename ? `${originalProfile.folder}/${originalFilename}` : "";
+      const actions = buildDom("div", "workflowx-uap-settings-card-actions");
+      if (condition) actions.appendChild(buildDom("div", "workflowx-uap-condition-badge", condition));
+      if (originalPath && Object.prototype.hasOwnProperty.call(originalBundle.files, originalPath)) {
+        const restore = buildDom("button", "workflowx-uap-btn", "Restore default");
+        restore.type = "button";
+        restore.title = "Restore this instruction item into the draft; Save applies it";
+        restore.addEventListener("click", () => {
+          area.value = originalBundle.files[originalPath];
+          setFile(semanticKey, area.value);
+          statusText.textContent = `${label} restored in the draft. Click Save to apply it.`;
+        });
+        actions.appendChild(restore);
+      }
+      if (actions.childNodes.length) cardHead.appendChild(actions);
       card.appendChild(cardHead); card.appendChild(area); content.appendChild(card); return area;
     };
     const friendly = (key) => String(key).replace(/^user_|^template_|^contract_/, "").replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
@@ -4121,6 +4174,21 @@ function setupUnifiedAutoprompter(node) {
     }
     function renderOverview(profile) {
       profile.defaults ||= defaultJsonXConfig();
+      if (originalKeys.has(profile.key)) {
+        const restoreCard = buildDom("section", "workflowx-uap-settings-card");
+        const restoreHead = buildDom("div", "workflowx-uap-settings-card-head");
+        const copy = buildDom("div", "");
+        copy.appendChild(buildDom("div", "workflowx-uap-settings-card-title", "Shipped profile defaults"));
+        copy.appendChild(buildDom("div", "workflowx-uap-settings-card-source", "Restores this complete profile in the draft. Save is required to apply it."));
+        const restore = buildDom("button", "workflowx-uap-btn", "Restore full profile default");
+        restore.type = "button";
+        restore.addEventListener("click", () => {
+          if (!restoreProfileDraft(profile.key)) return;
+          statusText.textContent = `${profile.label} restored in the draft. Click Save to apply it.`;
+          renderAll();
+        });
+        restoreHead.appendChild(copy); restoreHead.appendChild(restore); restoreCard.appendChild(restoreHead); content.appendChild(restoreCard);
+      }
       const grid = buildDom("div", "workflowx-uap-grid");
       const setupPresets = [
         ["adaptive_balanced", "Adaptive Balanced", { generation_profile: "adaptive", generation_mode: "fast", preset_context_mode: "optimized", template_use_presets: false, detail_level: "deep" }],
@@ -4370,7 +4438,7 @@ function setupUnifiedAutoprompter(node) {
       draft.manifest.profiles.push(copy); selectedKey = copy.key; activeTab = "overview"; renderAll();
     });
     remove.addEventListener("click", () => { const profile = currentProfile(); if (!profile || originalKeys.has(profile.key)) return; draft.manifest.profiles = draft.manifest.profiles.filter((item) => item !== profile); const prefix = `${profile.folder}/`; for (const path of Object.keys(draft.files)) if (path.startsWith(prefix)) delete draft.files[path]; selectedKey = draft.manifest.profiles[0]?.key; renderAll(); });
-    resetOne.addEventListener("click", async () => { try { const data = await fetchJsonChecked(`${JSONX_ROUTE}/reference_config/reset_profile`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ profile_key: currentProfile()?.key }) }, "Reset JsonX profile"); savedBundle = clone(data.current); draft = clone(savedBundle); statusText.textContent = "JsonX profile restored from original."; renderAll(); } catch (error) { statusText.textContent = `Reset error: ${error.message}`; } });
+    resetOne.addEventListener("click", () => { const profile = currentProfile(); if (!profile || !restoreProfileDraft(profile.key)) return; statusText.textContent = `${profile.label} restored in the draft. Click Save to apply it.`; renderAll(); });
     revert.addEventListener("click", async () => { try { const data = await fetchJsonChecked(`${JSONX_ROUTE}/reference_config`, {}, "Revert JsonX settings"); savedBundle = clone(data.current); draft = clone(savedBundle); statusText.textContent = "Unsaved changes discarded."; renderAll(); } catch (error) { statusText.textContent = `Revert error: ${error.message}`; } });
     exportBtn.addEventListener("click", async () => { try { const data = await fetchJsonChecked(`${JSONX_ROUTE}/reference_config`, {}, "Export JsonX settings"); const blob = new Blob([JSON.stringify(data.current, null, 2)], { type: "application/json" }); const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = `unified-jsonx-reference-v${JSONX_REFERENCE_SCHEMA_VERSION}.json`; anchor.click(); URL.revokeObjectURL(url); statusText.textContent = "Exported the last saved JsonX bundle."; } catch (error) { statusText.textContent = `Export error: ${error.message}`; } });
     importBtn.addEventListener("click", () => importInput.click());
@@ -4439,8 +4507,8 @@ function setupUnifiedAutoprompter(node) {
     const add = buildDom("button", "workflowx-uap-btn", "Add");
     const duplicate = buildDom("button", "workflowx-uap-btn", "Duplicate");
     const remove = buildDom("button", "workflowx-uap-btn", "Delete");
-    const resetOne = buildDom("button", "workflowx-uap-btn", "Reset profile");
-    resetOne.title = "Immediately restore the selected built-in profile from reference/original";
+    const resetOne = buildDom("button", "workflowx-uap-btn", "Restore profile");
+    resetOne.title = "Restore the selected built-in profile into this draft; Save applies it";
     for (const button of [add, duplicate, remove, resetOne]) {
       button.type = "button";
       sideActions.appendChild(button);
@@ -4521,15 +4589,45 @@ function setupUnifiedAutoprompter(node) {
       while (used.has(value)) value = `${normalized} ${index++}`;
       return value;
     };
+    const restoreProfileDraft = (profileKey) => {
+      const originalProfile = originalBundle.manifest.profiles.find((profile) => profile.key === profileKey);
+      const draftIndex = draft.manifest.profiles.findIndex((profile) => profile.key === profileKey);
+      if (!originalProfile || draftIndex < 0) return false;
+      const draftProfile = draft.manifest.profiles[draftIndex];
+      const draftPrefix = `${draftProfile.folder}/`;
+      for (const path of Object.keys(draft.files)) if (path.startsWith(draftPrefix)) delete draft.files[path];
+      const originalPrefix = `${originalProfile.folder}/`;
+      for (const [path, text] of Object.entries(originalBundle.files)) {
+        if (path.startsWith(originalPrefix)) draft.files[path] = text;
+      }
+      draft.manifest.profiles[draftIndex] = clone(originalProfile);
+      activePath = originalProfile.default_generation_type;
+      activeFormat = originalProfile.default_format;
+      activeNegative = false;
+      return true;
+    };
     const addExactEditor = (label, path, rows = 24, condition = "") => {
       const card = buildDom("section", "workflowx-uap-settings-card");
       const cardHead = buildDom("div", "workflowx-uap-settings-card-head");
       cardHead.appendChild(buildDom("div", "workflowx-uap-settings-card-title", label));
-      if (condition) cardHead.appendChild(buildDom("div", "workflowx-uap-condition-badge", condition));
       const area = createTextarea(rows);
       area.value = getFile(path);
       area.spellcheck = false;
       area.addEventListener("input", () => setFile(path, area.value));
+      const actions = buildDom("div", "workflowx-uap-settings-card-actions");
+      if (condition) actions.appendChild(buildDom("div", "workflowx-uap-condition-badge", condition));
+      if (Object.prototype.hasOwnProperty.call(originalBundle.files, path)) {
+        const restore = buildDom("button", "workflowx-uap-btn", "Restore default");
+        restore.type = "button";
+        restore.title = "Restore this instruction item into the draft; Save applies it";
+        restore.addEventListener("click", () => {
+          area.value = originalBundle.files[path];
+          setFile(path, area.value);
+          status.textContent = `${label} restored in the draft. Click Save to apply it.`;
+        });
+        actions.appendChild(restore);
+      }
+      if (actions.childNodes.length) cardHead.appendChild(actions);
       card.appendChild(cardHead);
       card.appendChild(area);
       content.appendChild(card);
@@ -4591,6 +4689,21 @@ function setupUnifiedAutoprompter(node) {
     }
 
     function renderOverview(profile) {
+      if (originalKeys.has(profile.key)) {
+        const restoreCard = buildDom("section", "workflowx-uap-settings-card");
+        const restoreHead = buildDom("div", "workflowx-uap-settings-card-head");
+        const copy = buildDom("div", "");
+        copy.appendChild(buildDom("div", "workflowx-uap-settings-card-title", "Shipped profile defaults"));
+        copy.appendChild(buildDom("div", "workflowx-uap-settings-card-source", "Restores this complete profile in the draft. Save is required to apply it."));
+        const restore = buildDom("button", "workflowx-uap-btn", "Restore full profile default");
+        restore.type = "button";
+        restore.addEventListener("click", () => {
+          if (!restoreProfileDraft(profile.key)) return;
+          status.textContent = `${profile.label} restored in the draft. Click Save to apply it.`;
+          renderAll();
+        });
+        restoreHead.appendChild(copy); restoreHead.appendChild(restore); restoreCard.appendChild(restoreHead); content.appendChild(restoreCard);
+      }
       const grid = buildDom("div", "workflowx-uap-grid");
       const key = createInput("text"); key.value = profile.key; key.disabled = originalKeys.has(profile.key);
       const label = createInput("text"); label.value = profile.label || "";
@@ -4904,18 +5017,12 @@ function setupUnifiedAutoprompter(node) {
       selectedKey = draft.manifest.profiles[0]?.key;
       renderAll();
     });
-    resetOne.addEventListener("click", async () => {
+    resetOne.addEventListener("click", () => {
       const profile = currentProfile();
       if (!profile || !originalKeys.has(profile.key)) return;
-      try {
-        const data = await fetchJsonChecked(`${ROUTE}/reference_config/reset_profile`, {
-          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ profile_key: profile.key }),
-        }, "Reset profile");
-        savedBundle = clone(data.current);
-        draft = clone(savedBundle);
-        status.textContent = `${profile.label} restored from original.`;
-        renderAll();
-      } catch (error) { status.textContent = `Reset error: ${error.message}`; }
+      if (!restoreProfileDraft(profile.key)) return;
+      status.textContent = `${profile.label} restored in the draft. Click Save to apply it.`;
+      renderAll();
     });
     revert.addEventListener("click", async () => {
       try {
@@ -7881,7 +7988,7 @@ try{const response=await fetch(`${JSONX_ROUTE}/generate`,{method:"POST",headers:
   node.__workflowXUapWidget = node.addDOMWidget("unified_autoprompter_x", "Unified Autoprompter X", wrap, {
     serialize: false,
     hideOnZoom: false,
-    getMinHeight: () => node.__workflowXUapWidgetHeight || NODE_MIN_WIDGET_HEIGHT,
+    getMinHeight: () => node.__workflowXUapMeasuringChrome ? 0 : (node.__workflowXUapWidgetHeight || NODE_MIN_WIDGET_HEIGHT),
   });
   node.resizable = true;
 

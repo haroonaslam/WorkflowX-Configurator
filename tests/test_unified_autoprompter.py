@@ -139,7 +139,7 @@ def test_prompt_profiles_capture_allowed_formats_and_negative_rules():
     assert profiles.normalize_format("minimax_h3_official", "json") == "natural"
     assert profiles.normalize_format("minimax_h3_alternate", "tags") == "natural"
     for profile in profiles.profile_options():
-        if profile in {"qwen_image_2_1", "minimax_h3_official", "minimax_h3_alternate"}:
+        if profile in {"minimax_h3_official", "minimax_h3_alternate"}:
             assert profiles.supports_negative(profile) is False
         else:
             assert profiles.supports_negative(profile) is True
@@ -172,7 +172,7 @@ def test_qwen_image_2_1_uses_standard_blocks_without_skill_only_contracts():
 
     profile = profiles.get_profile("qwen_image_2_1")
     assert profile.enabled_formats() == ("natural",)
-    assert profile.negative_supported is False
+    assert profile.negative_supported is True
     assert tuple(profile.generation_paths) == ("text_to_image", "image_to_image")
 
     cases = (
@@ -194,7 +194,7 @@ def test_qwen_image_2_1_uses_standard_blocks_without_skill_only_contracts():
             "common", "generation_type", "reference_usage", "output_contract",
         ]
         assert activated[2]["path"].endswith(reference_file)
-        assert activated[-1]["path"].endswith("natural_output_without_negative.md")
+        assert activated[-1]["path"].endswith("natural_output_with_negative.md")
         for excluded in ("wh_ratio", "ratio_follow", "Shum1la", "<image10>"):
             assert excluded not in system
 
@@ -2150,6 +2150,12 @@ def test_unified_frontend_collapses_provider_model_settings_and_refits_the_node(
     assert "measureVisibleContentHeight" in source
     assert "const clone = wrap.cloneNode(true)" in source
     assert "wrap.scrollHeight" not in source
+    resize_surface = source.split("function resizeNodeToVisibleContent()", 1)[1].split(
+        "function scheduleVisibleContentResize()", 1
+    )[0]
+    assert "node.__workflowXUapWidgetHeight + stableNodeChromeHeight()" in resize_surface
+    assert "node.computeSize?.()" not in resize_surface
+    assert "node.__workflowXUapMeasuringChrome ? 0" in source
 
 
 def test_unified_frontend_uses_one_persisted_prompt_editor_and_detail_selector():
@@ -2412,7 +2418,10 @@ def test_unified_frontend_uses_effective_images_and_transparent_profile_editor_c
     assert "${profile.key} · ${profile.engine}" not in source
     for marker in (
         "workflowx-uap-settings-card",
+        "workflowx-uap-settings-card-actions",
         "workflowx-uap-condition-badge",
+        "Restore full profile default",
+        "Restore default",
         "Reference Usage",
         "Exact output contract",
         "reference/current_use",
@@ -2500,7 +2509,7 @@ def test_unified_profile_editor_uses_close_for_discard_and_explains_ambiguous_co
 
     assert 'buildDom("button", "workflowx-uap-btn", "Revert")' in source
     assert source.count('close.title = "Close without saving editor changes"') == 2
-    assert source.count("resetOne.title = \"Immediately restore the selected built-in") == 2
+    assert source.count("resetOne.title = \"Restore the selected built-in") == 2
     assert source.count("resetAll.title = \"Immediately restore all built-in") == 2
     assert 'cancelJsonXBtn.title = "Stop the active generation and keep the previous output"' in source
     assert 'modelSettingsBtn.title = "Edit prompt profiles and JsonX generation settings"' in source
