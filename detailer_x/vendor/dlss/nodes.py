@@ -90,16 +90,17 @@ def _build_params(kwargs: dict) -> dict:
     runtime = common.resolve_runtime_dir(kwargs.get("runtime_dir", "") or "")
     mode_name = str(mode).strip()
     auto_bucket = mode_name if mode_name in common.AUTO_BUCKETS else None
+    enable_dlaa_reconstruction = bool(kwargs.get("enable_dlaa_reconstruction", True))
     if auto_bucket is not None:
         # Auto bucket ("1K"/"2K"/"4K"/"8K"): the concrete DLSS factor depends
         # on the source size and is resolved per input at execute time (the
         # engine only accepts the fixed factors in SCALE_TO_PERF_QUALITY).
         # The always-required caller shim is checked now; the nvngx_dlss.dll
         # requirement is re-checked once the resolved factor exceeds 1x.
-        common.check_runtime_files(runtime, 1.0)
+        common.check_runtime_files(runtime, 1.0, enable_dlaa_reconstruction)
     else:
         scale = _SCALE_KEY[next(key for key in _SCALE_KEY if str(mode).startswith(key))]
-        common.check_runtime_files(runtime, scale)
+        common.check_runtime_files(runtime, scale, enable_dlaa_reconstruction)
     # DLSS5_GPU_INDEX is the manual DXGI-ordinal escape hatch; the actual child
     # pinning (CUDA_VISIBLE_DEVICES-aware) happens in common.apply_gpu_pin at
     # launch time. This value only feeds capability-based DLL selection, in the
@@ -116,6 +117,7 @@ def _build_params(kwargs: dict) -> dict:
         "auto_bucket": auto_bucket,
         "preset": int(kwargs.get("preset", 0)),
         "model_preset": common.model_preset_int(kwargs.get("model_preset", "Default")),
+        "enable_dlaa_reconstruction": enable_dlaa_reconstruction,
         "style": common.style_int(kwargs.get("style", "default")),
         "intensity": float(kwargs.get("intensity", 1.0)),
         "tone": float(kwargs.get("tone", 1.0)),
@@ -146,8 +148,9 @@ def _resolve_auto_scale(params: dict, width: int, height: int) -> tuple[dict, st
         return params, ""
     params = dict(params)
     params["scale"] = common.auto_scale_factor(width, height, bucket)
-    if params["scale"] > 1.0:
-        common.check_runtime_files(params["runtime"], params["scale"])
+    common.check_runtime_files(
+        params["runtime"], params["scale"], params.get("enable_dlaa_reconstruction", True)
+    )
     return params, (f"auto {bucket}: short edge {min(int(width), int(height))}->"
                     f"{common.AUTO_BUCKETS[bucket]} via {params['scale']:g}x")
 
@@ -261,9 +264,10 @@ class RH_DLSS5Enhance:
                 "image": ("IMAGE", {"tooltip": "Optional image batch (e.g. LoadImage). Each batch entry is one frame in temporal order."}),
                 "video": ("VIDEO", {"tooltip": "Optional video (e.g. LoadVideo). Frames are processed in temporal order."}),
                 "upscaling_mode": (_UPSCALE_MODES, {"default": _UPSCALE_MODES[0], "tooltip": "1x enhances at native size; other fixed modes upscale with the DLSS carrier (feature 1) before the neural pass (feature 18). 1K/2K/4K/8K auto-pick the smallest supported DLSS factor so the SHORT edge reaches 1080/1440/2160/4320 for the source's aspect ratio (16:9 sources land exactly on 1920x1080 / 2560x1440 / 3840x2160 / 7680x4320); sources already at or above the bucket stay at 1x (no downscaling), and unreachable targets (below 3x reach or beyond the 7680x4320 output envelope) fail with a clear error. Fixed NVIDIA factors only."}),
-                "style": (["default", "natural", "cinematic", "off (bypass NR)"], {"default": "default", "tooltip": "Neural rendering style. Natural stays closer to the source; cinematic pushes contrast. off (bypass NR) disables all processing: frames pass through untouched, upscaling included - use it when you want the original look or zero processing cost."}),
+                "style": (["default", "natural", "cinematic"], {"default": "default", "tooltip": "Neural rendering style. Natural stays closer to the source; cinematic pushes contrast; Default lets the runtime decide."}),
                 "preset": ([0, 1, 2, 3], {"default": 0, "tooltip": "Internal neural-rendering preset hint. Keep Default on current runtimes; #1-#3 are intended for controlled A/B testing and may resolve to identical weights."}),
-                "model_preset": (["Default", "J", "K", "L", "M"], {"default": "Default", "tooltip": "DLSS Super Resolution model preset. Default preserves NVIDIA's mode-specific choice; J/K are softer and L/M generally retain more texture. Applies only when an upscale carrier is active (>1x)."}),
+                "model_preset": (["Default", "J", "K", "L", "M"], {"default": "Default", "tooltip": "DLSS reconstruction model preset. Default preserves NVIDIA's mode-specific choice; J/K are softer and L/M generally retain more texture. At 1x it applies when Enable DLAA Reconstruction is on."}),
+                "enable_dlaa_reconstruction": ("BOOLEAN", {"default": True, "tooltip": "At 1x, run same-resolution DLAA before Neural Rendering so Model Preset J/K/L/M applies. Disable it for direct native-resolution Neural Rendering. Above 1x the carrier is always required."}),
                 "intensity": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.05, "tooltip": "Neural pass strength. Above 1.0 usually has no extra effect; below 1.0 blends towards the source."}),
                 "tone": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.05, "tooltip": "Local tone mapping strength (DLSSNR.LocalToneStrength)."}),
                 "structure": ("FLOAT", {"default": 1.5, "min": 0.0, "max": 2.0, "step": 0.05, "tooltip": "Local detail / structure reconstruction strength (DLSSNR.LocalStructureStrength)."}),
@@ -280,7 +284,7 @@ class RH_DLSS5Enhance:
                 "global_tone": ("FLOAT", {"default": -1.0, "min": -1.0, "max": 2.0, "step": 0.05, "tooltip": "Global tone strength (DLSSNR.GlobalToneStrength) - the knob that lets the model shift overall brightness (the reference tool's global_tone). -1 leaves it at the model default; 0 disables global tone; 0-2 overrides manually. No-op on the 310.8 test runtime (verified); may act on other DLL builds."}),
                 "detail": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.05, "tooltip": "Composite strength over the original frame (reference tool's detail): 0 = keep the original, 1 = full NR result, up to 2 = amplify the model's change (brightening/denoise) beyond 100%. Blended in linear light."}),
                 "color": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.05, "tooltip": "Chroma follow (reference tool's color): 0 = keep the original hue and take only the model's luminance, 1 = take the model's colour fully. Guards against the model shifting colours."}),
-                "runtime_dir": ("STRING", {"default": "", "tooltip": "Optional override of the runtime folder holding nvngx_dlssnr.dll (and nvngx_dlss.dll for >1x). Empty uses DLSS5_RUNTIME_DIR, then the plugin's runtime/ folder."}),
+                "runtime_dir": ("STRING", {"default": "", "tooltip": "Optional override of the runtime folder holding nvngx_dlssnr.dll and, for upscaling or 1x DLAA reconstruction, nvngx_dlss.dll. Empty uses DLSS5_RUNTIME_DIR, then the plugin's runtime/ folder."}),
                 "wine_prefix": ("STRING", {"default": "", "tooltip": "Linux only: WINEPREFIX for the worker (ignored on Windows, where the worker runs natively). Empty uses DLSS5_WINEPREFIX, then ~/.wine; validated at run time (needs DXVK + DXVK-NVAPI installed in the prefix)."}),
             },
         }

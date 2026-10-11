@@ -286,7 +286,7 @@ class WineHostSession:
         self.drain = _StderrDrain(self.proc.stderr)
         self.drain.start()
         header = common.HEADER.pack(
-            common.MAGIC_DNR3,
+            common.MAGIC_DNR4,
             int(input_w), int(input_h), int(output_w), int(output_h),
             int(warmup_frames), int(frame_count), int(perf_quality),
             int(params["model_preset"]),
@@ -295,6 +295,7 @@ class WineHostSession:
             int(params["style"]),
             1 if params["auto_mask"] else 0,
             0,  # ui correction
+            1 if params.get("enable_dlaa_reconstruction", True) else 0,
             float(params["intensity"]),
             float(params["tone"]),
             float(params["structure"]),

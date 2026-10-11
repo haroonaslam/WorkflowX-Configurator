@@ -745,14 +745,18 @@ static bool EnsureFeature(
     UINT input_w, UINT input_h, UINT output_w, UINT output_h,
     int style, int preset, int model_preset, int perf_quality,
     float intensity, float tone, float structure, float skin, float global_tone,
-    int automask) {
-    const bool requested_upscale = input_w != output_w || input_h != output_h;
+    int automask, int enable_dlaa_reconstruction) {
+    // Spatial upscaling always needs the carrier. At native size the caller
+    // can choose true DLAA reconstruction before Feature 18 or the historical
+    // direct native-resolution Neural Rendering path.
+    const bool requested_carrier = input_w != output_w || input_h != output_h ||
+        (enable_dlaa_reconstruction != 0 && perf_quality == 5);
     const bool hdr_requested = EnvFlagEnabled("DLSS5NR_HDR");
     const bool rebuild = !g_feature || input_w != g_input_width || input_h != g_input_height ||
         output_w != g_output_width || output_h != g_output_height ||
         style != g_feature_style || preset != g_feature_preset || model_preset != g_feature_model_preset ||
         perf_quality != g_feature_perf_quality ||
-        requested_upscale != g_upscale_active || hdr_requested != g_hdr_requested;
+        requested_carrier != g_upscale_active || hdr_requested != g_hdr_requested;
     g_hdr_requested = hdr_requested;
     if (!rebuild) {
         if (g_upscale_active) SetDLSSCarrierParams(perf_quality, model_preset, 0);
@@ -761,7 +765,7 @@ static bool EnsureFeature(
     }
 
     ReleaseFeatureAndResources();
-    g_upscale_active = requested_upscale;
+    g_upscale_active = requested_carrier;
     // Use NGX core for the carrier.  In a ProjectID session the core has
     // already discovered nvngx_dlss.dll (the runtime log reports the 310.8
     // snippet under the DLSS feature), and its Create/Evaluate entry points
@@ -1111,7 +1115,7 @@ __declspec(dllexport) int __cdecl dlss5nr_init(int gpu_index, const wchar_t* run
 static int ProcessFrame(
     const float* rgb_in, const uint16_t* mvec_in, float* rgb_out,
     int input_width, int input_height, int output_width, int output_height,
-    int style, int preset, int model_preset, int perf_quality,
+    int style, int preset, int model_preset, int perf_quality, int enable_dlaa_reconstruction,
     float intensity, float tone, float structure, float skin, float global_tone,
     int automask, int reset, char* err, int err_cap) {
 
@@ -1141,6 +1145,10 @@ static int ProcessFrame(
         SetError("Unsupported DLSS model preset %d (expected Default=0 or J/K/L/M=10/11/12/13)", model_preset);
         CopyError(err, err_cap); return 0;
     }
+    if (!(enable_dlaa_reconstruction == 0 || enable_dlaa_reconstruction == 1)) {
+        SetError("Enable DLAA Reconstruction must be 0 or 1");
+        CopyError(err, err_cap); return 0;
+    }
     // The reference video2dlssnr tool runs PerfQualityValue=2 with native-sized
     // inputs: in the shipped NR snippet the selector picks a model preset and
     // does not by itself demand a geometric upscale.  The fixed-ratio guard
@@ -1158,7 +1166,8 @@ static int ProcessFrame(
     if (!EnsureFeature(static_cast<UINT>(input_width), static_cast<UINT>(input_height),
                        static_cast<UINT>(output_width), static_cast<UINT>(output_height),
                        style, preset, model_preset, perf_quality,
-                       intensity, tone, structure, skin, global_tone, automask)) {
+                       intensity, tone, structure, skin, global_tone, automask,
+                       enable_dlaa_reconstruction)) {
         CopyError(err, err_cap); return 0;
     }
     // Set the carrier's public parameters before uploading the render-sized
@@ -1348,7 +1357,7 @@ __declspec(dllexport) int __cdecl dlss5nr_process_v2(
     float intensity, float tone, float structure, float skin, float global_tone,
     int automask, int reset, char* err, int err_cap) {
     return ProcessFrame(rgb_in, mvec_in, rgb_out, input_width, input_height, output_width, output_height,
-                        style, preset, 0, perf_quality, intensity, tone, structure, skin, global_tone,
+                        style, preset, 0, perf_quality, 0, intensity, tone, structure, skin, global_tone,
                         automask, reset, err, err_cap);
 }
 
@@ -1361,12 +1370,26 @@ __declspec(dllexport) int __cdecl dlss5nr_process_v3(
     float intensity, float tone, float structure, float skin, float global_tone,
     int automask, int reset, char* err, int err_cap) {
     return ProcessFrame(rgb_in, mvec_in, rgb_out, input_width, input_height, output_width, output_height,
-                        style, preset, model_preset, perf_quality, intensity, tone, structure, skin, global_tone,
+                        style, preset, model_preset, perf_quality, 0, intensity, tone, structure, skin, global_tone,
+                        automask, reset, err, err_cap);
+}
+
+// Version-4 export adds an explicit native-size DLAA carrier switch. Spatial
+// upscaling still always evaluates the carrier regardless of this value.
+__declspec(dllexport) int __cdecl dlss5nr_process_v4(
+    const float* rgb_in, const uint16_t* mvec_in, float* rgb_out,
+    int input_width, int input_height, int output_width, int output_height,
+    int style, int preset, int model_preset, int perf_quality, int enable_dlaa_reconstruction,
+    float intensity, float tone, float structure, float skin, float global_tone,
+    int automask, int reset, char* err, int err_cap) {
+    return ProcessFrame(rgb_in, mvec_in, rgb_out, input_width, input_height, output_width, output_height,
+                        style, preset, model_preset, perf_quality, enable_dlaa_reconstruction,
+                        intensity, tone, structure, skin, global_tone,
                         automask, reset, err, err_cap);
 }
 
 __declspec(dllexport) int __cdecl dlss5nr_applied_model_preset() {
-    return g_feature_model_preset < 0 ? 0 : g_feature_model_preset;
+    return !g_upscale_active || g_feature_model_preset < 0 ? 0 : g_feature_model_preset;
 }
 
 // Keep the original ComfyUI image ABI working in native-size mode.
@@ -1380,7 +1403,7 @@ __declspec(dllexport) int __cdecl dlss5nr_process(
     std::vector<uint16_t> zero_motion(static_cast<size_t>(width) * height * 2u, 0);
     // Legacy image ABI keeps the historical fixed global tone (1.0).
     return ProcessFrame(rgb_in, zero_motion.data(), rgb_out, width, height, width, height,
-                        style, preset, 0, 5, intensity, tone, structure, skin, 1.0f,
+                        style, preset, 0, 5, 0, intensity, tone, structure, skin, 1.0f,
                         automask, reset, err, err_cap);
 }
 

@@ -36,9 +36,24 @@ with torch.inference_mode():
     mask=p.sam_masks(image[0],regions,DEFAULTS["face"],DEFAULTS["sam"])
     assert mask.shape==(512,512) and mask.max()>0
     print(json.dumps({"stage":"detector+SAM","detections":len(regions),"mask_pixels":int(mask.sum())}),flush=True)
-    for mode,size in [("1x (DLAA / native)",512),("1.5x (Quality)",768)]:
+    dlaa={}
+    for model_preset in ("J","M"):
+        settings=dict(DEFAULTS["dlss5"],upscaling_mode="1x (DLAA / native)",
+                      model_preset=model_preset,enable_dlaa_reconstruction=True)
+        dlaa[model_preset]=p.dlss(image,settings)
+        check(f"DLSS5 1x DLAA {model_preset}",dlaa[model_preset],(1,512,512,3))
+    direct=p.dlss(image,dict(DEFAULTS["dlss5"],upscaling_mode="1x (DLAA / native)",
+                             model_preset="M",enable_dlaa_reconstruction=False))
+    check("DLSS5 1x direct NR",direct,(1,512,512,3))
+    preset_delta=float((dlaa["J"]-dlaa["M"]).abs().mean())
+    path_delta=float((dlaa["M"]-direct).abs().mean())
+    print(json.dumps({"stage":"DLAA A/B","J_vs_M_mae":preset_delta,
+                      "DLAA_vs_direct_mae":path_delta}),flush=True)
+    assert path_delta>1e-7,"1x DLAA checkbox did not change the native pipeline"
+    assert preset_delta>1e-7,"1x DLAA model presets J and M produced identical pixels"
+    for mode,size in [("1.5x (Quality)",768)]:
         settings=dict(DEFAULTS["dlss5"],upscaling_mode=mode)
-        if size>512: settings["model_preset"]="J"
+        settings["model_preset"]="J"
         result=p.dlss(image,settings)
         check("DLSS5 "+mode,result,(1,size,size,3))
     if args.sampling_checkpoint:

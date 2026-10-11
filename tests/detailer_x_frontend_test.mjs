@@ -281,7 +281,8 @@ test("DLSS controls distinguish NR preset, carrier model preset, and post-compos
   const source=await readFile(new URL("../web/js/detailer_x.js",import.meta.url),"utf8");
   for(const token of ['preset:{0:"Default",1:"Preset #1",2:"Preset #2",3:"Preset #3"}','model_preset:{Default:"Default — runtime choice"','Post-composite','not additional DLSS model parameters'])assert.match(source,new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")));
   assert.match(stateModule.helpText("dlss5","intensity"),/nr_intensity/);
-  assert.match(stateModule.helpText("dlss5","model_preset"),/Super Resolution model/);
+  assert.match(stateModule.helpText("dlss5","model_preset"),/DLSS reconstruction model/);
+  assert.match(stateModule.helpText("dlss5","enable_dlaa_reconstruction"),/same-resolution DLAA/);
   assert.match(stateModule.helpText("dlss5","detail"),/after DLSS finishes/);
   assert.match(stateModule.helpText("dlss5","color"),/Post-composite chroma/);
 });

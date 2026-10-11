@@ -156,7 +156,7 @@ Write-Host "  Host:   $hostExe"
 Write-Host ""
 Write-Host 'Place nvngx_dlssnr.dll in:'
 Write-Host "  $(Join-Path $Root 'runtime\nvngx_dlssnr.dll')"
-Write-Host 'For Linux/Wine video upscale (>1x), also place the matching nvngx_dlss.dll in:'
+Write-Host 'For DLSS upscaling or 1x DLAA reconstruction, also place the matching nvngx_dlss.dll in:'
 Write-Host "  $(Join-Path $Root 'runtime\nvngx_dlss.dll')"
 Write-Host 'then restart ComfyUI.'
 exit 0

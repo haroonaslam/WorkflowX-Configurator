@@ -38,6 +38,7 @@ DEFAULTS = {
     "levels": dict(enabled=True, channel="RGB", black_point=0, white_point=249, gray_point=1.0, output_black_point=0, output_white_point=253),
     "sharpen": dict(enabled=True, iterations=1, kernel_size=3),
     "dlss5": dict(enabled=True, upscaling_mode=DLSS_MODES[0], style="default", preset=0, model_preset="Default",
+        enable_dlaa_reconstruction=True,
         intensity=1.0, tone=1.0, structure=1.25, skin=-1.0, auto_mask="on", motion="auto",
         scene_change_threshold=0.24, batch_mode="temporal sequence", warmup_frames=0,
         backend="auto", channel_order="auto", hdr="off", global_tone=-1.0, detail=0.3, color=0.3),
@@ -74,7 +75,7 @@ CHOICES = {
     "sam_detection_hint": ["center-1", "horizontal-2", "vertical-2", "rect-4", "diamond-4", "mask-area", "mask-points", "mask-point-bbox", "none"],
     "sam_mask_hint_use_negative": ["False", "Small", "Outter"],
     "device": ["Prefer GPU", "CPU", "AUTO"], "channel": ["RGB", "red", "green", "blue"],
-    "upscaling_mode": DLSS_MODES, "style": ["default", "natural", "cinematic", "off (bypass NR)"],
+    "upscaling_mode": DLSS_MODES, "style": ["default", "natural", "cinematic"],
     "preset": [0, 1, 2, 3], "model_preset": ["Default", "J", "K", "L", "M"],
     "auto_mask": ["on", "off"], "motion": ["auto", "nvof", "optical_flow", "none"],
     "batch_mode": ["temporal sequence", "still images"], "backend": ["auto", "windows-bridge", "linux-wine"],
@@ -142,6 +143,11 @@ def normalize(value, _preset=True):
             # migrate those old selections to the safe runtime default.
             if section == "dlss5" and key == "preset" and type(v) is int and 4 <= v <= 9:
                 v = 0
+            # The processor row toggle is the single stage bypass. Migrate the
+            # former nested Style=Off state to that toggle and a valid style.
+            if section == "dlss5" and key == "style" and str(v).startswith("off"):
+                result[section]["enabled"] = False
+                v = "default"
             if key == "sam_override":
                 if not isinstance(v,dict): raise ValueError(f"Invalid DetailerX {section}.sam_override")
                 override=copy.deepcopy(fallback)

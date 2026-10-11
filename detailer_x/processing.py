@@ -506,17 +506,19 @@ def detail(image, s, shared, model, clip, vae, positive, negative, return_debug=
     return result,debug
 
 def dlss(image, settings):
-    report(f"Preparing DLSS5 runtime · {settings['upscaling_mode']} · {image.shape[0]} image(s)")
+    report(f"Preparing DLSS5 runtime · {settings['upscaling_mode']} selected · {image.shape[0]} image(s)")
     from .vendor.dlss import nodes as engine
     from .assets import ASSETS
-    if settings["style"].startswith("off"):
-        return image
     params=engine._build_params(dict(settings,runtime_dir=str(ASSETS/"dlss5")))
     params,_=engine._resolve_auto_scale(params,image.shape[2],image.shape[1])
+    native_1x=abs(float(params["scale"])-1.0)<1e-6
+    path=("1x DLAA reconstruction → Neural Rendering" if native_1x and params.get("enable_dlaa_reconstruction",True)
+          else "1x native Neural Rendering · DLAA bypassed" if native_1x
+          else f"{settings['upscaling_mode']} carrier → Neural Rendering")
     backend=engine._pick_backend(settings["backend"])
     module=engine._load_backend(backend)
     try:
-        report(f"Rendering with DLSS5 · {settings['upscaling_mode']} · {backend}")
+        report(f"Rendering with DLSS5 · {path} · {backend}")
         result=engine._run_frames(image[...,:3],params,backend)[0]
         cancelled()
         return with_alpha(image,result)

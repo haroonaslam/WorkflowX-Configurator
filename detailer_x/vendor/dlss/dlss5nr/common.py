@@ -11,15 +11,15 @@ from pathlib import Path
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 
-MAGIC_DNR3 = b"DNR3"
+MAGIC_DNR4 = b"DNR4"
 MAGIC_FRM2 = b"FRM2"
 MAGIC_OUT1 = b"OUT1"
 MAGIC_END1 = b"END1"
 
 # Binary transport between the Python frontend and dlss5nr_host.exe.
-# magic + 13 uint32 fields + five float controls (two-size contract plus the
-# independent DLSS Super Resolution model preset).
-HEADER = struct.Struct("<4sIIIIIIIIIIIII5f")
+# magic + 14 uint32 fields + five float controls (two-size contract, the
+# independent DLSS model preset, and the native-size DLAA carrier switch).
+HEADER = struct.Struct("<4sIIIIIIIIIIIIII5f")
 FRAME_HEADER = struct.Struct("<4sII")
 REPLY_HEADER = struct.Struct("<4sIII")
 
@@ -493,11 +493,12 @@ def resolve_runtime_dir(runtime_dir: str = "") -> Path:
     )
 
 
-def check_runtime_files(runtime: Path, scale_factor: float) -> None:
+def check_runtime_files(runtime: Path, scale_factor: float, enable_dlaa_reconstruction: bool = True) -> None:
     missing = []
-    if scale_factor > 1.0 and not (runtime / "nvngx_dlss.dll").is_file():
+    carrier_required = scale_factor > 1.0 or (scale_factor == 1.0 and enable_dlaa_reconstruction)
+    if carrier_required and not (runtime / "nvngx_dlss.dll").is_file():
         missing.append(
-            f"{runtime / 'nvngx_dlss.dll'} (required for upscaling above 1x; "
+            f"{runtime / 'nvngx_dlss.dll'} (required for DLSS upscaling and 1x DLAA reconstruction; "
             "download it from the official NVIDIA DLSS SDK releases)"
         )
     if not (runtime / "caller" / "nvngx.dll_comfy.dll").is_file() and not (runtime / "caller" / "nvngx.dll").is_file():
