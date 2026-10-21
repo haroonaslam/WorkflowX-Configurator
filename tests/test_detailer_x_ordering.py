@@ -17,7 +17,7 @@ def settings():
 def test_migration_hidden_and_validation():
     old={'version':2,'realism':{'enabled':False},'ui':{'realism_collapsed':True}}
     s=config.normalize(old)
-    assert s['version']==5
+    assert s['version']==8
     assert all(not s[n]['enabled'] and s['visible'][n] for n in config.LEGACY_REALISM)
     assert all(not s['visible'][n] for n in config.ADVANCED)
     s['gamma']['enabled']=True

@@ -453,6 +453,7 @@ export function createSelectorXController(adapter) {
   }
 
   function addScopeToggle(node, sectionName, groupName, targetMode, enabled) {
+    const inactiveLabel = targetMode === "Mute" ? "Muted" : "Bypassed";
     const widget = node.addWidget(
       "toggle",
       groupName,
@@ -467,7 +468,11 @@ export function createSelectorXController(adapter) {
         }
         adapter.markCanvasDirty();
       },
+      { on: "Active", off: inactiveLabel },
     );
+    widget.options ??= {};
+    widget.options.on = "Active";
+    widget.options.off = inactiveLabel;
     widget.value = Boolean(enabled);
     widget.serialize = false;
     widget[UI_MARKER] = true;

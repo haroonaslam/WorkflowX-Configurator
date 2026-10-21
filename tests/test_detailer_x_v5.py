@@ -23,7 +23,7 @@ def _only_face(settings):
 
 def test_v4_migrates_to_inherited_sam_and_bounding_constraint():
     value=config.normalize({"version":4})
-    assert value["version"]==5
+    assert value["version"]==8
     for name in config.DETAILERS:
         assert value[name]["sam_strategy"]=="inherit"
         assert value[name]["sam3_constraint"]=="bounding_box"

@@ -46,7 +46,7 @@ def test_sam2_eager_transform_matches_unscripted_torchvision_and_is_local(monkey
 def test_v3_migration_adds_hair_and_anything_without_enabling_them():
     order=[name for name in config.ORDER if name not in ("hair","anything")]
     migrated=config.normalize({"version":3,"order":order})
-    assert migrated["version"]==5
+    assert migrated["version"]==8
     assert migrated["face"]["sam_strategy"]=="inherit"
     assert migrated["face"]["sam3_constraint"]=="bounding_box"
     assert migrated["order"].index("hair")==migrated["order"].index("foot")+1

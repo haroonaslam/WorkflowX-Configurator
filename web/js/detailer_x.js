@@ -1,6 +1,6 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
-import { DETAILERS, REALISM, ORDER, applyVisibility, moveVisible, LABELS, MIN_WIDTH, PRESET_FIELDS, presetValues, modified, applyPreset, customPreset, helpText, restore, serialize, rows, bodyHeight, minimumSize,detailerNames,isDetailer,stage,labelFor,reconcileOutputSlots } from "./detailer_x_state.mjs?v=20";
+import { DETAILERS, REALISM, ORDER, applyVisibility, moveVisible, LABELS, MIN_WIDTH, PRESET_FIELDS, DETAILER_GEAR_TABS, presetValues, modified, applyPreset, customPreset, helpText, restore, serialize, rows, bodyHeight, minimumSize,detailerNames,isDetailer,stage,labelFor,reconcileOutputSlots } from "./detailer_x_state.mjs?v=23";
 
 const TYPE="WorkflowX_DetailerX";
 let metadata;
@@ -80,7 +80,7 @@ function help(control,text){
 }
 function button(text, action, cls="") {
   const b=el("button",cls,text); b.type="button"; b.addEventListener("click",action);
-  const descriptions={"Cancel":"Close without applying unsaved changes.","Apply":"Apply these settings to this node only; reusable preset defaults are unchanged.","Save and Apply":"Save this preset to the local reusable library and apply it to this node. Other nodes retain their own snapshots.","Save As":"Create a separate reusable preset using this draft and apply it to this node.","Restore Built-in Defaults":"Reset this preset draft to its original shipped values. Save and Apply persists the restoration.","Reset to Saved Baseline":"Discard draft and node-local overrides, restoring the selected preset's saved snapshot.","Restore workflow defaults":"Reset this stage draft to the original Qwen workflow settings, not the selected model preset. Apply commits the change to this node.","Show adjustments ▾":"Expand individual realism controls without changing their enabled states.","Hide adjustments ▴":"Collapse individual realism controls without disabling their processing."};
+  const descriptions={"Cancel":"Close without applying unsaved changes.","Apply":"Apply these settings to this node only; reusable preset defaults are unchanged.","Save and Apply":"Save this preset to the local reusable library and apply it to this node. Other nodes retain their own snapshots.","Save As":"Create a separate reusable preset using this draft and apply it to this node.","Restore Built-in Defaults":"Reset this preset draft to its original shipped values. Save and Apply persists the restoration.","Reset to Saved Baseline":"Discard draft and node-local overrides, restoring the selected preset's saved snapshot.","Restore workflow defaults":"Reset this stage to its shipped processor or catalog defaults while retaining the selected model profile's sampling fields. Apply commits the change to this node.","Show adjustments ▾":"Expand individual realism controls without changing their enabled states.","Hide adjustments ▴":"Collapse individual realism controls without disabling their processing."};
   help(b,descriptions[text]||`Select ${text}.`);return b;
 }
 function title(key){if(key==="enable_dlaa_reconstruction")return "Enable DLAA Reconstruction";return key.replaceAll("_"," ").replace(/\b\w/g,c=>c.toUpperCase());}
@@ -337,7 +337,7 @@ function renderEntry(node){
     ["rerun","↻","Run with current applied settings. A retained image is reused without upstream generation. Otherwise, only this node's required upstream branch and its downstream consumers are queued; unrelated generation branches are excluded. Pause and Skip are bypassed for this run."],
   ]){const b=button(icon,()=>run(key));help(b,description);b.setAttribute("aria-label",title(key));x.entryButtons[key]=b;toolbar.append(b);}
   const gearButton=button("⚙",()=>nodeSettings(node));
-  help(gearButton,"Node settings: Flow, Seed, Detailers, and shared SAM configuration.");gearButton.setAttribute("aria-label","Node settings");toolbar.append(gearButton);
+  help(gearButton,"Node settings: Flow, Seed, global Prompts, Detailers, and shared SAM configuration.");gearButton.setAttribute("aria-label","Node settings");toolbar.append(gearButton);
   x.entryPanel.append(toolbar);x.root.append(x.entryPanel);updateEntry(node);
 }
 function presetLabel(state){return `${state.preset?.label||"Custom"}${modified(state)?" · Modified":""}`;}
@@ -370,15 +370,16 @@ function samModelFor(backend,current){
   return choices.some(item=>item.id===current&&(backend==="sam3.1"||match.test(item.id)))?current:(choices.find(item=>backend==="sam3.1"||match.test(item.id))?.id||current);
 }
 function nodeSettings(node){
-  const state=node._dx.state,entry=structuredClone(state.entry),globalSeed=structuredClone(state.global_seed),shared=structuredClone(state.sam),visible={...state.visible};let resetOrder=false;
+  const state=node._dx.state,entry=structuredClone(state.entry),globalSeed=structuredClone(state.global_seed),globalPrompts=structuredClone(state.global_prompts),shared=structuredClone(state.sam),visible={...state.visible};let resetOrder=false;
   const {d,form,body,footer}=dialog("Node Settings","Node-wide controls are grouped here. Global SAM is the inherited default; each detailer may use its detector directly or define a complete override.");
-  const tabs=el("div","dx-tabs"),panel=el("section","dx-tab-panel"),names=[["flow","Flow"],["seed","Seed"],["detailers","Detailers"],["sam","SAM"]],buttons={};
+  const tabs=el("div","dx-tabs"),panel=el("section","dx-tab-panel"),names=[["flow","Flow"],["seed","Seed"],["prompts","Prompts"],["detailers","Detailers"],["sam","SAM"]],buttons={};
   tabs.setAttribute("role","tablist");panel.setAttribute("role","tabpanel");panel.id=`dx-settings-panel-${node.id}`;body.append(tabs,panel);
   function show(name,focus=false){
     node._dx.settingsTab=name;panel.replaceChildren();panel.setAttribute("aria-labelledby",`dx-settings-${name}-${node.id}`);
     for(const [key,b] of Object.entries(buttons)){const selected=key===name;b.setAttribute("aria-selected",String(selected));b.tabIndex=selected?0:-1;}
     if(name==="flow")panel.append(el("p","dx-section-note","Controls what happens when execution reaches DetailerX. Pause and Skip remain persistent toolbar toggles."),field("entry","pause_minutes",entry),field("entry","wait_indefinitely",entry));
     else if(name==="seed")panel.append(el("p","dx-section-note","A global seed overrides local seeds for every seeded processor while retaining each processor's offsets."),field("global_seed","enabled",globalSeed),field("global_seed","mode",globalSeed),field("global_seed","seed",globalSeed));
+    else if(name==="prompts")panel.append(el("p","dx-section-note","Enabled, nonblank global prompts are CLIP-encoded once per execution and inserted into every enabled detailer. Disabling them retains the saved text. They do not affect upscalers, finishing processors, or DLSS."),field("global_prompts","enabled",globalPrompts),field("global_prompts","positive",globalPrompts),field("global_prompts","negative",globalPrompts));
     else if(name==="sam"){
       panel.append(el("p","dx-section-note","This is the default inherited by detailers. A detailer gear may choose detector-only masking or override the backend, checkpoint, device and loading preference."));
       for(const key of Object.keys(shared))panel.append(field("sam",key,shared,(changed)=>{if(changed==="backend"){shared.model=samModelFor(shared.backend,shared.model);show("sam");}}));
@@ -394,7 +395,17 @@ function nodeSettings(node){
   for(const [name,label] of names){const tab=button(label,()=>show(name));tab.id=`dx-settings-${name}-${node.id}`;tab.setAttribute("role","tab");tab.setAttribute("aria-controls",panel.id);help(tab,`Open ${label} node-wide settings.`);buttons[name]=tab;tabs.append(tab);}
   tabs.addEventListener("keydown",event=>{const index=names.findIndex(([name])=>name===node._dx.settingsTab);let next;if(event.key==="ArrowRight")next=(index+1)%names.length;else if(event.key==="ArrowLeft")next=(index-1+names.length)%names.length;else if(event.key==="Home")next=0;else if(event.key==="End")next=names.length-1;else return;event.preventDefault();show(names[next][0],true);});
   show(names.some(([name])=>name===node._dx.settingsTab)?node._dx.settingsTab:"flow");
-  footer.append(button("Cancel",()=>d.close()),button("Apply",()=>{if(!form.reportValidity())return;applyVisibility(state,visible);state.entry=entry;state.global_seed=globalSeed;state.sam=shared;if(resetOrder)state.order=["upscaler",...DETAILERS,...Object.keys(state.extra_detailers||{}),...REALISM,"dlss5"];persist(node);render(node);d.close();},"dx-primary"));
+  footer.append(button("Cancel",()=>d.close()),button("Apply",()=>{if(!form.reportValidity())return;applyVisibility(state,visible);state.entry=entry;state.global_seed=globalSeed;state.global_prompts=globalPrompts;state.sam=shared;if(resetOrder)state.order=["upscaler",...DETAILERS,...Object.keys(state.extra_detailers||{}),...REALISM,"dlss5"];persist(node);render(node);d.close();},"dx-primary"));
+}
+function catalogDetailerSettings(state,concept){
+  if(!concept)throw new Error("This catalog detailer is unavailable. Reinstall its detector asset or remove and re-add the detailer.");
+  const preferred=structuredClone(concept?.detailer_defaults||{}),preferredIds=preferred.class_ids||[];
+  const choice=concept?.models?.find(item=>item.id===preferred.detector&&(!preferredIds.length||preferredIds.includes(item.class_id)))||concept?.models?.[0];
+  const classIds=preferred.class_ids??(choice?[choice.class_id]:[]),classLabels=preferred.class_labels??(choice?[choice.class_label]:[]);
+  return {...structuredClone(metadata.defaults.anything),...structuredClone(state.preset?.values?.anything||state.preset?.values?.hand||{}),
+    ...preferred,label:`${concept.label} detailer`,catalog_id:concept.id,catalog_revision:concept.detailer_revision||0,
+    detector:preferred.detector||choice?.id||"",class_ids:classIds,class_labels:classLabels,
+    prompt:concept.prompt,mask_concept:concept.mask_concept,enabled:false};
 }
 function additionalDetailers(node,visible,onApply){
   const state=node._dx.state,catalog=metadata.detector_catalog?.concepts||[],selected=new Set(Object.keys(state.extra_detailers||{}).filter(id=>state.visible?.[id])),created={};
@@ -405,7 +416,7 @@ function additionalDetailers(node,visible,onApply){
   function choice(id,label,description){const row=el("label","dx-field"),input=el("input");input.type="checkbox";input.checked=selected.has(id);help(input,description);input.addEventListener("change",()=>input.checked?selected.add(id):selected.delete(id));row.append(el("span","",label),input);return row;}
   function draw(){body.replaceChildren(el("h3","","Create custom detailer"),customName,add);const customs=[...Object.entries(state.extra_detailers||{}),...Object.entries(created)].filter(([id])=>id.startsWith("detailer:custom:"));if(customs.length){body.append(el("h3","","Custom detailers"));for(const [id,item] of customs)body.append(choice(id,item.label,"Show this saved custom detailer. Hiding retains its configuration and order."));}for(const group of metadata.detector_catalog?.groups||[]){body.append(el("h3","",group));for(const concept of catalog.filter(c=>c.group===group&&!c.builtin)){const id=`detailer:${concept.id}`;body.append(choice(id,concept.label,`${concept.prompt}${concept.broad?" Broad detections may create large crops.":""}`));}}}
   draw();
-  footer.append(button("Cancel",()=>d.close()),button("Apply",()=>{state.extra_detailers??={};Object.assign(state.extra_detailers,created);for(const id of selected){if(!state.extra_detailers[id]){const concept=catalog.find(c=>`detailer:${c.id}`===id),choice=concept?.models?.[0];state.extra_detailers[id]={...structuredClone(metadata.defaults.anything),...structuredClone(state.preset?.values?.hand||{}),label:`${concept.label} detailer`,catalog_id:concept.id,detector:choice?.id||"",class_ids:choice?[choice.class_id]:[],class_labels:choice?[choice.class_label]:[],prompt:concept.prompt,mask_concept:concept.mask_concept,enabled:false};}if(!state.order.includes(id))state.order.splice(Math.max(0,state.order.findIndex(n=>REALISM.includes(n))),0,id);visible[id]=true;}for(const id of Object.keys(state.extra_detailers))if(!selected.has(id))visible[id]=false;persist(node);render(node);d.close();onApply?.();},"dx-primary"));
+  footer.append(button("Cancel",()=>d.close()),button("Apply",()=>{state.extra_detailers??={};Object.assign(state.extra_detailers,created);for(const id of selected){if(!state.extra_detailers[id]){const concept=catalog.find(c=>`detailer:${c.id}`===id);state.extra_detailers[id]=catalogDetailerSettings(state,concept);}if(!state.order.includes(id))state.order.splice(Math.max(0,state.order.findIndex(n=>REALISM.includes(n))),0,id);visible[id]=true;}for(const id of Object.keys(state.extra_detailers))if(!selected.has(id))visible[id]=false;persist(node);render(node);d.close();onApply?.();},"dx-primary"));
 }
 function dragHandle(node,name,row){
   const x=node._dx,label=labelFor(x.state,name),handle=button("⠿",()=>{},"dx-drag");handle.draggable=true;handle.setAttribute("aria-label",`Move ${label}`);
@@ -433,16 +444,16 @@ function optionLabel(key,value){
   return labels[key]?.[value]||value;
 }
 function field(section,key,object,onEdit){
-  const row=el("label","dx-field"),caption=el("span","",title(key));row.append(caption);
+  const display=section==="global_prompts"?(key==="enabled"?"Enable Global Prompts":`Global ${title(key)} Prompt`):title(key),row=el("label","dx-field"),caption=el("span","",display);row.append(caption);
   const kind=assetKind(section,key);let control;
   if(kind){let choices=section==="sam"&&key==="model"&&object.backend==="sam3.1"?(metadata.sam3_checkpoints||[]):metadata.assets[kind];const concept=key==="detector"&&object.catalog_id&&object.catalog_id!=="anything"?metadata.detector_catalog?.concepts?.find(c=>c.id===object.catalog_id):null;if(concept){const ids=new Set(concept.models.map(m=>m.id));choices=choices.filter(item=>ids.has(item.id)||item.id===object.detector);}control=button(object[key],()=>searchable(title(key),choices,object[key],async v=>{object[key]=v;control.textContent=v;if(key==="detector"){if(concept){const match=concept.models.find(m=>m.id===v);if(match){object.class_ids=[match.class_id];object.class_labels=[match.class_label];}}else{const model=await detectorInfo(v);object.class_ids=model?.classes?.map(c=>c.id)||[];object.class_labels=model?.classes?.map(c=>c.label)||[];}}onEdit?.(key,object[key]);}),"dx-model");}
   else if(optionsFor(section,key)){control=el("select");for(const v of optionsFor(section,key)){const o=el("option","",optionLabel(key,v));o.value=v;control.append(o);}control.value=object[key];control.addEventListener("change",()=>{object[key]=typeof object[key]==="number"?Number(control.value):control.value;control.setAttribute("aria-description",helpText(section,key,object[key]));});}
   else if(typeof object[key]==="boolean"){control=el("input");control.type="checkbox";control.checked=object[key];control.addEventListener("change",()=>object[key]=control.checked);}
   else if(typeof object[key]==="number"){control=el("input");control.type="number";const [min,max,step]=metadata.ranges[key]||[0,Number.MAX_SAFE_INTEGER,1];Object.assign(control,{min,max,step,value:object[key],required:true});control.addEventListener("input",()=>{if(control.value!==""&&control.checkValidity())object[key]=Number(control.value);});}
-  else {control=el(key==="prompt"?"textarea":"input");control.value=object[key];control.addEventListener("input",()=>object[key]=control.value);}
+  else {control=el(["prompt","negative_prompt"].includes(key)||section==="global_prompts"?"textarea":"input");control.value=object[key];control.addEventListener("input",()=>object[key]=control.value);}
   help(control,helpText(section,key,object[key])+(kind?` Current asset: ${object[key]}`:""));help(caption,helpText(section,key));
   if(onEdit)for(const event of ["input","change"])control.addEventListener(event,()=>{if(control.checkValidity?.()!==false)onEdit(key,object[key]);});
-  control.setAttribute("aria-label",title(key));row.append(control);return row;
+  control.setAttribute("aria-label",display);row.append(control);return row;
 }
 function presetGear(node){
   const state=node._dx.state,draft={...structuredClone(state.preset),values:presetValues(state)};
@@ -472,7 +483,7 @@ function gear(node,section){
   const source=stage(node._dx.state,section),draft=structuredClone(source),detailer=isDetailer(node._dx.state,section);
   const label=labelFor(node._dx.state,section),{d,form,body,footer}=dialog(`${label} settings`,detailer?"Configure detection, masking and enhancement. Global SAM is the inherited default; this detailer may use detector-only masking or a complete override.":"Changes apply to this processor when you choose Apply.");
   const effectiveBackend=()=>draft.sam_strategy==="detector_only"||draft.sam_strategy==="inherit"&&!node._dx.state.sam.enabled?null:draft.sam_strategy==="override"?draft.sam_override.backend:node._dx.state.sam.backend;
-  function samPanel(){
+  function samPanel(target){
     const box=el("fieldset"),legend=el("legend","","Masking strategy");box.append(legend,field(section,"sam_strategy",draft,()=>populate()));
     if(draft.sam_strategy==="inherit")box.append(el("p","dx-help",node._dx.state.sam.enabled?`Using global ${node._dx.state.sam.backend} · ${node._dx.state.sam.model}`:"Global SAM is disabled; this detailer will use its detector mask."));
     else if(draft.sam_strategy==="detector_only")box.append(el("p","dx-help","Use the selected Ultralytics BBOX or SEGM proposal directly; no SAM checkpoint is loaded."));
@@ -491,9 +502,39 @@ function gear(node,section){
       }
       box.append(field(section,"sam3_threshold",draft),field(section,"sam3_refine_iterations",draft));
     }
-    body.append(box);
+    target.append(box);
   }
-  function populate(){body.replaceChildren();if(node._dx.state.global_seed?.enabled&&Object.hasOwn(draft,"seed"))body.append(el("p","dx-help",`Global seed override is active (${node._dx.state.global_seed.mode}). Local seed values are retained but are not currently used.`));for(const key of Object.keys(draft)){if(key==="enabled"||key==="label"||key==="catalog_id"||key==="class_labels"||key==="sam_strategy"||key==="sam_override"||key.startsWith("sam3_")||key==="mask_concept"||(section==="dlss5"&&(key==="detail"||key==="color")))continue;if(section==="dlss5"&&key==="enable_dlaa_reconstruction"&&!String(draft.upscaling_mode).startsWith("1x"))continue;if(key==="class_ids"){body.append(classSelector(draft));continue;}const refresh=section==="dlss5"&&["upscaling_mode","enable_dlaa_reconstruction"].includes(key)?()=>populate():key==="detector"?()=>populate():undefined;const row=field(section,key,draft,refresh);if(section==="dlss5"&&key==="model_preset"&&String(draft.upscaling_mode).startsWith("1x")&&!draft.enable_dlaa_reconstruction){const control=row.querySelector("select,button,input");if(control)control.disabled=true;row.append(el("small","dx-help","Retained but inactive while 1x DLAA reconstruction is disabled."));}body.append(row);}if(section==="dlss5"){const composite=el("fieldset"),legend=el("legend","","Post-composite");composite.append(legend,el("p","dx-section-note","These controls blend the completed DLSS result with the source after neural rendering. They are not additional DLSS model parameters."),field(section,"detail",draft),field(section,"color",draft));body.append(composite);}if(detailer)samPanel();
+  const detailerInternal=new Set(["enabled","label","catalog_id","catalog_revision","class_labels","sam_strategy","sam_override","mask_concept"]);
+  const detailerKnown=new Set(DETAILER_GEAR_TABS.flatMap(tab=>tab.keys));
+  function appendDetailerField(target,key){
+    if(!Object.hasOwn(draft,key))return;
+    if(key==="class_ids"){target.append(classSelector(draft));return;}
+    target.append(field(section,key,draft,key==="detector"?()=>populate():undefined));
+  }
+  function detailerEditor(){
+    const tabs=el("div","dx-tabs"),panel=el("section","dx-tab-panel"),buttons={};
+    const safe=String(section).replace(/[^a-z0-9_-]/gi,"-");tabs.setAttribute("role","tablist");tabs.setAttribute("aria-label",`${label} setting groups`);
+    panel.id=`dx-detailer-panel-${safe}-${node.id}`;panel.setAttribute("role","tabpanel");
+    node._dx.detailerSettingsTabs??={};
+    function show(id,focus=false){
+      const selected=DETAILER_GEAR_TABS.some(tab=>tab.id===id)?id:"prompt";node._dx.detailerSettingsTabs[section]=selected;
+      for(const tab of DETAILER_GEAR_TABS){const active=tab.id===selected;buttons[tab.id].setAttribute("aria-selected",String(active));buttons[tab.id].tabIndex=active?0:-1;}
+      panel.replaceChildren();panel.setAttribute("aria-labelledby",buttons[selected].id);
+      if(selected==="prompt"&&Number(draft.cfg)===1)panel.append(el("p","dx-section-note","CFG is 1, so positive conditioning remains active but all incoming and local negative conditioning is currently ignored by sampling."));
+      if(selected==="sampling"&&node._dx.state.global_seed?.enabled&&Object.hasOwn(draft,"seed"))panel.append(el("p","dx-section-note",`Global seed override is active (${node._dx.state.global_seed.mode}). Local seed values are retained but are not currently used.`));
+      if(selected==="sam")samPanel(panel);
+      const definition=DETAILER_GEAR_TABS.find(tab=>tab.id===selected);for(const key of definition.keys)appendDetailerField(panel,key);
+      if(selected==="region"){
+        const extra=Object.keys(draft).filter(key=>!detailerKnown.has(key)&&!detailerInternal.has(key)&&!key.startsWith("sam3_"));
+        if(extra.length){const box=el("fieldset"),legend=el("legend","","Additional");box.append(legend);for(const key of extra)appendDetailerField(box,key);panel.append(box);}
+      }
+      if(focus)buttons[selected].focus();
+    }
+    for(const tab of DETAILER_GEAR_TABS){const control=button(tab.label,()=>show(tab.id));control.id=`dx-detailer-tab-${safe}-${tab.id}-${node.id}`;control.setAttribute("role","tab");control.setAttribute("aria-controls",panel.id);buttons[tab.id]=control;tabs.append(control);}
+    tabs.addEventListener("keydown",event=>{const current=node._dx.detailerSettingsTabs[section],index=DETAILER_GEAR_TABS.findIndex(tab=>tab.id===current);let next;if(event.key==="ArrowRight")next=(index+1)%DETAILER_GEAR_TABS.length;else if(event.key==="ArrowLeft")next=(index-1+DETAILER_GEAR_TABS.length)%DETAILER_GEAR_TABS.length;else if(event.key==="Home")next=0;else if(event.key==="End")next=DETAILER_GEAR_TABS.length-1;else return;event.preventDefault();show(DETAILER_GEAR_TABS[next].id,true);});
+    body.append(tabs,panel);show(node._dx.detailerSettingsTabs[section]);
+  }
+  function populate(){body.replaceChildren();if(detailer){detailerEditor();return;}if(node._dx.state.global_seed?.enabled&&Object.hasOwn(draft,"seed"))body.append(el("p","dx-help",`Global seed override is active (${node._dx.state.global_seed.mode}). Local seed values are retained but are not currently used.`));for(const key of Object.keys(draft)){if(key==="enabled"||key==="label"||key==="catalog_id"||key==="class_labels"||key==="sam_strategy"||key==="sam_override"||key.startsWith("sam3_")||key==="mask_concept"||(section==="dlss5"&&(key==="detail"||key==="color")))continue;if(section==="dlss5"&&key==="enable_dlaa_reconstruction"&&!String(draft.upscaling_mode).startsWith("1x"))continue;if(key==="class_ids"){body.append(classSelector(draft));continue;}const refresh=section==="dlss5"&&["upscaling_mode","enable_dlaa_reconstruction"].includes(key)?()=>populate():key==="detector"?()=>populate():undefined;const row=field(section,key,draft,refresh);if(section==="dlss5"&&key==="model_preset"&&String(draft.upscaling_mode).startsWith("1x")&&!draft.enable_dlaa_reconstruction){const control=row.querySelector("select,button,input");if(control)control.disabled=true;row.append(el("small","dx-help","Retained but inactive while 1x DLAA reconstruction is disabled."));}body.append(row);}if(section==="dlss5"){const composite=el("fieldset"),legend=el("legend","","Post-composite");composite.append(legend,el("p","dx-section-note","These controls blend the completed DLSS result with the source after neural rendering. They are not additional DLSS model parameters."),field(section,"detail",draft),field(section,"color",draft));body.append(composite);}
     if(section==="temperature"){
       const presets=[[2000,"Candlelight"],[2700,"Warm Bulb"],[3200,"Tungsten"],[4000,"Warm White"],[5000,"Daylight"],[5500,"Flash"],[6500,"Neutral"],[7500,"Cloudy"],[9000,"Shade"]];
       const selector=el("select");selector.setAttribute("aria-label","Source temperature preset");
@@ -513,7 +554,7 @@ function gear(node,section){
   if(section.startsWith("detailer:custom:")){
     const remove=button("Delete custom",()=>{if(!confirm(`Delete ${label}? Its saved settings will be permanently removed.`))return;delete node._dx.state.extra_detailers[section];delete node._dx.state.visible[section];node._dx.state.order=node._dx.state.order.filter(name=>name!==section);node._dx.state.cache_epoch=(node._dx.state.cache_epoch||0)+1;persist(node);render(node);d.close();});help(remove,"Permanently delete this custom detailer after confirmation. Other processors are unaffected.");footer.append(remove);
   }
-  footer.append(button("Restore workflow defaults",()=>{const enabled=draft.enabled,identity=section.startsWith("detailer:")?Object.fromEntries(["label","catalog_id","detector","class_ids","class_labels","prompt","mask_concept"].map(key=>[key,structuredClone(draft[key])])):{};Object.assign(draft,structuredClone(metadata.defaults[DETAILERS.includes(section)?section:"anything"]),identity,{enabled});populate();}),button("Cancel",()=>d.close()),button("Apply",()=>{if(!form.reportValidity())return;if(section.startsWith("detailer:"))node._dx.state.extra_detailers[section]=draft;else node._dx.state[section]=draft;persist(node);render(node);d.close();},"dx-primary"));
+  footer.append(button("Restore workflow defaults",()=>{try{const enabled=draft.enabled;let restored;if(section.startsWith("detailer:custom:")){const identity=Object.fromEntries(["label","catalog_id","detector","class_ids","class_labels","prompt","prompt_mode","negative_prompt","negative_prompt_mode","mask_concept"].map(key=>[key,structuredClone(draft[key])]));restored={...structuredClone(metadata.defaults.anything),...identity};}else if(section.startsWith("detailer:")){const concept=metadata.detector_catalog?.concepts?.find(item=>`detailer:${item.id}`===section);restored=catalogDetailerSettings(node._dx.state,concept);}else restored=structuredClone(metadata.defaults[section]);Object.assign(draft,restored,{enabled});populate();}catch(error){report(node,error);}}),button("Cancel",()=>d.close()),button("Apply",()=>{if(!form.reportValidity())return;if(section.startsWith("detailer:"))node._dx.state.extra_detailers[section]=draft;else node._dx.state[section]=draft;persist(node);render(node);d.close();},"dx-primary"));
 }
 function classSelector(draft){const row=el("div","dx-field"),wrap=el("div"),model=metadata.detector_catalog?.models?.find(m=>m.id===draft.detector),classes=model?.classes||[];row.append(el("span","","Detector classes"));for(const item of classes){const label=el("label",""),input=el("input");input.type="checkbox";input.checked=(draft.class_ids||[]).includes(item.id);input.addEventListener("change",()=>{const chosen=new Set(draft.class_ids||[]);input.checked?chosen.add(item.id):chosen.delete(item.id);draft.class_ids=[...chosen];draft.class_labels=draft.class_ids.map(id=>classes.find(c=>c.id===id)?.label||String(id));});label.append(input,document.createTextNode(` ${item.id}: ${item.label}`));wrap.append(label,el("br"));}if(!classes.length)wrap.append(el("small","dx-help","No class metadata is available. The detector will use all returned classes."));row.append(wrap);return row;}
 function toggle(state,key,callback,label){const b=button(state[key]?"✓":"",()=>{state[key]=!state[key];callback();},"dx-toggle");help(b,`${label}. ${helpText("stage","enabled")}`);b.setAttribute("role","switch");b.setAttribute("aria-checked",String(state[key]));b.setAttribute("aria-label",label);return b;}
@@ -553,7 +594,7 @@ function setup(node){
   widget.type="converted-widget";widget.computeSize=()=>[0,-4];if(widget.inputEl)widget.inputEl.style.display="none";
   const root=el("div","dx-root");
   for(const event of ["pointerdown","keydown","wheel"])root.addEventListener(event,e=>e.stopPropagation());
-  node._dx={root,widget,state:restore(node.properties?.detailer_x??widget.value,metadata.defaults)};
+  node._dx={root,widget,state:restore(node.properties?.detailer_x??widget.value,metadata.defaults,metadata.detector_catalog?.concepts)};
   // The native STRING widget may serialize its original textarea, not .value.
   // Both workflow serialization and API submission must use our single state.
   widget.serializeValue=()=>metadata.entry_controls?JSON.stringify({...node._dx.state,_control:{owner:entryOwner(node)}}):serialize(node._dx.state);
@@ -583,7 +624,7 @@ app.registerExtension({
     if(!document.getElementById("workflowx-detailer-style")){const style=el("style");style.id="workflowx-detailer-style";style.textContent=STYLE;document.head.append(style);}
     const response=await api.fetchApi("/workflowx_configurator/detailer_x/config");if(!response.ok)throw new Error("DetailerX configuration could not be loaded");metadata=await response.json();
     const created=nodeType.prototype.onNodeCreated;nodeType.prototype.onNodeCreated=function(){created?.apply(this,arguments);reconcileNodeOutputs(this);setup(this);};
-    const configured=nodeType.prototype.onConfigure;nodeType.prototype.onConfigure=function(info){const result=configured?.apply(this,arguments);reconcileNodeOutputs(this);if(this._dx){try{const index=this.widgets.indexOf(this._dx.widget);this._dx.state=restore(info?.properties?.detailer_x??info?.widgets_values?.[index]??this._dx.widget.value,metadata.defaults);this._dx.widget.value=serialize(this._dx.state);render(this);}catch(e){report(this,e);}}return result;};
+    const configured=nodeType.prototype.onConfigure;nodeType.prototype.onConfigure=function(info){const result=configured?.apply(this,arguments);reconcileNodeOutputs(this);if(this._dx){try{const index=this.widgets.indexOf(this._dx.widget);this._dx.state=restore(info?.properties?.detailer_x??info?.widgets_values?.[index]??this._dx.widget.value,metadata.defaults,metadata.detector_catalog?.concepts);this._dx.widget.value=serialize(this._dx.state);render(this);}catch(e){report(this,e);}}return result;};
     const restoreCompact=nodeType.prototype.onConfigure;nodeType.prototype.onConfigure=function(info){const result=restoreCompact?.apply(this,arguments);const layout=info?.properties?.detailer_x_compact_entry;if(this._dx&&layout!==3&&Array.isArray(info?.size)){const min=minimumSize(this._dx.state,Math.max(this.inputs?.length||0,this.outputs?.length||0));const reduction=(layout===2?0:layout?36:186)+6*(rows(this._dx.state).length+1);this.setSize([Math.max(min[0],this.size[0]),Math.max(min[1],info.size[1]-reduction)]);}return result;};
     const serialized=nodeType.prototype.onSerialize;nodeType.prototype.onSerialize=function(info){serialized?.apply(this,arguments);if(this._dx){info.widgets_values??=[];info.widgets_values[this.widgets.indexOf(this._dx.widget)]=serialize(this._dx.state);info.properties??={};info.properties.detailer_x_compact_entry=3;info.properties.detailer_x=JSON.parse(serialize(this._dx.state));}};
     const resized=nodeType.prototype.onResize;nodeType.prototype.onResize=function(size){resized?.apply(this,arguments);if(this._dx){const min=minimumSize(this._dx.state,Math.max(this.inputs?.length||0,this.outputs?.length||0));size[0]=Math.max(min[0],size[0]);size[1]=Math.max(min[1],size[1]);}};

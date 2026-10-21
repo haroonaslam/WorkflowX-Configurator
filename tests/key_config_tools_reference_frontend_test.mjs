@@ -41,6 +41,24 @@ test("Scopes and Configs display breadcrumbs without changing stored group names
   assert.match(selectorUiSource, /config\.modes\[groupName\]/);
 });
 
+test("advanced controls retain their headings and show the resulting group state", () => {
+  assert.match(source, /config_selector_x_ui\.js\?workflowx=3/);
+  assert.match(source, /"Group Mute"/);
+  assert.match(source, /"Group Bypass"/);
+  assert.match(
+    source,
+    /const stateLabel = enabled \? "Active" : targetMode === "Mute" \? "Muted" : "Bypassed"/,
+  );
+  assert.match(source, /ctx\.fillText\(stateLabel,/);
+  assert.doesNotMatch(source, /ctx\.fillText\(enabled \? "ON" : "OFF",/);
+  assert.match(selectorUiSource, /adapter\.addTextRow\(node, "selectorx:mute", "Mute", UI_MARKER\)/);
+  assert.match(selectorUiSource, /adapter\.addTextRow\(node, "selectorx:bypass", "Bypass", UI_MARKER\)/);
+  assert.match(selectorUiSource, /const inactiveLabel = targetMode === "Mute" \? "Muted" : "Bypassed"/);
+  assert.match(selectorUiSource, /\{ on: "Active", off: inactiveLabel \}/);
+  assert.match(selectorUiSource, /widget\.options\.on = "Active"/);
+  assert.match(selectorUiSource, /widget\.options\.off = inactiveLabel/);
+});
+
 test("relay, dimensions, and reference links use full execution IDs", () => {
   assert.match(source, /getPrompt\.inputs\.value = \[source\.executionId, 0\]/);
   assert.match(source, /getPrompt\.inputs\.width = \[source\.executionId, 0\]/);

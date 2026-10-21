@@ -95,7 +95,26 @@ test("configuration roundtrip and copies are isolated",()=>{
 });
 test("missing fields migrate and unsupported version rejects",()=>{
   assert.equal(restore('{"face":{"denoise":0.5}}',defaults).face.enabled,true);
-  assert.throws(()=>restore('{"version":6}',defaults));
+  assert.throws(()=>restore('{"version":9}',defaults));
+});
+test("v8 backfills the global prompt enable control and local negative prompting",()=>{
+  const full={...structuredClone(defaults),version:8,global_prompts:{enabled:true,positive:"",negative:""},anything:{enabled:false,negative_prompt:"",negative_prompt_mode:"incoming"},extra_detailers:{}};
+  const legacy={version:5,extra_detailers:{"detailer:anus":{enabled:true,label:"Anus detailer",catalog_id:"anus"}},order:[...stateModule.ORDER,"detailer:anus"],visible:{"detailer:anus":true}};
+  const state=restore(legacy,full);
+  assert.equal(state.version,8);assert.deepEqual(state.global_prompts,{enabled:true,positive:"",negative:""});assert.equal(state.extra_detailers["detailer:anus"].negative_prompt,"");assert.equal(state.extra_detailers["detailer:anus"].negative_prompt_mode,"incoming");
+  const saved=restore({...legacy,version:7,global_prompts:{positive:"shared",negative:"avoid"}},full);
+  assert.deepEqual(saved.global_prompts,{enabled:true,positive:"shared",negative:"avoid"});
+  const disabled=restore({...legacy,version:8,global_prompts:{enabled:false,positive:"shared",negative:"avoid"}},full);
+  assert.deepEqual(disabled.global_prompts,{enabled:false,positive:"shared",negative:"avoid"});
+});
+test("catalog revisions migrate existing anus settings without model sampling fields",()=>{
+  const full={...structuredClone(defaults),version:6,anything:{enabled:false,denoise:.5,steps:15,prompt:"",catalog_revision:0},extra_detailers:{}};
+  const id="detailer:anus",legacy={version:6,extra_detailers:{[id]:{enabled:true,label:"Anus detailer",catalog_id:"anus",catalog_revision:0,denoise:.5,steps:8,prompt:"old prompt",detector:"old.pt"}},order:[...stateModule.ORDER,id],visible:{[id]:true}};
+  const catalog=[{id:"anus",detailer_revision:1,prompt:"new prompt",mask_concept:"anus",detailer_defaults:{detector:"new.pt",denoise:.25,feather:18,sam_dilation:1}}];
+  const migrated=restore(legacy,full,catalog).extra_detailers[id];
+  assert.equal(migrated.detector,"new.pt");assert.equal(migrated.prompt,"new prompt");assert.equal(migrated.denoise,.25);assert.equal(migrated.feather,18);assert.equal(migrated.sam_dilation,1);assert.equal(migrated.steps,8);assert.equal(migrated.enabled,true);assert.equal(migrated.catalog_revision,1);
+  migrated.prompt="user prompt";const retained=restore({version:6,extra_detailers:{[id]:migrated},order:[...stateModule.ORDER,id],visible:{[id]:true}},full,catalog).extra_detailers[id];
+  assert.equal(retained.prompt,"user prompt");
 });
 test("visibility transitions preserve settings and hidden order positions",()=>{
   const full={...defaults,...Object.fromEntries(stateModule.ORDER.map(n=>[n,{enabled:true,marker:n}]))};
@@ -137,11 +156,19 @@ test("v3 preset migration backfills new detailers without treating seeds or togg
   state.global_seed.enabled=true;state.hair.enabled=true;state.anything.enabled=true;
   assert.equal(stateModule.modified(state),false);
 });
-test("global SAM is tabbed and detailer gears expose inherited or overridden masking",async()=>{
+test("global prompts and SAM are tabbed while detailer gears expose masking",async()=>{
   const source=await readFile(new URL("../web/js/detailer_x.js",import.meta.url),"utf8");
   const settings=source.slice(source.indexOf("function nodeSettings("),source.indexOf("function additionalDetailers("));
   const gear=source.slice(source.indexOf("function gear("),source.indexOf("function classSelector("));
-  for(const label of ["Flow","Seed","Detailers","SAM"])assert.match(settings,new RegExp(`\\[\\"[^\\]]*\\"${label}\\"`));
+  for(const label of ["Flow","Seed","Prompts","Detailers","SAM"])assert.match(settings,new RegExp(`\\[\\"[^\\]]*\\"${label}\\"`));
+  assert.match(settings,/globalPrompts=structuredClone\(state\.global_prompts\)/);
+  assert.match(settings,/state\.global_prompts=globalPrompts/);
+  assert.match(settings,/field\("global_prompts","enabled",globalPrompts\)/);
+  assert.match(settings,/field\("global_prompts","positive",globalPrompts\)/);
+  assert.match(settings,/field\("global_prompts","negative",globalPrompts\)/);
+  assert.match(source,/"Enable Global Prompts"/);
+  assert.match(source,/`Global \$\{title\(key\)\} Prompt`/);
+  assert.match(source,/section==="global_prompts"\?"textarea":"input"/);
   assert.match(settings,/state\.sam=shared/);
   assert.match(settings,/role\",\"tablist/);
   assert.match(settings,/ArrowRight/);
@@ -150,6 +177,23 @@ test("global SAM is tabbed and detailer gears expose inherited or overridden mas
   assert.match(source,/bbox_controlled:"BBox controlled"/);
   assert.match(gear,/!\["concept_only","bbox_controlled"\]\.includes\(draft\.sam3_mode\)/);
   assert.match(gear,/draft\.sam3_mode!=="refine_detector"/);
+});
+test("detailer gears use four focused accessible tabs with per-detailer memory",async()=>{
+  assert.deepEqual(stateModule.DETAILER_GEAR_TABS.map(tab=>tab.label),["Prompt","Sampling","Region / Inpaint","SAM"]);
+  assert.deepEqual(stateModule.DETAILER_GEAR_TABS.find(tab=>tab.id==="prompt").keys,["prompt_mode","prompt","negative_prompt_mode","negative_prompt","guidance_mode","guidance"]);
+  const source=await readFile(new URL("../web/js/detailer_x.js",import.meta.url),"utf8");
+  const gear=source.slice(source.indexOf("function gear("),source.indexOf("function classSelector("));
+  for(const token of ["DETAILER_GEAR_TABS","detailerSettingsTabs","aria-selected","ArrowRight","ArrowLeft","Home","End","CFG is 1"])assert.match(gear,new RegExp(token));
+  assert.match(source,/\["prompt","negative_prompt"\]\.includes\(key\)\|\|section==="global_prompts"\?"textarea"/);
+});
+test("catalog detailers apply concept defaults after profile sampling values",async()=>{
+  const source=await readFile(new URL("../web/js/detailer_x.js",import.meta.url),"utf8");
+  const helper=source.slice(source.indexOf("function catalogDetailerSettings("),source.indexOf("function additionalDetailers("));
+  assert.match(helper,/values\?\.anything\|\|state\.preset\?\.values\?\.hand/);
+  assert.match(helper,/\.\.\.preferred/);
+  assert.match(helper,/preferred\.detector\|\|choice\?\.id/);
+  assert.match(helper,/catalog_revision:concept\.detailer_revision/);
+  assert.match(helper,/if\(!concept\)throw new Error/);
 });
 test("repeatable custom detailers and gear lifecycle controls are exposed",async()=>{
   const source=await readFile(new URL("../web/js/detailer_x.js",import.meta.url),"utf8");
@@ -259,13 +303,14 @@ test("processor rows expose selective original, mask-reuse, and remask actions",
 
 test("preset application replaces only model fields, isolates copies and tracks local edits",()=>{
   const state={...structuredClone(defaults),preset:{id:"old"}};
-  for(const n of stateModule.DETAILERS)state[n]={enabled:false,detector:"keep",seed:123,prompt:"keep",denoise:.15,steps:15,cfg:2};
+  for(const n of stateModule.DETAILERS)state[n]={enabled:false,detector:"keep",seed:123,prompt:"keep",negative_prompt:"keep negative",negative_prompt_mode:"replace",denoise:.15,steps:15,cfg:2};
   const before=structuredClone(state);
   const profile={id:"new",label:"Test",family:"sdxl",revision:2,values:stateModule.presetValues(state)};
   for(const n of stateModule.DETAILERS)profile.values[n].cfg=5;
+  for(const n of stateModule.DETAILERS)profile.values[n].denoise=.99;
   stateModule.applyPreset(state,profile);
   assert.equal(stateModule.modified(state),false);
-  for(const n of stateModule.DETAILERS){assert.equal(state[n].cfg,5);assert.equal(state[n].enabled,false);assert.equal(state[n].detector,"keep");assert.equal(state[n].seed,123);assert.equal(state[n].prompt,"keep");}
+  for(const n of stateModule.DETAILERS){assert.equal(state[n].cfg,5);assert.equal(state[n].denoise,.15);assert.equal(state[n].enabled,false);assert.equal(state[n].detector,"keep");assert.equal(state[n].seed,123);assert.equal(state[n].prompt,"keep");assert.equal(state[n].negative_prompt,"keep negative");assert.equal(state[n].negative_prompt_mode,"replace");}
   state.face.cfg=6;assert.equal(stateModule.modified(state),true);assert.equal(profile.values.face.cfg,5);
   const loaded=restore(serialize(state),state);assert.equal(loaded.face.cfg,6);assert.equal(loaded.preset.values.face.cfg,5);assert.equal(stateModule.modified(loaded),true);
   const custom=stateModule.customPreset(state);stateModule.applyPreset(state,custom);assert.equal(stateModule.modified(state),false);

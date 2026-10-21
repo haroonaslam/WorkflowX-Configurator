@@ -405,7 +405,7 @@ def test_selective_reuse_runs_one_detailer_on_latest_output_and_retains_revision
     debug=dict(detector=reused.float()/255,refined=reused.float()/255,blend=reused.float()/255,
         region_counts=[1],processed_counts=[1],messages=['reused'],backend='reused-mask',detector_model='',classes=[])
     monkeypatch.setattr(detailer_x,'status',lambda *a:None)
-    monkeypatch.setattr(processing,'detail',lambda image,*args,**kwargs:(seen.append((image.clone(),args[-1])) or (image*.5,debug)))
+    monkeypatch.setattr(processing,'detail',lambda image,*args,**kwargs:(seen.append((image.clone(),args[8])) or (image*.5,debug)))
     settings=copy.deepcopy(config.DEFAULTS)
     result=DetailerXSelective().run(s['token'],json.dumps(settings),'job','face','output','reuse','dx')
     assert len(seen)==1 and torch.equal(seen[0][0],latest_image) and torch.equal(seen[0][1],reused)
@@ -423,7 +423,7 @@ def test_selective_missing_reuse_mask_falls_back_to_remask(monkeypatch):
         region_counts=[0],processed_counts=[0],messages=['none'],backend='detector-only',detector_model='',classes=[])
     monkeypatch.setattr(detailer_x,'status',lambda *a:None)
     monkeypatch.setattr(detailer_x,'asset_signatures',lambda settings:{})
-    monkeypatch.setattr(processing,'detail',lambda image,*args,**kwargs:(seen.append(args[-1]) or (image,debug)))
+    monkeypatch.setattr(processing,'detail',lambda image,*args,**kwargs:(seen.append(args[8]) or (image,debug)))
     inputs=dict(model=None,vae=None,clip=None,positive=[],negative=[],image=torch.zeros_like(image))
     result=DetailerX().process_selective(inputs,config.DEFAULTS,'face','output','reuse',dict(final=image,masks={}),unique_id='dx')
     assert seen==[None] and 'previous mask unavailable' in result[1]['stages'][0]['state']

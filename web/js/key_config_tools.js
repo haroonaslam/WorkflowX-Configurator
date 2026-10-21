@@ -5,7 +5,7 @@ import {
   effectiveSelectorXModes,
   parseSelectorXState,
 } from "./config_selector_x_state.mjs?workflowx=2";
-import { createSelectorXController } from "./config_selector_x_ui.js?workflowx=2";
+import { createSelectorXController } from "./config_selector_x_ui.js?workflowx=3";
 import {
   applyModeToNamedGroup,
   buildGraphInventory,
@@ -943,7 +943,8 @@ function addAdvancedToggle(node, sectionName, groupName, targetMode, value) {
     },
     draw(ctx, _node, width, y, height) {
       const enabled = this.value === true;
-      const switchWidth = 54;
+      const stateLabel = enabled ? "Active" : targetMode === "Mute" ? "Muted" : "Bypassed";
+      const switchWidth = 72;
       const switchHeight = 22;
       const switchX = Math.max(width - switchWidth - 12, 120);
       const switchY = y + (height - switchHeight) * 0.5;
@@ -972,7 +973,7 @@ function addAdvancedToggle(node, sectionName, groupName, targetMode, value) {
       ctx.font = "bold 9px sans-serif";
       ctx.fillStyle = "#ffffff";
       ctx.textAlign = "center";
-      ctx.fillText(enabled ? "ON" : "OFF", switchX + switchWidth * 0.5, switchY + radius);
+      ctx.fillText(stateLabel, switchX + switchWidth * 0.5, switchY + radius);
       ctx.restore();
     },
   };

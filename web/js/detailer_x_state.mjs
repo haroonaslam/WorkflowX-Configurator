@@ -1,6 +1,6 @@
 export const OUTPUT_DETAILERS = ["face", "breast", "pussy", "hand", "foot"];
 export const DETAILERS = [...OUTPUT_DETAILERS,"hair","anything"];
-export {helpText} from "./detailer_x_help.mjs?v=9";
+export {helpText} from "./detailer_x_help.mjs?v=12";
 export const LEGACY_REALISM = ["brightness", "grain", "hsv", "levels", "sharpen"];
 export const ADVANCED = ["rgb","gamma","color_balance","temperature","lens","pixel_perturb","neural_grain","lut","camera","compression"];
 export const REALISM = [...LEGACY_REALISM,...ADVANCED];
@@ -22,14 +22,20 @@ export function reconcileOutputSlots(outputs=[]){
   const keptLinks=canonical.flatMap((item,slot)=>(item.links||[]).map(id=>({id,slot})));
   return {outputs:canonical,staleLinks,keptLinks};
 }
-export const PRESET_FIELDS = ["steps","cfg","guidance_mode","guidance","sampler_name","scheduler","denoise","guide_size","guide_size_for","max_size","cycle"];
+export const PRESET_FIELDS = ["steps","cfg","guidance_mode","guidance","sampler_name","scheduler","guide_size","guide_size_for","max_size","cycle"];
+export const DETAILER_GEAR_TABS = [
+  {id:"prompt",label:"Prompt",keys:["prompt_mode","prompt","negative_prompt_mode","negative_prompt","guidance_mode","guidance"]},
+  {id:"sampling",label:"Sampling",keys:["seed","seed_mode","steps","cfg","sampler_name","scheduler","denoise","cycle"]},
+  {id:"region",label:"Region / Inpaint",keys:["guide_size","guide_size_for","max_size","detector","class_ids","bbox_threshold","bbox_dilation","bbox_crop_factor","detector_proposal","drop_size","feather","noise_mask","force_inpaint","inpaint_model","noise_mask_feather","tiled_encode","tiled_decode"]},
+  {id:"sam",label:"SAM",keys:["sam_detection_hint","sam_dilation","sam_threshold","sam_bbox_expansion","sam_mask_hint_threshold","sam_mask_hint_use_negative"]},
+];
 export function detailerNames(state) { return [...DETAILERS,...Object.keys(state?.extra_detailers||{})]; }
 export function isDetailer(state,name) { return DETAILERS.includes(name)||name.startsWith("detailer:"); }
 export function stage(state,name) { return name.startsWith("detailer:")?state.extra_detailers?.[name]:state[name]; }
 export function labelFor(state,name) { return stage(state,name)?.label||LABELS[name]||name.replace(/^detailer:/,"").replaceAll("_"," ").replace(/\b\w/g,c=>c.toUpperCase())+" detailer"; }
 export function presetValues(state) { return Object.fromEntries(DETAILERS.map(name=>[name,Object.fromEntries(PRESET_FIELDS.filter(key=>state[name]?.[key]!==undefined).map(key=>[key,structuredClone(state[name][key])]))])); }
 export function modified(state) { return DETAILERS.some(name=>PRESET_FIELDS.some(key=>state[name]?.[key]!==state.preset?.values?.[name]?.[key])); }
-export function applyPreset(state,preset) { state.preset=structuredClone(preset);for(const name of detailerNames(state)){const target=stage(state,name),values=preset.values[name]||preset.values.anything||preset.values.hand||preset.values.face;if(target&&values)Object.assign(target,structuredClone(values));}return state; }
+export function applyPreset(state,preset) { state.preset=structuredClone(preset);for(const name of detailerNames(state)){const target=stage(state,name),values=preset.values[name]||preset.values.anything||preset.values.hand||preset.values.face;if(target&&values)Object.assign(target,Object.fromEntries(PRESET_FIELDS.filter(key=>values[key]!==undefined).map(key=>[key,structuredClone(values[key])])));}return state; }
 export function customPreset(state) { return {id:"custom",label:"Custom",family:"custom",revision:1,values:presetValues(state)}; }
 export const LABELS = {upscaler:"Upscaler", face:"Face detailer", breast:"Breast detailer", pussy:"Pussy detailer", hand:"Hand detailer", foot:"Foot detailer",hair:"Hair detailer",anything:"Anything detailer", realism:"Realism helpers", brightness:"Brightness / Contrast", grain:"Grain", hsv:"HSV", levels:"Levels", sharpen:"Lucy Sharpen", dlss5:"DLSS5"};
 Object.assign(LABELS,{rgb:"RGB",gamma:"Gamma",color_balance:"Color Balance",temperature:"Kelvin White Balance",lens:"Lens Optic Axis",pixel_perturb:"Pixel Perturb",neural_grain:"Neural Grain",lut:"LUT",camera:"Camera Simulator",compression:"Multi-Compression"});
@@ -45,15 +51,25 @@ export function moveVisible(state,name,target){
   visible.splice(from,1);visible.splice(to,0,name);
   let i=0;state.order=state.order.map(n=>state.visible[n]?visible[i++]:n);
 }
-export function restore(value, defaults) {
+export function restore(value, defaults, catalog=[]) {
   const input = typeof value === "string" ? JSON.parse(value || "{}") : value || {};
-  if (input.version != null && ![1,2,3,4,5].includes(input.version)) throw new Error("Unsupported DetailerX configuration version");
+  if (input.version != null && ![1,2,3,4,5,6,7,8].includes(input.version)) throw new Error("Unsupported DetailerX configuration version");
   const result = structuredClone(defaults);
   for (const [key, fallback] of Object.entries(defaults)) {
     if (fallback && typeof fallback === "object") result[key] = {...fallback, ...(input[key] || {})};
     else if (input[key] !== undefined) result[key] = input[key];
   }
-  result.version=5;result.extra_detailers=structuredClone(input.extra_detailers||{});
+  result.version=8;
+  const concepts=new Map((catalog||[]).map(concept=>[concept.id,concept]));
+  result.extra_detailers=Object.fromEntries(Object.entries(input.extra_detailers||{}).map(([name,item])=>{
+    const merged={...structuredClone(defaults.anything||{}),...structuredClone(item||{})};
+    const concept=concepts.get(merged.catalog_id||name.split(":",2)[1]);
+    const revision=Number(concept?.detailer_revision||0),current=Number(merged.catalog_revision||0);
+    if(concept&&revision>current)Object.assign(merged,structuredClone(concept.detailer_defaults||{}),{
+      prompt:concept.prompt,mask_concept:concept.mask_concept,catalog_revision:revision,
+    });
+    return [name,merged];
+  }));
   result.order=[...(input.order||ORDER)];
   if((input.version||1)<4){result.order=result.order.filter(n=>ORDER.includes(n));const at=Math.max(0,result.order.indexOf("foot")+1);for(const n of ["anything","hair"])if(!result.order.includes(n))result.order.splice(at,0,n);}
   const expected=[...ORDER,...Object.keys(result.extra_detailers)];

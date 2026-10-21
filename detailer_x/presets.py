@@ -8,7 +8,7 @@ import tempfile
 import threading
 
 FIELDS = ("steps", "cfg", "guidance_mode", "guidance", "sampler_name", "scheduler",
-          "denoise", "guide_size", "guide_size_for", "max_size", "cycle")
+          "guide_size", "guide_size_for", "max_size", "cycle")
 FAMILIES = ("sdxl", "qwen", "flux", "klein", "zimage", "krea2", "custom")
 LIBRARY = Path(__file__).parent / "local" / "presets.json"
 LOCK = threading.RLock()
@@ -70,7 +70,8 @@ def validate_profile(profile):
             data[name]=copy.deepcopy(data.get("hand") or next(iter(data.values()), {}))
     data={name:data[name] for name in DETAILERS}
     for name in DETAILERS:
-        if not isinstance(data[name], dict) or set(data[name]) != set(FIELDS):
+        if (not isinstance(data[name], dict) or not set(FIELDS).issubset(data[name])
+                or set(data[name])-set(FIELDS)-{"denoise"}):
             raise ValueError(f"Preset {name}: incomplete sampling settings")
     # Reuse backend processing validation without recursively validating a preset.
     normalized = normalize({**data, "version": 2}, _preset=False)

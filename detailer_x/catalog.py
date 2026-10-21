@@ -1,6 +1,7 @@
 """Ultralytics sidecar parsing and concept-oriented DetailerX catalog."""
 from __future__ import annotations
 
+import copy
 import re
 from pathlib import Path
 
@@ -40,7 +41,7 @@ _PROMPTS = {
     "nipple": "detailed realistic nipple and areola texture",
     "pussy": "detailed realistic vagina and labia, anatomically correct pussy",
     "penis": "detailed realistic penis, anatomically correct skin texture",
-    "anus": "detailed realistic anus, anatomically correct skin texture",
+    "anus": "subtle natural detail, matching surrounding skin tone, texture and lighting, soft anatomical transition. one small round anus centered in the butt cleft, circular sphincter, subtle radial folds, natural perianal skin",
     "ass": "detailed realistic buttocks, natural skin texture",
     "skin": "detailed realistic natural skin texture and pores",
     "lips": "detailed realistic lips, natural texture and clean contours", "teeth": "detailed natural teeth and gums, clean realistic enamel",
@@ -68,8 +69,36 @@ _PROMPTS = {
     "shower": "detailed realistic shower scene, water, wet surfaces and reflections", "clothed": "detailed coherent clothing, fabric, seams and fit",
     "item": "detailed realistic selected object, clean shape, texture and edges",
 }
+_DETAILER_DEFAULTS = {
+    "anus": {
+        "detector": "internal:ultralytics/bbox/sexual_elements_yolo11m.pt",
+        "class_ids": [1], "class_labels": ["Asshole"],
+        "denoise": 0.25,
+        "feather": 18, "noise_mask": True, "force_inpaint": True,
+        "bbox_threshold": 0.7, "bbox_dilation": 1, "bbox_crop_factor": 1.5,
+        "detector_proposal": "native", "sam_detection_hint": "center-1",
+        "sam_dilation": 1, "sam_threshold": 0.85, "sam_bbox_expansion": 0,
+        "sam_mask_hint_threshold": 0.7, "sam_mask_hint_use_negative": "False",
+        "drop_size": 10, "prompt_mode": "replace", "inpaint_model": False,
+        "noise_mask_feather": 5, "tiled_encode": False, "tiled_decode": False,
+    },
+}
+_DETAILER_REVISIONS = {"anus": 1}
 _BUILTIN = {"face", "breast", "pussy", "hand", "foot", "hair"}
 _INSPECTED = {}
+
+
+def detailer_migration(concept: str) -> dict:
+    """Return versioned catalog-owned fields for an existing saved detailer."""
+    revision = _DETAILER_REVISIONS.get(concept, 0)
+    if not revision:
+        return {}
+    return {
+        **copy.deepcopy(_DETAILER_DEFAULTS.get(concept, {})),
+        "prompt": _PROMPTS[concept],
+        "mask_concept": concept.replace("_", " "),
+        "catalog_revision": revision,
+    }
 
 
 def _slug(value: str) -> str:
@@ -126,6 +155,8 @@ def build_catalog() -> dict:
                 "group": _GROUPS.get(concept, "Scene & objects"),
                 "prompt": _PROMPTS.get(concept, f"detailed realistic {concept.replace('_', ' ')} texture and structure"),
                 "mask_concept": raw.replace("_", " "), "models": [], "builtin": concept in _BUILTIN,
+                "detailer_defaults": _DETAILER_DEFAULTS.get(concept, {}),
+                "detailer_revision": _DETAILER_REVISIONS.get(concept, 0),
                 "broad": _GROUPS.get(concept, "Scene & objects") == "Scene & objects",
             })
             entry["models"].append({"id": item["id"], "class_id": cls["id"], "class_label": raw, "task": meta["task"]})

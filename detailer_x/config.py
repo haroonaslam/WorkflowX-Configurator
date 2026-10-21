@@ -19,15 +19,17 @@ BASE_DETAILER = dict(enabled=True, guide_size=1024, guide_size_for=False, max_si
     bbox_crop_factor=3.0, detector_proposal="native", sam_detection_hint="center-1", sam_dilation=10,
     sam_threshold=0.85, sam_bbox_expansion=0, sam_mask_hint_threshold=0.7,
     sam_mask_hint_use_negative="False", drop_size=10, prompt="", prompt_mode="replace",
+    negative_prompt="", negative_prompt_mode="incoming",
     cycle=1, inpaint_model=False, noise_mask_feather=20, tiled_encode=False, tiled_decode=False,
     sam_strategy="inherit", sam_override=dict(backend="sam1",model="internal:sams/sam_vit_b_01ec64.pth",
-        device="Prefer GPU",keep_model_loaded=True), sam3_constraint="bounding_box")
+        device="Prefer GPU",keep_model_loaded=True), sam3_constraint="bounding_box", catalog_revision=0)
 
 DEFAULTS = {
-    "version": 5, "cache_epoch": 0, "ui": {}, "extra_detailers": {},
+    "version": 8, "cache_epoch": 0, "ui": {}, "extra_detailers": {},
     "order": list(ORDER), "visible": {name: name not in ADVANCED for name in ORDER},
     "entry": {"pause": False, "skip": False, "pause_minutes": 5.0, "wait_indefinitely": False},
     "global_seed": {"enabled": False, "mode": "fixed", "seed": 703203187737355},
+    "global_prompts": {"enabled": True, "positive": "", "negative": ""},
     "sam": {"backend": "sam1", "model": "internal:sams/sam_vit_b_01ec64.pth", "device": "Prefer GPU", "enabled": True,
             "keep_model_loaded": True},
     "upscaler": dict(enabled=True, model="internal:upscale_models/1x-ITF-SkinDiffDetail-Lite-v1.pth",
@@ -65,7 +67,8 @@ DEFAULTS["breast"].update(class_ids=[0,1],class_labels=["breast_pair","breast_si
 
 CHOICES = {
     "guidance_mode": ["incoming", "set", "disabled"],
-    "prompt_mode": ["replace", "incoming", "concat"], "seed_mode": ["fixed", "random"],
+    "prompt_mode": ["replace", "incoming", "concat"],
+    "negative_prompt_mode": ["replace", "incoming", "concat"], "seed_mode": ["fixed", "random"],
     "mode_seed": ["fixed", "random"], "backend_sam": ["sam1", "sam2.1", "sam3.1"],
     "sam3_mode": ["refine_detector", "concept_with_detector", "bbox_controlled", "concept_only"],
     "sam_strategy": ["inherit", "detector_only", "override"],
@@ -99,6 +102,7 @@ RANGES = {
     "intensity": (0, 2, 0.05), "tone": (0, 2, 0.05), "structure": (0, 2, 0.05),
     "skin": (-1, 2, 0.05), "global_tone": (-1, 2, 0.05), "detail": (0, 2, 0.05), "color": (0, 1, 0.05),
     "scene_change_threshold": (0.01, 1, 0.01), "warmup_frames": (0, 120, 1), "cache_epoch": (0, 9007199254740991, 1),
+    "catalog_revision": (0, 9007199254740991, 1),
 }
 
 CHOICES.update(ADV_CHOICES)
@@ -122,7 +126,7 @@ def normalize(value, _preset=True):
     if not isinstance(value, dict):
         raise ValueError("DetailerX settings must be a JSON object")
     source_version=value.get("version", 1)
-    if source_version not in (1, 2, 3, 4, 5):
+    if source_version not in (1, 2, 3, 4, 5, 6, 7, 8):
         raise ValueError("Unsupported DetailerX settings version; update WorkflowX")
     result = copy.deepcopy(DEFAULTS)
     for section, default in DEFAULTS.items():
@@ -185,6 +189,12 @@ def normalize(value, _preset=True):
         raise ValueError('Invalid DetailerX additional detailers')
     result['extra_detailers']={}
     for stage,supplied in extras.items():
+        supplied=copy.deepcopy(supplied)
+        from .catalog import detailer_migration
+        catalog_id=supplied.get('catalog_id',stage.split(':',1)[1])
+        migration=detailer_migration(catalog_id)
+        if migration and supplied.get('catalog_revision',0)<migration['catalog_revision']:
+            supplied.update(migration)
         template=copy.deepcopy(DEFAULTS['anything']);merged=copy.deepcopy(template)
         merged.update(mask_concept=stage.split(':',1)[1].replace('_',' '),label=stage.split(':',1)[1].replace('_',' ').title(),catalog_id=stage.split(':',1)[1])
         for key,fallback in template.items():

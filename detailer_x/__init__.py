@@ -20,8 +20,8 @@ _REALIZED_LOCK=threading.RLock()
 class DetailerX:
     @classmethod
     def INPUT_TYPES(cls):
-        return {"required":{"model":("MODEL",{"tooltip":"Authoritative sampling model; connect matching CLIP and VAE. Presets do not load or replace it or its attention patches."}),"vae":("VAE",{"tooltip":"VAE matching the supplied model. RGB/RGBA decoded images are supported; input alpha is preserved."}),"clip":("CLIP",{"tooltip":"Text encoder matching the model; used for local detailer prompts."}),
-            "positive":("CONDITIONING",{"tooltip":"Incoming positive conditioning. Per-detailer prompt mode controls replacement or concatenation."}),"negative":("CONDITIONING",{"tooltip":"Incoming negative conditioning; preserved by detailers, but inactive at CFG 1."}),"image":("IMAGE",{"tooltip":"RGB or RGBA image batch to process. final_image is completed; processor_images feeds DetailerX Preview; detailer_masks feeds DetailerX Masks."}),
+        return {"required":{"model":("MODEL",{"tooltip":"Authoritative sampling model; connect matching CLIP and VAE. Presets do not load or replace it or its attention patches."}),"vae":("VAE",{"tooltip":"VAE matching the supplied model. RGB/RGBA decoded images are supported; input alpha is preserved."}),"clip":("CLIP",{"tooltip":"Text encoder matching the model; used for node-wide global and local detailer prompts."}),
+            "positive":("CONDITIONING",{"tooltip":"Incoming positive conditioning. DetailerX composes incoming, node-wide global, and local detailer conditioning according to each detailer's prompt mode."}),"negative":("CONDITIONING",{"tooltip":"Incoming negative conditioning. DetailerX composes incoming, node-wide global, and local detailer conditioning according to each detailer's negative mode; all negative conditioning is inactive at CFG 1."}),"image":("IMAGE",{"tooltip":"RGB or RGBA image batch to process. final_image is completed; processor_images feeds DetailerX Preview; detailer_masks feeds DetailerX Masks."}),
             "settings":("STRING",{"default":json.dumps(DEFAULTS),"multiline":True})},
             "hidden":{"unique_id":"UNIQUE_ID", "prompt":"PROMPT", "extra_pnginfo":"EXTRA_PNGINFO"}}
 
@@ -96,6 +96,7 @@ class DetailerX:
         stages=s['order']
         processor_images=[]
         mask_items=[]
+        global_conditioning={}
         for index,name in enumerate(stages):
             try:
                 p.cancelled()
@@ -106,7 +107,7 @@ class DetailerX:
             if enabled:
                 stage_input=image
                 resolved_sam=effective_sam(s,stage) if name in details else None
-                dependency=(sampling,resolved_sam,signatures.get(f"sam:{name}")) if name in details else None
+                dependency=(sampling,s["global_prompts"],resolved_sam,signatures.get(f"sam:{name}")) if name in details else None
                 key=digest((previous,name,stage,signatures.get(name),dependency,"mask-debug-v1" if name in details else None))
                 cached=CACHE.get(key)
                 stage_started=time.monotonic()
@@ -124,7 +125,8 @@ class DetailerX:
                             if name=="upscaler":
                                 result=p.upscale(image,stage)
                             elif name in details:
-                                detailed=p.detail(image,stage,resolved_sam,model,clip,vae,positive,negative,True)
+                                detailed=p.detail(image,stage,resolved_sam,model,clip,vae,positive,negative,True,None,
+                                                  s["global_prompts"],global_conditioning)
                                 if isinstance(detailed,tuple) and len(detailed)==2:result,mask_debug=detailed
                                 else:result=detailed;mask_debug=empty_mask_debug(stage_input,stage,resolved_sam,"Mask diagnostics unavailable")
                                 mask_debug=compact_mask_debug(mask_debug)
@@ -204,7 +206,8 @@ class DetailerX:
                 if stage_name=="upscaler":result=p.upscale(base,stage)
                 elif stage_name in details:
                     shared=effective_sam(s,stage)
-                    result,debug=p.detail(base,stage,shared,inputs["model"],inputs["clip"],inputs["vae"],inputs["positive"],inputs["negative"],True,reuse)
+                    result,debug=p.detail(base,stage,shared,inputs["model"],inputs["clip"],inputs["vae"],inputs["positive"],inputs["negative"],True,reuse,
+                                          s["global_prompts"],{})
                     debug=compact_mask_debug(debug)
                 elif stage_name in ADVANCED:
                     from .advanced_processing import process

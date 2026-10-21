@@ -268,9 +268,18 @@ def sam_masks(image, regions, settings, shared):
         model.to("cpu")
 
 def decoded_rgb(decoded):
-    """Normalize image channels, never latent channels or model-name heuristics."""
+    """Normalize image channels, including single-frame video VAE output."""
+    # ComfyUI's 3D VAEs (including WanVAE) decode pixels as BTHWC. DetailerX
+    # processes one image crop at a time, so a singleton temporal dimension is
+    # equivalent to the BHWC output returned by a 2D image VAE.
+    if isinstance(decoded, torch.Tensor) and decoded.ndim == 5 and decoded.shape[1] == 1:
+        decoded = decoded[:, 0]
     if not isinstance(decoded, torch.Tensor) or decoded.ndim != 4 or decoded.shape[-1] not in (3, 4) or min(decoded.shape[:3]) < 1:
-        raise ValueError("VAE must decode a nonempty BHWC RGB or RGBA image; check the connected VAE and model")
+        shape = tuple(decoded.shape) if isinstance(decoded, torch.Tensor) else type(decoded).__name__
+        raise ValueError(
+            "VAE must decode a nonempty BHWC RGB or RGBA image, or a single-frame "
+            f"BTHWC image; got {shape}. Check the connected VAE and model"
+        )
     return decoded[..., :3]
 
 
@@ -356,7 +365,73 @@ def crop_conditioning(conditioning, height, width, crop):
         result.append([embedding,values])
     return result
 
-def detail(image, s, shared, model, clip, vae, positive, negative, return_debug=False, reuse_mask=None):
+
+def _encoded_prompt(clip, text, label):
+    import nodes
+    report(f"Encoding {label} prompt")
+    return nodes.CLIPTextEncode().encode(clip, text)[0]
+
+
+def _incoming_guidance(conditioning, incoming, guidance_mode):
+    if guidance_mode != "incoming":
+        return conditioning
+    guidance_values = {metadata.get("guidance") for _, metadata in incoming if "guidance" in metadata}
+    if len(guidance_values) != 1:
+        return conditioning
+    value = next(iter(guidance_values))
+    return [[embedding, {**metadata, "guidance": value}] for embedding, metadata in conditioning]
+
+
+def _concat_conditioning(parts):
+    import nodes
+    available=[part for part in parts if part is not None]
+    if not available:
+        return []
+    result=available[0]
+    for part in available[1:]:
+        result=nodes.ConditioningConcat().concat(result,part)[0]
+    return result
+
+
+def _global_prompt_text(global_prompts, polarity):
+    """Return saved global text only while the node-wide prompt control is enabled."""
+    if not isinstance(global_prompts, dict) or not global_prompts.get("enabled", True):
+        return ""
+    return global_prompts.get(polarity, "")
+
+
+def prompt_conditioning(incoming, text, mode, clip, guidance_mode="incoming", label="detail", encode_blank=False,
+                        global_text="", global_cache=None, polarity="positive"):
+    """Compose incoming, cached global, and local prompt conditioning in strict order."""
+    cache={} if global_cache is None else global_cache
+    global_raw=None
+    if isinstance(global_text,str) and global_text.strip():
+        key=(polarity,global_text)
+        if key not in cache:
+            cache[key]=_encoded_prompt(clip,global_text,f"global {polarity}")
+        global_raw=cache[key]
+    global_encoded=_incoming_guidance(global_raw,incoming,guidance_mode) if global_raw is not None else None
+
+    local_encoded=None
+    needs_local=mode!="incoming" and (bool(text) or (mode=="replace" and encode_blank))
+    if needs_local:
+        local_encoded=_incoming_guidance(_encoded_prompt(clip,text,label),incoming,guidance_mode)
+
+    if mode=="incoming":
+        return _concat_conditioning([incoming,global_encoded]) if global_encoded is not None else incoming
+    if mode=="concat":
+        if global_encoded is None and local_encoded is None:
+            return incoming
+        return _concat_conditioning([incoming,global_encoded,local_encoded])
+    if local_encoded is None:
+        # Legacy positive Replace behavior: a blank local prompt retains the
+        # incoming conditioning, with any global prompt appended after it.
+        return _concat_conditioning([incoming,global_encoded]) if global_encoded is not None else incoming
+    return _concat_conditioning([global_encoded,local_encoded]) if global_encoded is not None else local_encoded
+
+
+def detail(image, s, shared, model, clip, vae, positive, negative, return_debug=False, reuse_mask=None,
+           global_prompts=None, global_cache=None):
     import nodes
     import comfy.model_management as mm
     height,width=image.shape[1:3]
@@ -369,15 +444,14 @@ def detail(image, s, shared, model, clip, vae, positive, negative, return_debug=
     if s["denoise"] == 0:
         report("Denoise is zero — passing through input")
         return (image,blank_debug("Denoise is zero")) if return_debug else image
-    if s["prompt"] and s["prompt_mode"] != "incoming":
-        report("Encoding detail prompt")
-        local = nodes.CLIPTextEncode().encode(clip, s["prompt"])[0]
-        if s.get("guidance_mode", "incoming") == "incoming":
-            guidance_values = {metadata.get("guidance") for _,metadata in positive if "guidance" in metadata}
-            if len(guidance_values) == 1:
-                value = next(iter(guidance_values))
-                local = [[embedding, {**metadata, "guidance": value}] for embedding,metadata in local]
-        positive = nodes.ConditioningConcat().concat(positive, local)[0] if s["prompt_mode"] == "concat" else local
+    global_prompts=global_prompts or {}
+    positive = prompt_conditioning(positive, s.get("prompt", ""), s.get("prompt_mode", "incoming"), clip,
+                                   s.get("guidance_mode", "incoming"), "detail", False,
+                                   _global_prompt_text(global_prompts, "positive"), global_cache, "positive")
+    negative = prompt_conditioning(negative, s.get("negative_prompt", ""),
+                                   s.get("negative_prompt_mode", "incoming"), clip,
+                                   s.get("guidance_mode", "incoming"), "negative detail", True,
+                                   _global_prompt_text(global_prompts, "negative"), global_cache, "negative")
     if s["noise_mask"] and s["noise_mask_feather"] and "denoise_mask_function" not in model.model_options:
         from comfy_extras.nodes_differential_diffusion import DifferentialDiffusion
         model = DifferentialDiffusion.execute(model)[0]

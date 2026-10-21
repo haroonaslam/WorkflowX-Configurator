@@ -37,7 +37,19 @@ def test_roundtrip_and_migration():
     assert s==config.DEFAULTS
     s["face"]["denoise"]=.23
     assert config.normalize(json.dumps(s))==s
-    with pytest.raises(ValueError):config.normalize({"version":6})
+    with pytest.raises(ValueError):config.normalize({"version":9})
+    for version in range(1,7):
+        migrated=config.normalize({"version":version})
+        assert migrated["version"]==8
+        assert migrated["global_prompts"]=={"enabled":True,"positive":"","negative":""}
+    configured=config.normalize({"version":7,"global_prompts":{"positive":"global detail","negative":"global artifact"}})
+    assert configured["global_prompts"]=={"enabled":True,"positive":"global detail","negative":"global artifact"}
+    disabled=config.normalize({"version":8,"global_prompts":{"enabled":False,"positive":"saved detail","negative":"saved artifact"}})
+    assert disabled["global_prompts"]=={"enabled":False,"positive":"saved detail","negative":"saved artifact"}
+    with pytest.raises(ValueError,match="global_prompts"):
+        config.normalize({"version":8,"global_prompts":{"positive":42}})
+    with pytest.raises(ValueError,match="global_prompts"):
+        config.normalize({"version":8,"global_prompts":{"enabled":"false"}})
     with pytest.raises(ValueError):config.normalize({"face":{"denoise":1.5}})
     with pytest.raises(ValueError):config.normalize({"face":{"enabled":"false"}})
     with pytest.raises(ValueError):config.normalize({"face":{"steps":float("nan")}})
@@ -176,6 +188,31 @@ def test_shared_sam_when_face_disabled_and_detail_cache(monkeypatch):
     s["hand"]["denoise"]=.3;execute();assert len(calls)==2
     model.patches_uuid="changed";execute();assert len(calls)==3
     s["sam"]["device"]="CPU";execute();assert len(calls)==4
+
+
+def test_global_prompt_change_invalidates_detailers_but_reuses_upstream(monkeypatch):
+    module=importlib.import_module("detailer_x")
+    class Patcher:
+        patches_uuid="fixed"
+        model_options={}
+        object_patches={}
+    model,clip,vae=Patcher(),Patcher(),Patcher()
+    calls=[]
+    monkeypatch.setattr(module,"asset_signatures",lambda settings:{})
+    monkeypatch.setattr(p,"upscale",lambda image,*args:(calls.append("upscaler"),image+.1)[1])
+    monkeypatch.setattr(p,"detail",lambda image,*args:(calls.append("hand"),image+.1)[1])
+    s=disabled();s["upscaler"]["enabled"]=True;s["hand"]["enabled"]=True
+    image=torch.zeros(1,8,8,3)
+    DetailerX().process(model,vae,clip,[],[],image,s)
+    assert calls==["upscaler","hand"]
+    calls.clear();DetailerX().process(model,vae,clip,[],[],image,s)
+    assert calls==[]
+    s["global_prompts"].update(enabled=True,positive="shared detail")
+    DetailerX().process(model,vae,clip,[],[],image,s)
+    assert calls==["hand"]
+    calls.clear();s["global_prompts"]["enabled"]=False
+    DetailerX().process(model,vae,clip,[],[],image,s)
+    assert calls==["hand"]
 
 def test_attention_closure_fingerprints():
     class Patcher:
