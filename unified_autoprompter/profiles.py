@@ -145,6 +145,7 @@ class PromptProfile:
     generation_paths: dict[str, GenerationPathRule]
     engine: str = "standard"
     jsonx_config: dict = field(default_factory=dict)
+    bbox_mode: str = ""
 
     def enabled_formats(self) -> tuple[str, ...]:
         return tuple(format_key for format_key in ALL_FORMATS if self.formats.get(format_key) and self.formats[format_key].enabled)
@@ -210,6 +211,7 @@ def _standard_profile_from_metadata(metadata: dict) -> PromptProfile:
         default_generation_type=str(metadata.get("default_generation_type") or next(iter(generation_paths), GENERATION_TEXT_TO_IMAGE)),
         generation_paths=generation_paths,
         engine="standard",
+        bbox_mode=str(metadata.get("bbox_mode") or ""),
     )
 
 
@@ -228,6 +230,7 @@ def _jsonx_profile_from_metadata(metadata: dict) -> PromptProfile:
         generation_paths=profile.generation_paths,
         engine="jsonx",
         jsonx_config=dict(metadata.get("defaults") or {}),
+        bbox_mode="",
     )
 
 
@@ -357,6 +360,7 @@ def profiles_payload() -> dict:
                     key: {"label": rule.label} for key, rule in profile.generation_paths.items()
                 },
                 "jsonx_config": {},
+                "bbox_mode": profile.bbox_mode,
             })
         else:
             profile_items.append({
@@ -376,6 +380,7 @@ def profiles_payload() -> dict:
                     key: {"label": rule.label} for key, rule in profile.generation_paths.items()
                 },
                 "jsonx_config": dict(profile.jsonx_config),
+                "bbox_mode": "",
             })
     return {
         "schema_version": 8,

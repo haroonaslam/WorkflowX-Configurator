@@ -36,8 +36,20 @@ def _selected_paths(bundle, profile, generation_type, prompt_format, negative, n
     manifest = bundle["manifest"]
     folder = profile["folder"]
     paths = [f"{folder}/split/common.md"]
+    paths.extend(
+        f"{folder}/{path}"
+        for path in (profile.get("format_instruction_files") or {}).get(prompt_format, [])
+    )
     generation = manifest["generation_types"][generation_type]
     paths.append(f"{folder}/split/{generation['filename']}")
+    paths.extend(
+        f"{folder}/{path}"
+        for path in (
+            (profile.get("generation_format_instruction_files") or {})
+            .get(generation_type, {})
+            .get(prompt_format, [])
+        )
+    )
     if nsfw:
         paths.append(manifest["nsfw_files"][generation["output_medium"]])
     if generation["reference_supported"]:
@@ -131,7 +143,7 @@ def test_reference_store_migrates_v1_current_bundle_with_audit_block():
         store.CURRENT_ROOT = current
 
         migrated = store.current_bundle()
-        assert migrated["reference_schema_version"] == 2
+        assert migrated["reference_schema_version"] == 3
         assert migrated["manifest"]["audit_file"] == "audit.md"
         assert migrated["files"]["audit.md"] == store.original_bundle()["files"]["audit.md"]
 
@@ -158,7 +170,7 @@ def test_reference_bundle_rejects_traversal_and_materializes_blank_enabled_path_
 
 def test_frontend_uses_markdown_editor_and_separate_reference_schema_handshake():
     source = (ROOT / "web" / "js" / "unified_autoprompter.js").read_text(encoding="utf-8")
-    assert "const REFERENCE_SCHEMA_VERSION = 2" in source
+    assert "const REFERENCE_SCHEMA_VERSION = 3" in source
     assert "openMarkdownProfileSettings" in source
     assert "Common Profile Rules" in source
     assert "Global Rules" in source
@@ -210,17 +222,74 @@ def test_standard_profiles_payload_contains_routing_metadata_not_instruction_tex
     profiles, _store, _builder = _modules()
     payload = profiles.profiles_payload()
     standard = [profile for profile in payload["profiles"] if profile["engine"] == "standard"]
-    assert len(standard) == 13
-    assert payload["reference_schema_version"] == 2
+    assert len(standard) == 15
+    assert payload["reference_schema_version"] == 3
     for profile in standard:
         assert profile["notes"] == ""
         assert set(profile) == {
             "key", "label", "media_type", "default_format", "negative_supported",
             "json_supported", "notes", "engine", "formats", "default_generation_type",
-            "generation_paths", "jsonx_config",
+            "generation_paths", "jsonx_config", "bbox_mode",
         }
         assert all(set(rule) == {"enabled"} for rule in profile["formats"].values())
         assert all(set(path) == {"label"} for path in profile["generation_paths"].values())
+
+
+def test_moss_and_fibo_manifest_routing_uses_global_blocks_and_node_contracts():
+    profiles, store, builder = _modules()
+    bundle = store.original_bundle()
+    metadata = {item["key"]: item for item in bundle["manifest"]["profiles"]}
+    assert metadata["moss_image"]["bbox_mode"] == "moss_image"
+    assert "bbox_mode" not in metadata["fibo2"]
+    assert profiles.get_profile("fibo2").bbox_mode == ""
+
+    system, activated = builder.assemble_system_prompt(
+        "moss_image", "json", True, reference_count=1,
+        generation_type="image_to_image", nsfw_enabled=True,
+    )
+    paths = [item["path"] for item in activated]
+    assert paths == [
+        "MOSS-Image/split/common.md",
+        "MOSS-Image/Supporting/json_authoring.md",
+        "MOSS-Image/Supporting/canvas.md",
+        "MOSS-Image/split/image-to-image.md",
+        "MOSS-Image/Supporting/json_editing.md",
+        "nsfw-image.md",
+        "MOSS-Image/Supporting/with_reference_supported.md",
+        "MOSS-Image/Supporting/json_output_with_negative.md",
+    ]
+    assert bundle["files"]["nsfw-image.md"] in system
+    assert "MOSS-Image/Supporting/nsfw-image.md" not in bundle["files"]
+    assert '"prompt_json"' in bundle["files"][paths[-1]]
+
+    fibo_contract = bundle["files"]["FIBO 2/Supporting/json_output_with_negative.md"]
+    assert "structured_caption" in fibo_contract
+    assert "edit_instruction" in fibo_contract
+
+
+def test_moss_and_both_fibo_edit_envelopes_parse_without_schema_conversion():
+    profiles, _store, _builder = _modules()
+    prompt_io = _load_module("unified_autoprompter/prompt_io.py", f"{profiles.__package__}.prompt_io")
+    moss = {
+        "summary": {"meta": ["image"], "canvas": "single", "caption": "layout"},
+        "items": [{"label": "object", "caption": "subject", "bbox": [-200, -100, 200, 100]}],
+        "bbox_coord_space": "abs_centralized",
+        "bbox_format": "yxyx",
+    }
+    parsed = prompt_io.parse_generation_response(
+        "moss_image", "json", json.dumps({"prompt_json": moss, "negative": "artifact"}), True
+    )
+    assert json.loads(parsed["positive"]) == moss
+    assert parsed["negative"] == "artifact"
+
+    root_edit = {"short_description": "result", "edit_instruction": "change coat to red"}
+    wrapped_edit = {"structured_caption": {"short_description": "result"}, "edit_instruction": "change coat to red"}
+    for envelope in (root_edit, wrapped_edit):
+        parsed = prompt_io.parse_generation_response(
+            "fibo2", "json", json.dumps({"prompt_json": envelope, "negative": "artifact"}), True
+        )
+        assert json.loads(parsed["positive"]) == envelope
+        assert parsed["negative"] == "artifact"
 
 
 def test_markdown_contracts_preserve_bbox_orders_tags_and_minimax_negative_behavior():

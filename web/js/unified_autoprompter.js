@@ -1,12 +1,22 @@
 import { app } from "../../scripts/app.js";
 import { graphDockScreenRect } from "./workflowx_graph_dock.mjs";
+import {
+  BBOX_MODE_OPTIONS,
+  bboxModeConfig,
+  hasBBoxPayload,
+  nativeBoxToNeutral,
+  neutralBoxToNativeBbox,
+  parseBBoxDocument,
+  serializeBBoxDocument,
+} from "./unified_bbox_adapters.mjs";
+import { createSharedBBoxDock } from "./unified_bbox_editor.mjs";
 
 const TARGET_NODE = "UnifiedAutoprompterX";
 const ROUTE = "/workflowx/unified_autoprompter";
 const FRONTEND_SCHEMA_VERSION = 8;
 const GENERAL_SCHEMA_VERSION = 1;
 const GENERAL_PROFILE = { key: "general", label: "General", engine: "general", default_format: "natural", formats: { natural: { enabled: true } } };
-const REFERENCE_SCHEMA_VERSION = 2;
+const REFERENCE_SCHEMA_VERSION = 3;
 const JSONX_REFERENCE_SCHEMA_VERSION = 1;
 const PRESET_SCHEMA_VERSION = 1;
 const GEMINI_KEY_STORAGE_KEY = "workflowx_unified_autoprompter_gemini_api_key";
@@ -214,10 +224,6 @@ function normalizeUnifiedReasoning(value) {
   if (["deepseek", "qwen3"].includes(mode)) return "auto";
   return ["auto", "on", "off"].includes(mode) ? mode : "auto";
 }
-const BBOX_LAYOUT_TARGETS = {
-  ideogram4: { label: "Ideogram 4", order: "yx", orderLabel: "ymin, xmin, ymax, xmax" },
-  krea2: { label: "Krea2", order: "xy", orderLabel: "xmin, ymin, xmax, ymax" },
-};
 const COLOR_PALETTE_TARGETS = new Set(["ideogram4", "flux2_dev", "flux_klein", "jsonx"]);
 
 function fallbackRule(enabled, text = "") {
@@ -229,13 +235,15 @@ function fallbackRule(enabled, text = "") {
 }
 
 const FALLBACK_PROFILES = [
-  { key: "ideogram4", label: "Ideogram 4", formats: { natural: fallbackRule(true), tags: fallbackRule(false), json: fallbackRule(true) }, default_format: "json", negative_supported: true, json_supported: true, media_type: "image", notes: "" },
+  { key: "ideogram4", label: "Ideogram 4", bbox_mode: "ideogram4", formats: { natural: fallbackRule(true), tags: fallbackRule(false), json: fallbackRule(true) }, default_format: "json", negative_supported: true, json_supported: true, media_type: "image", notes: "" },
   { key: "sdxl", label: "SDXL", formats: { natural: fallbackRule(true), tags: fallbackRule(true), json: fallbackRule(false) }, default_format: "tags", negative_supported: true, json_supported: false, media_type: "image", notes: "" },
   { key: "qwen_image", label: "Qwen-Image", formats: { natural: fallbackRule(true), tags: fallbackRule(false), json: fallbackRule(false) }, default_format: "natural", negative_supported: true, json_supported: false, media_type: "image", notes: "" },
   { key: "flux1_dev", label: "FLUX.1 dev", formats: { natural: fallbackRule(true), tags: fallbackRule(false), json: fallbackRule(false) }, default_format: "natural", negative_supported: true, json_supported: false, media_type: "image", notes: "" },
   { key: "flux2_dev", label: "FLUX.2 dev", formats: { natural: fallbackRule(true), tags: fallbackRule(false), json: fallbackRule(true) }, default_format: "natural", negative_supported: true, json_supported: true, media_type: "image", notes: "" },
   { key: "flux_klein", label: "Flux Klein", formats: { natural: fallbackRule(true), tags: fallbackRule(false), json: fallbackRule(true) }, default_format: "natural", negative_supported: true, json_supported: true, media_type: "image", notes: "" },
-  { key: "krea2", label: "Krea2", formats: { natural: fallbackRule(true), tags: fallbackRule(false), json: fallbackRule(true) }, default_format: "natural", negative_supported: true, json_supported: true, media_type: "image", notes: "" },
+  { key: "krea2", label: "Krea2", bbox_mode: "krea2", formats: { natural: fallbackRule(true), tags: fallbackRule(false), json: fallbackRule(true) }, default_format: "natural", negative_supported: true, json_supported: true, media_type: "image", notes: "" },
+  { key: "moss_image", label: "MOSS-Image", bbox_mode: "moss_image", formats: { natural: fallbackRule(true), tags: fallbackRule(false), json: fallbackRule(true) }, default_format: "natural", negative_supported: true, json_supported: true, media_type: "image", notes: "" },
+  { key: "fibo2", label: "FIBO 2", bbox_mode: "", formats: { natural: fallbackRule(true), tags: fallbackRule(false), json: fallbackRule(true) }, default_format: "natural", negative_supported: true, json_supported: true, media_type: "image", notes: "" },
   { key: "z_image", label: "Z-Image", formats: { natural: fallbackRule(true), tags: fallbackRule(false), json: fallbackRule(false) }, default_format: "natural", negative_supported: true, json_supported: false, media_type: "image", notes: "" },
   { key: "wan2_2", label: "WAN 2.2", formats: { natural: fallbackRule(true), tags: fallbackRule(false), json: fallbackRule(false) }, default_format: "natural", negative_supported: true, json_supported: false, media_type: "video", notes: "" },
   { key: "ltx_2_3", label: "LTX 2.3", formats: { natural: fallbackRule(true), tags: fallbackRule(false), json: fallbackRule(false) }, default_format: "natural", negative_supported: true, json_supported: false, media_type: "video", notes: "" },
@@ -264,6 +272,7 @@ const DOCK_OBSCURING_MODAL_SELECTOR = [
 let nextDockZ = DOCK_Z_BASE;
 
 let profilesPromise = null;
+let bboxProfileLookup = new Map(FALLBACK_PROFILES.map((profile) => [profile.key, profile]));
 let backendSchemaVersion = 0;
 let backendReferenceSchemaVersion = 0;
 let backendJsonXReferenceSchemaVersion = 0;
@@ -1671,10 +1680,12 @@ function clearProfileCache() {
 }
 
 function profileMap(profiles) {
-  return new Map(profiles.map((profile) => {
+  const mapped = new Map(profiles.map((profile) => {
     const shaped = ensureProfileShape(profile);
     return [shaped.key, shaped];
   }));
+  bboxProfileLookup = mapped;
+  return mapped;
 }
 
 function profileIsVideo(profile) {
@@ -1682,7 +1693,7 @@ function profileIsVideo(profile) {
 }
 
 function bboxTargetConfig(targetModel) {
-  return BBOX_LAYOUT_TARGETS[targetModel] || null;
+  return bboxModeConfig(bboxProfileLookup.get(targetModel)?.bbox_mode);
 }
 
 function isBboxLayoutTarget(targetModel) {
@@ -1694,7 +1705,7 @@ function bboxOrder(targetModel) {
 }
 
 function bboxOrderLabel(targetModel) {
-  return bboxTargetConfig(targetModel)?.orderLabel || BBOX_LAYOUT_TARGETS.ideogram4.orderLabel;
+  return bboxTargetConfig(targetModel)?.orderLabel || "ymin, xmin, ymax, xmax";
 }
 
 function formatRule(profile, promptFormat) {
@@ -1765,6 +1776,7 @@ function ensureProfileShape(profile) {
   next.json_supported = Boolean(next.json_supported);
   next.media_type ||= "image";
   next.notes ||= "";
+  next.bbox_mode = String(next.bbox_mode || "");
   const defaultTypes = next.media_type === "video"
     ? ["text_to_video", "first_frame_to_video", "first_last_frame_to_video"]
     : ["text_to_image", "image_to_image"];
@@ -3440,7 +3452,7 @@ function setupUnifiedAutoprompter(node) {
   const negativePreviewBtn = buildDom("button", "workflowx-uap-btn", "Show negative");
   negativePreviewBtn.type = "button";
   negativePreviewBtn.title = "Open the saved negative prompt preview";
-  const ideogramBtn = buildDom("button", "workflowx-uap-btn", "BBox layout");
+  const ideogramBtn = buildDom("button", "workflowx-uap-btn", "BBox");
   ideogramBtn.type = "button";
   ideogramBtn.title = "Open the bounding-box layout editor for supported targets";
   const modelSettingsBtn = buildDom("button", "workflowx-uap-btn", "Profile settings");
@@ -3867,7 +3879,7 @@ function setupUnifiedAutoprompter(node) {
     positivePreviewBtn.textContent = dockIsOpen(node, "output_positive") ? "Hide positive" : "Show positive";
     negativePreviewBtn.textContent = dockIsOpen(node, "output_negative") ? "Hide negative" : "Show negative";
     const ideogramOpen = dockIsOpen(node, "ideogram");
-    ideogramBtn.textContent = ideogramOpen ? "Hide layout" : "BBox layout";
+    ideogramBtn.textContent = ideogramOpen ? "Hide BBox" : "BBox";
     ideogramBtn.classList.toggle("active", ideogramOpen);
   }
 
@@ -4708,6 +4720,7 @@ function setupUnifiedAutoprompter(node) {
       const key = createInput("text"); key.value = profile.key; key.disabled = originalKeys.has(profile.key);
       const label = createInput("text"); label.value = profile.label || "";
       const media = setSelect(createSelect(), [["image", "Image"], ["video", "Video"]], profile.media_type);
+      const bboxMode = setSelect(createSelect(), BBOX_MODE_OPTIONS, profile.bbox_mode || "");
       const negative = document.createElement("input"); negative.type = "checkbox"; negative.checked = Boolean(profile.negative_supported);
       const defaultFormat = setSelect(
         createSelect(),
@@ -4722,6 +4735,7 @@ function setupUnifiedAutoprompter(node) {
       field(grid, "Profile key", key);
       field(grid, "Display label", label);
       field(grid, "Output medium", media);
+      field(grid, "BBox schema", bboxMode);
       field(grid, "Default output format", defaultFormat);
       field(grid, "Default generation type", defaultPath);
       const negativeLabel = buildDom("label", "workflowx-uap-toggle");
@@ -4777,6 +4791,7 @@ function setupUnifiedAutoprompter(node) {
       });
       label.addEventListener("input", () => { profile.label = label.value; renderList(); });
       media.addEventListener("change", () => { profile.media_type = media.value; });
+      bboxMode.addEventListener("change", () => { profile.bbox_mode = bboxMode.value; });
       negative.addEventListener("change", () => { profile.negative_supported = negative.checked; });
       defaultFormat.addEventListener("change", () => { profile.default_format = defaultFormat.value; activeFormat = defaultFormat.value; });
       defaultPath.addEventListener("change", () => { profile.default_generation_type = defaultPath.value; activePath = defaultPath.value; });
@@ -4789,6 +4804,24 @@ function setupUnifiedAutoprompter(node) {
         32,
         "Included for every request using this profile.",
       );
+      if (!profile.enabled_formats.includes(activeFormat)) activeFormat = profile.default_format;
+      const format = setSelect(
+        createSelect(),
+        profile.enabled_formats.map((item) => [item, formatCatalog()[item]?.label || item]),
+        activeFormat,
+      );
+      field(content, "Format-authoring rules", format);
+      const paths = profile.format_instruction_files?.[activeFormat] || [];
+      if (!paths.length) content.appendChild(buildDom("div", "workflowx-uap-status", "This profile uses the common block without an additional format-authoring block."));
+      for (const path of paths) {
+        addExactEditor(
+          `Format authoring · ${activeFormat}`,
+          profilePath(profile, path),
+          24,
+          `Compiled after common rules for ${activeFormat}.`,
+        );
+      }
+      format.addEventListener("change", () => { activeFormat = format.value; renderAll(); });
     }
 
     function renderPaths(profile) {
@@ -4799,13 +4832,30 @@ function setupUnifiedAutoprompter(node) {
         activePath,
       );
       field(content, "Generation type", select);
+      const format = setSelect(
+        createSelect(),
+        profile.enabled_formats.map((item) => [item, formatCatalog()[item]?.label || item]),
+        activeFormat,
+      );
+      field(content, "Output format", format);
       addExactEditor(
         "Generation-type rules",
         pathFile(profile, activePath),
         32,
         "Included only when this generation type is selected. Missing packaged files intentionally open blank.",
       );
+      const procedurePaths = profile.generation_format_instruction_files?.[activePath]?.[activeFormat] || [];
+      if (!procedurePaths.length) content.appendChild(buildDom("div", "workflowx-uap-status", "This path and format use no additional procedure block."));
+      for (const path of procedurePaths) {
+        addExactEditor(
+          `Procedure · ${generationCatalog()[activePath]?.label || activePath} · ${formatCatalog()[activeFormat]?.label || activeFormat}`,
+          profilePath(profile, path),
+          24,
+          "Compiled after the generation-type block.",
+        );
+      }
       select.addEventListener("change", () => { activePath = select.value; renderAll(); });
+      format.addEventListener("change", () => { activeFormat = format.value; renderAll(); });
     }
 
     function renderReferences(profile) {
@@ -4971,6 +5021,7 @@ function setupUnifiedAutoprompter(node) {
         enabled_generation_types: ["text_to_image"],
         default_generation_type: "text_to_image",
         negative_supported: true,
+        bbox_mode: "",
         builtin: false,
       };
       draft.manifest.profiles.push(profile);
@@ -5099,56 +5150,37 @@ function setupUnifiedAutoprompter(node) {
   }
 
   function normalizeBoxFromBbox(element, index) {
-    const bbox = Array.isArray(element?.bbox) ? element.bbox : [80 + index * 40, 80 + index * 40, 320 + index * 40, 360 + index * 40];
-    const order = bboxOrder(state.target_model);
-    const xmin = clamp01(Number(order === "xy" ? bbox[0] : bbox[1]) / 1000);
-    const ymin = clamp01(Number(order === "xy" ? bbox[1] : bbox[0]) / 1000);
-    const xmax = clamp01(Number(order === "xy" ? bbox[2] : bbox[3]) / 1000);
-    const ymax = clamp01(Number(order === "xy" ? bbox[3] : bbox[2]) / 1000);
-    const palette = Array.isArray(element?.color_palette)
-      ? element.color_palette.map((item) => String(item || "").trim()).filter(Boolean)
-      : [];
+    const box = nativeBoxToNeutral(
+      activeProfile()?.bbox_mode,
+      element,
+      index,
+      Number(state.ideogram_width || 1024),
+      Number(state.ideogram_height || 1024),
+    );
+    const palette = box.palette || [];
     const fallbackColor = String(element?.color || ideogramPaletteInput.value.split(",")[0] || "#8c8c8c").trim();
     if (!palette.length && fallbackColor) palette.push(fallbackColor);
-    return {
-      type: element?.type === "text" ? "text" : "obj",
-      text: String(element?.text || ""),
-      desc: String(element?.desc || element?.description || ""),
-      palette,
-      x: Math.min(xmin, xmax),
-      y: Math.min(ymin, ymax),
-      w: Math.max(0.04, Math.abs(xmax - xmin)),
-      h: Math.max(0.04, Math.abs(ymax - ymin)),
-    };
+    return { ...box, palette };
   }
 
-  function openIdeogramLayoutEditor() {
+  function openBBoxLayoutEditor() {
     if (!isBboxLayoutTarget(state.target_model)) return;
     readFieldsIntoState();
-    const targetLabel = bboxTargetConfig(state.target_model)?.label || activeProfile()?.label || "BBox";
-    const dock = createDockWindow(node, "ideogram", `${targetLabel} bbox layout editor X`, { height: 470, matchNodeWidth: true });
-    dock.dock.__workflowXOnClose = () => setPreviewButtonLabels();
+    const bboxMode = activeProfile()?.bbox_mode || "";
+    const bboxConfig = bboxModeConfig(bboxMode);
+    const dock = createSharedBBoxDock({
+      createDockWindow,
+      node,
+      onClose: () => setPreviewButtonLabels(),
+    });
     setPreviewButtonLabels();
 
-    function normalizeCaptionPayload(payload) {
-      if (!payload || typeof payload !== "object") return {};
-      if (payload.prompt_json && typeof payload.prompt_json === "object") return payload.prompt_json;
-      return payload;
-    }
-
     function parseCaptionText(text) {
-      const parsedText = parseJsonObject(text);
-      return normalizeCaptionPayload(parsedText);
+      return parseJsonObject(text) || {};
     }
 
     function hasCaptionContent(caption) {
-      const decomp = caption?.compositional_deconstruction || {};
-      return Boolean(
-        caption?.high_level_description
-        || decomp.background
-        || (Array.isArray(decomp.elements) && decomp.elements.length)
-        || (Array.isArray(caption?.elements) && caption.elements.length)
-      );
+      return hasBBoxPayload(bboxMode, caption);
     }
 
     function activeBboxCaption() {
@@ -5173,9 +5205,13 @@ function setupUnifiedAutoprompter(node) {
     }
 
     const parsed = activeBboxCaption();
-    const decomp = parsed.compositional_deconstruction || {};
-    const sourceElements = Array.isArray(decomp.elements) ? decomp.elements : Array.isArray(parsed.elements) ? parsed.elements : [];
-    const boxes = sourceElements.map(normalizeBoxFromBbox);
+    const parsedDocument = parseBBoxDocument(
+      bboxMode,
+      parsed,
+      Number(state.ideogram_width || 1024),
+      Number(state.ideogram_height || 1024),
+    );
+    const boxes = parsedDocument.boxes;
     let activeIndex = boxes.length ? 0 : -1;
     let drawing = null;
     let draggingBox = null;
@@ -5183,17 +5219,14 @@ function setupUnifiedAutoprompter(node) {
     let layerMenu = null;
     let layerDismiss = null;
     let toolbarMenuDismiss = null;
-    let highLevelDescription = parsed.high_level_description || state.prompt_text || "";
-    let backgroundDescription = decomp.background || state.prompt_text || "";
+    let highLevelDescription = parsedDocument.highLevelDescription || state.prompt_text || "";
+    let backgroundDescription = parsedDocument.backgroundDescription || state.prompt_text || "";
+    let summaryMeta = parsedDocument.summaryMeta || [];
     let stylePalette = String(state.ideogram_palette || "")
       .split(",")
       .map((item) => item.trim())
       .filter(Boolean);
-    if (!stylePalette.length && Array.isArray(parsed.style_description?.color_palette)) {
-      stylePalette = parsed.style_description.color_palette
-        .map((item) => String(item || "").trim())
-        .filter(Boolean);
-    }
+    if (!stylePalette.length) stylePalette = parsedDocument.stylePalette.map((item) => String(item || "").trim()).filter(Boolean);
     if (!stylePalette.length) {
       for (const box of boxes) {
         const color = box.palette?.find(Boolean) || box.color;
@@ -5218,6 +5251,7 @@ function setupUnifiedAutoprompter(node) {
     const applyBtn = buildDom("button", "workflowx-uap-btn", "Apply layout to output");
     const syncBtn = buildDom("button", "workflowx-uap-btn", "Sync");
     const templatesBtn = buildDom("button", "workflowx-uap-btn", "Templates v");
+    templatesBtn.classList.toggle("workflowx-uap-hidden", bboxMode === "moss_image");
     const clearBtn = buildDom("button", "workflowx-uap-btn", "Clear all");
     for (const button of [bgBtn, textBtn, copyBtn, applyBtn, syncBtn, templatesBtn, clearBtn]) button.type = "button";
     bar.appendChild(tokenSpan);
@@ -5232,6 +5266,7 @@ function setupUnifiedAutoprompter(node) {
 
     const styleBar = buildDom("div", "workflowx-uap-ideo-bar");
     styleBar.appendChild(buildDom("span", "", "Style colors:"));
+    styleBar.classList.toggle("workflowx-uap-hidden", !bboxConfig?.palette);
     editor.appendChild(styleBar);
 
     const cvBox = buildDom("div", "workflowx-uap-ideo-cv");
@@ -5281,6 +5316,8 @@ function setupUnifiedAutoprompter(node) {
     highInput.value = highLevelDescription;
     const bgInput = createTextarea(2);
     bgInput.value = backgroundDescription;
+    const metaInput = createInput("text");
+    metaInput.value = summaryMeta.join(", ");
     const bgRow1 = buildDom("div", "workflowx-uap-ideo-menu-row");
     bgRow1.appendChild(overlayToggle);
     const bgRow2 = buildDom("div", "workflowx-uap-ideo-menu-row");
@@ -5293,6 +5330,7 @@ function setupUnifiedAutoprompter(node) {
     dimsRow.appendChild(heightInput);
     field(bgMenu, "High level description", highInput);
     field(bgMenu, "Background", bgInput);
+    if (bboxMode === "moss_image") field(bgMenu, "Summary meta", metaInput);
     bgMenu.appendChild(bgRow1);
     bgMenu.appendChild(bgRow2);
     bgMenu.appendChild(dimsRow);
@@ -5410,62 +5448,31 @@ function setupUnifiedAutoprompter(node) {
     })();
 
     function buildCaption() {
-      const toTargetBbox = (box) => {
-        const xmin = Math.round(box.x * 1000);
-        const ymin = Math.round(box.y * 1000);
-        const xmax = Math.round((box.x + box.w) * 1000);
-        const ymax = Math.round((box.y + box.h) * 1000);
-        return bboxOrder(state.target_model) === "xy"
-          ? [xmin, ymin, xmax, ymax]
-          : [ymin, xmin, ymax, xmax];
-      };
-      const elements = boxes.map((box) => {
-        const element = {
-          type: box.type === "text" ? "text" : "obj",
-          bbox: toTargetBbox(box),
-        };
-        if (box.type === "text") element.text = box.text || "";
-        element.desc = box.desc || "";
-        const palette = (box.palette || (box.color ? [box.color] : []))
-          .filter(Boolean)
-          .slice(0, IDEOGRAM_MAX_ELEM_COLORS)
-          .map((color) => String(color).toUpperCase());
-        if (palette.length) element.color_palette = palette;
-        return element;
-      });
-      return {
-        high_level_description: highLevelDescription || state.prompt_text || "",
-        style_description: stylePalette.length ? {
-          aesthetics: "",
-          lighting: "",
-          medium: state.detail || "",
-          color_palette: stylePalette.map((color) => String(color).toUpperCase()),
-        } : undefined,
-        compositional_deconstruction: {
-          background: backgroundDescription || state.prompt_text || "",
-          elements,
-        },
-      };
+      return serializeBBoxDocument(bboxMode, {
+        highLevelDescription: highLevelDescription || state.prompt_text || "",
+        backgroundDescription: backgroundDescription || state.prompt_text || "",
+        summaryMeta,
+        stylePalette,
+        detail: state.detail || "",
+        boxes,
+      }, round16(state.ideogram_width), round16(state.ideogram_height));
     }
 
     function loadCaption(caption, insertOnly = false) {
       if (!caption || typeof caption !== "object") return;
-      const nextDecomp = caption.compositional_deconstruction || {};
-      const nextElements = Array.isArray(nextDecomp.elements) ? nextDecomp.elements : Array.isArray(caption.elements) ? caption.elements : [];
-      const nextBoxes = nextElements.map(normalizeBoxFromBbox);
+      const next = parseBBoxDocument(bboxMode, caption, round16(state.ideogram_width), round16(state.ideogram_height));
+      const nextBoxes = next.boxes;
       if (insertOnly) {
         boxes.push(...nextBoxes.map((box) => ({ ...box, x: clamp01(box.x + 0.04), y: clamp01(box.y + 0.04) })));
       } else {
         boxes.splice(0, boxes.length, ...nextBoxes);
-        highLevelDescription = caption.high_level_description || highLevelDescription;
-        backgroundDescription = nextDecomp.background || backgroundDescription;
-        if (Array.isArray(caption.style_description?.color_palette)) {
-          stylePalette = caption.style_description.color_palette
-            .map((item) => String(item || "").trim())
-            .filter(Boolean);
-        }
+        highLevelDescription = next.highLevelDescription || highLevelDescription;
+        backgroundDescription = next.backgroundDescription || backgroundDescription;
+        summaryMeta = next.summaryMeta || summaryMeta;
+        stylePalette = next.stylePalette || stylePalette;
         highInput.value = highLevelDescription;
         bgInput.value = backgroundDescription;
+        metaInput.value = summaryMeta.join(", ");
       }
       activeIndex = boxes.length ? Math.max(0, boxes.length - nextBoxes.length) : -1;
       commitIdeogramState();
@@ -5742,6 +5749,7 @@ function setupUnifiedAutoprompter(node) {
     if (node.__workflowXUapOverlayImage) node.__workflowXUapOnOverlayImageLoad(node.__workflowXUapOverlayImage);
 
     function renderStyleBar() {
+      if (!bboxConfig?.palette) return;
       while (styleBar.children.length > 1) styleBar.lastChild.remove();
       buildSwatchRow(styleBar, stylePalette, IDEOGRAM_MAX_STYLE_COLORS, commitSwatchEdit, () => {
         commitSwatchEdit();
@@ -5833,6 +5841,9 @@ function setupUnifiedAutoprompter(node) {
 
     function boxToPx(box) {
       const [width, height] = dims();
+      if (bboxConfig?.coordinateSpace === "centered_pixels") {
+        return neutralBoxToNativeBbox(bboxMode, box, width, height);
+      }
       const xmin = Math.round(box.x * width);
       const ymin = Math.round(box.y * height);
       const xmax = Math.round((box.x + box.w) * width);
@@ -5857,6 +5868,12 @@ function setupUnifiedAutoprompter(node) {
         [xmin, ymin, xmax, ymax] = nums;
       } else {
         [ymin, xmin, ymax, xmax] = nums;
+      }
+      if (bboxConfig?.coordinateSpace === "centered_pixels") {
+        xmin += width / 2;
+        xmax += width / 2;
+        ymin += height / 2;
+        ymax += height / 2;
       }
       ymin = Math.max(0, Math.min(height, ymin));
       ymax = Math.max(0, Math.min(height, ymax));
@@ -5970,7 +5987,7 @@ function setupUnifiedAutoprompter(node) {
         renderAll();
       });
       gridField.value = boxToGrid(box).join(", ");
-      typeRow.appendChild(gridField);
+      if (bboxMode !== "moss_image") typeRow.appendChild(gridField);
       panel.appendChild(typeRow);
 
       if (box.type === "text") {
@@ -5986,18 +6003,20 @@ function setupUnifiedAutoprompter(node) {
         renderCanvas();
       }));
 
-      const paletteRow = buildDom("div", "workflowx-uap-ideo-active-row");
-      paletteRow.appendChild(buildDom("span", "", "colors:"));
-      box.palette ||= [];
-      buildSwatchRow(paletteRow, box.palette, IDEOGRAM_MAX_ELEM_COLORS, () => {
-        commitIdeogramState();
-        renderCanvas();
-      }, () => {
-        commitIdeogramState();
-        renderPanel();
-        renderCanvas();
-      });
-      panel.appendChild(paletteRow);
+      if (bboxConfig?.palette) {
+        const paletteRow = buildDom("div", "workflowx-uap-ideo-active-row");
+        paletteRow.appendChild(buildDom("span", "", "colors:"));
+        box.palette ||= [];
+        buildSwatchRow(paletteRow, box.palette, IDEOGRAM_MAX_ELEM_COLORS, () => {
+          commitIdeogramState();
+          renderCanvas();
+        }, () => {
+          commitIdeogramState();
+          renderPanel();
+          renderCanvas();
+        });
+        panel.appendChild(paletteRow);
+      }
     }
 
     function renderAll() {
@@ -6423,6 +6442,10 @@ function setupUnifiedAutoprompter(node) {
       backgroundDescription = bgInput.value;
       commitIdeogramState();
     });
+    metaInput.addEventListener("input", () => {
+      summaryMeta = metaInput.value.split(",").map((item) => item.trim()).filter(Boolean);
+      commitIdeogramState();
+    });
     overlayInput.addEventListener("change", () => {
       state.ideogram_overlay_visible = overlayInput.checked;
       syncPreview();
@@ -6488,13 +6511,13 @@ function setupUnifiedAutoprompter(node) {
     renderAll();
   }
 
-  function toggleIdeogramLayoutEditor() {
+  function toggleBBoxLayoutEditor() {
     if (dockIsOpen(node, "ideogram")) {
       closeDock(node, "ideogram");
       setPreviewButtonLabels();
       return;
     }
-    openIdeogramLayoutEditor();
+    openBBoxLayoutEditor();
   }
 
   async function fetchGeminiModels() {
@@ -7505,7 +7528,7 @@ try{const response=await fetch(`${JSONX_ROUTE}/generate`,{method:"POST",headers:
         raw_prompt_text: rawPromptText,
         bbox_layout: isBboxLayoutTarget(state.target_model) ? state.ideogram_layout : "",
         ideogram_layout: isBboxLayoutTarget(state.target_model) ? state.ideogram_layout : "",
-        ideogram_palette: isBboxLayoutTarget(state.target_model) ? state.ideogram_palette : "",
+        ideogram_palette: bboxTargetConfig(state.target_model)?.palette ? state.ideogram_palette : "",
       },
     };
 
@@ -7851,7 +7874,7 @@ try{const response=await fetch(`${JSONX_ROUTE}/generate`,{method:"POST",headers:
   fetchLocalBtn.addEventListener("click", fetchLocalModels);
   positivePreviewBtn.addEventListener("click", () => toggleOutputPreview("positive"));
   negativePreviewBtn.addEventListener("click", () => toggleOutputPreview("negative"));
-  ideogramBtn.addEventListener("click", toggleIdeogramLayoutEditor);
+  ideogramBtn.addEventListener("click", toggleBBoxLayoutEditor);
   modelSettingsBtn.addEventListener("click", openMarkdownProfileSettings);
   presetsBtn.addEventListener("click", openPromptPresets);
   generalPreviewBtn.addEventListener("click", previewGeneral);

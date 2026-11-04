@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "generation_types": {
     "text_to_image": {
       "label": "Text to Image",
@@ -85,6 +85,7 @@
       ],
       "default_generation_type": "text_to_image",
       "negative_supported": true,
+      "bbox_mode": "ideogram4",
       "builtin": true
     },
     {
@@ -103,6 +104,96 @@
       ],
       "default_generation_type": "text_to_image",
       "negative_supported": true,
+      "builtin": true
+    },
+    {
+      "key": "moss_image",
+      "label": "MOSS-Image",
+      "folder": "MOSS-Image",
+      "media_type": "image",
+      "enabled_formats": [
+        "natural",
+        "json"
+      ],
+      "default_format": "natural",
+      "enabled_generation_types": [
+        "text_to_image",
+        "image_to_image"
+      ],
+      "default_generation_type": "text_to_image",
+      "negative_supported": true,
+      "format_instruction_files": {
+        "natural": [
+          "Supporting/natural_authoring.md"
+        ],
+        "json": [
+          "Supporting/json_authoring.md",
+          "Supporting/canvas.md"
+        ]
+      },
+      "generation_format_instruction_files": {
+        "text_to_image": {
+          "natural": [
+            "Supporting/natural_generation.md"
+          ],
+          "json": [
+            "Supporting/json_generation.md"
+          ]
+        },
+        "image_to_image": {
+          "natural": [
+            "Supporting/natural_editing.md"
+          ],
+          "json": [
+            "Supporting/json_editing.md"
+          ]
+        }
+      },
+      "bbox_mode": "moss_image",
+      "builtin": true
+    },
+    {
+      "key": "fibo2",
+      "label": "FIBO 2",
+      "folder": "FIBO 2",
+      "media_type": "image",
+      "enabled_formats": [
+        "natural",
+        "json"
+      ],
+      "default_format": "natural",
+      "enabled_generation_types": [
+        "text_to_image",
+        "image_to_image"
+      ],
+      "default_generation_type": "text_to_image",
+      "negative_supported": true,
+      "format_instruction_files": {
+        "natural": [
+          "Supporting/natural_authoring.md"
+        ],
+        "json": [
+          "Supporting/json_authoring.md"
+        ]
+      },
+      "generation_format_instruction_files": {
+        "text_to_image": {
+          "natural": [
+            "Supporting/natural_generation.md"
+          ],
+          "json": [
+            "Supporting/json_generation.md"
+          ]
+        },
+        "image_to_image": {
+          "natural": [
+            "Supporting/natural_editing.md"
+          ],
+          "json": [
+            "Supporting/json_editing.md"
+          ]
+        }
+      },
       "builtin": true
     },
     {
@@ -208,6 +299,7 @@
       ],
       "default_generation_type": "text_to_image",
       "negative_supported": true,
+      "bbox_mode": "krea2",
       "builtin": true
     },
     {

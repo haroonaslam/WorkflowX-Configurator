@@ -128,6 +128,8 @@ def test_prompt_profiles_capture_allowed_formats_and_negative_rules():
         "minimax_h3_official",
         "minimax_h3_alternate",
         "krea2",
+        "moss_image",
+        "fibo2",
         "jsonx",
     }
     assert profiles.normalize_format("z_image", "json") == "natural"
@@ -149,7 +151,7 @@ def test_granular_defaults_cover_enabled_formats_and_image_modes():
     profiles, _prompt_io, _prompt_builder, _node, _profile_config = _load_package_modules()
     store = importlib.import_module("workflowx_unified_autoprompter_test.reference_store")
     bundle = store.current_bundle()
-    assert len(bundle["manifest"]["profiles"]) == 13
+    assert len(bundle["manifest"]["profiles"]) == 15
     assert "video_to_video" in bundle["manifest"]["generation_types"]
     for metadata in bundle["manifest"]["profiles"]:
         folder = metadata["folder"]
@@ -504,13 +506,14 @@ def test_v7_reverse_payload_audit_selects_each_guide_once_and_excludes_other_pat
                 )
                 paths = [item["path"] for item in activated]
                 assert prompt == "\n\n".join(bundle["files"][path] for path in paths)
-                assert [item["kind"] for item in activated] == [
-                    "common", "generation_type", "nsfw", "reference_usage", "output_contract",
-                ] or [item["kind"] for item in activated] == [
-                    "common", "nsfw", "reference_usage", "output_contract",
-                ]
+                kinds = [item["kind"] for item in activated]
+                assert kinds[0] == "common"
+                assert kinds[-3:] == ["nsfw", "reference_usage", "output_contract"]
+                assert set(kinds[1:-3]).issubset({
+                    "format_instruction", "generation_type", "generation_format_instruction",
+                })
                 for forbidden in (
-                    "activated_blocks", "routing decision", "selected output contract",
+                    "activated_blocks", "routing decision",
                     "implementation JSON", "process metadata", "think step by step",
                 ):
                     assert forbidden not in prompt
@@ -1063,10 +1066,13 @@ def test_prompt_builder_adds_bbox_layout_hints_for_bbox_targets_only():
         target_model="ideogram4",
     )
     sdxl_prompt = prompt_builder.build_user_prompt(fields, target_model="sdxl")
+    moss_prompt = prompt_builder.build_user_prompt(fields, target_model="moss_image")
 
     assert "Layout JSON:" in krea2_prompt
     assert "Palette: #ffffff" in krea2_prompt
     assert "Layout JSON:" in ideogram_prompt
+    assert "Layout JSON:" in moss_prompt
+    assert "Palette:" not in moss_prompt
     assert "Layout JSON:" not in sdxl_prompt
 
 
@@ -2143,7 +2149,7 @@ def test_unified_frontend_collapses_provider_model_settings_and_refits_the_node(
     assert "scheduleVisibleContentResize();" in source
     assert 'modelSettingsBtn.textContent = "Profile settings"' in source
     assert 'modelSettingsBtn.addEventListener("click", openMarkdownProfileSettings)' in source
-    assert 'const REFERENCE_SCHEMA_VERSION = 2' in source
+    assert 'const REFERENCE_SCHEMA_VERSION = 3' in source
     assert '"Common Profile Rules"' in source
     assert "openJsonXSettingsModal" not in source
     assert "Unified JsonX Settings" not in source
@@ -2429,15 +2435,17 @@ def test_unified_frontend_uses_effective_images_and_transparent_profile_editor_c
         assert marker in source
 
 
-def test_unified_frontend_v7_has_one_rules_and_guide_editor_and_all_jsonx_instruction_surfaces():
+def test_unified_frontend_exposes_manifest_driven_standard_blocks_and_all_jsonx_instruction_surfaces():
     source = (ROOT / "web" / "js" / "unified_autoprompter.js").read_text(encoding="utf-8")
     markdown_surface = source.split("async function openMarkdownProfileSettings(forceEngine", 1)[1].split("function normalizeBoxFromBbox", 1)[0]
     common_surface = markdown_surface.split("function renderCommon(profile)", 1)[1].split("function renderPaths", 1)[0]
     path_surface = markdown_surface.split("function renderPaths(profile)", 1)[1].split("function renderReferences", 1)[0]
     assert 'profilePath(profile, "split/common.md")' in common_surface
-    assert common_surface.count("addExactEditor(") == 1
+    assert common_surface.count("addExactEditor(") == 2
+    assert "format_instruction_files" in common_surface
     assert "pathFile(profile, activePath)" in path_surface
-    assert path_surface.count("addExactEditor(") == 1
+    assert path_surface.count("addExactEditor(") == 2
+    assert "generation_format_instruction_files" in path_surface
     assert "common_rules" not in markdown_surface
     assert "common_guide" not in markdown_surface
     assert "path_rules" not in markdown_surface

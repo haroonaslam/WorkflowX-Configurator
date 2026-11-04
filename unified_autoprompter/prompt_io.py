@@ -4,7 +4,7 @@ import json
 import re
 from typing import Any
 
-from .profiles import FORMAT_JSON, FORMAT_TAGS, normalize_format
+from .profiles import FORMAT_JSON, FORMAT_TAGS, get_profile, normalize_format
 
 BBOX_JSON_TARGETS = {"ideogram4", "krea2"}
 COLOR_PALETTE_TARGETS = {"ideogram4", "flux2_dev", "flux_klein", "jsonx"}
@@ -143,7 +143,11 @@ def extract_json_object(text: str) -> dict[str, Any] | None:
 
 
 def _normalize_bbox_element_types(target_model: str, payload: dict[str, Any]) -> dict[str, Any]:
-    if target_model not in BBOX_JSON_TARGETS:
+    try:
+        bbox_mode = get_profile(target_model).bbox_mode
+    except ValueError:
+        bbox_mode = ""
+    if target_model not in BBOX_JSON_TARGETS and bbox_mode not in {"ideogram4", "krea2"}:
         return payload
     decomp = payload.get("compositional_deconstruction")
     if not isinstance(decomp, dict):

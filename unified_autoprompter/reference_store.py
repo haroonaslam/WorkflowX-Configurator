@@ -10,7 +10,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 
-REFERENCE_SCHEMA_VERSION = 2
+REFERENCE_SCHEMA_VERSION = 3
 REFERENCE_ROOT = Path(__file__).with_name("reference")
 ORIGINAL_ROOT = REFERENCE_ROOT / "original"
 CURRENT_ROOT = REFERENCE_ROOT / "current_use"
@@ -24,6 +24,7 @@ SUPPORTING_FILENAMES = {
     "without_reference_unsupported": "without_reference_unsupported.md",
 }
 FORMAT_KEYS = ("natural", "json", "tags")
+BBOX_MODES = {"ideogram4", "krea2", "moss_image"}
 KEY_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_]*$")
 
 
@@ -114,6 +115,30 @@ def validate_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
             raise ReferenceStoreError(f"Profile {key} enables an unknown generation type.")
         if str(profile.get("default_generation_type") or "") not in enabled_types:
             raise ReferenceStoreError(f"Profile {key} default generation type must be enabled.")
+        bbox_mode = str(profile.get("bbox_mode") or "").strip()
+        if bbox_mode and bbox_mode not in BBOX_MODES:
+            raise ReferenceStoreError(f"Profile {key} has an invalid bbox_mode: {bbox_mode!r}.")
+        format_files = profile.get("format_instruction_files") or {}
+        if not isinstance(format_files, dict):
+            raise ReferenceStoreError(f"Profile {key} format_instruction_files must be an object.")
+        for format_key, paths in format_files.items():
+            if format_key not in enabled_formats or not isinstance(paths, list):
+                raise ReferenceStoreError(f"Profile {key} has invalid format instruction mapping for {format_key!r}.")
+            for path in paths:
+                _safe_relative(path)
+        generation_format_files = profile.get("generation_format_instruction_files") or {}
+        if not isinstance(generation_format_files, dict):
+            raise ReferenceStoreError(f"Profile {key} generation_format_instruction_files must be an object.")
+        for type_key, format_map in generation_format_files.items():
+            if type_key not in enabled_types or not isinstance(format_map, dict):
+                raise ReferenceStoreError(f"Profile {key} has invalid generation-format mapping for {type_key!r}.")
+            for format_key, paths in format_map.items():
+                if format_key not in enabled_formats or not isinstance(paths, list):
+                    raise ReferenceStoreError(
+                        f"Profile {key} has invalid generation-format instruction mapping for {type_key!r}/{format_key!r}."
+                    )
+                for path in paths:
+                    _safe_relative(path)
     return manifest
 
 
@@ -121,7 +146,7 @@ def _load_manifest(root: Path) -> dict[str, Any]:
     manifest = _read_json(root / MANIFEST_FILENAME)
     # Upgrade an existing editable bundle in memory so bootstrap_current_use()
     # can add the new global audit block and then persist the complete v2 bundle.
-    if root == CURRENT_ROOT and int(manifest.get("schema_version") or 0) == 1:
+    if root == CURRENT_ROOT and int(manifest.get("schema_version") or 0) in {1, 2}:
         manifest = dict(manifest)
         manifest["schema_version"] = REFERENCE_SCHEMA_VERSION
         manifest["audit_file"] = AUDIT_FILENAME
@@ -206,6 +231,16 @@ def _validate_file_inventory(manifest: dict[str, Any], files: dict[str, Any]) ->
                 raise ReferenceStoreError(f"Generation type {type_key} has no filename mapping.")
             # Generation-path files are deliberately optional. Missing files are
             # exposed as blank editors and created by the next save.
+        configured_paths: list[str] = []
+        for paths in (profile.get("format_instruction_files") or {}).values():
+            configured_paths.extend(paths)
+        for format_map in (profile.get("generation_format_instruction_files") or {}).values():
+            for paths in format_map.values():
+                configured_paths.extend(paths)
+        for relative in configured_paths:
+            path = f"{folder}/{_safe_relative(relative)}"
+            if not normalized.get(path, "").strip():
+                raise ReferenceStoreError(f"Configured model-facing block {path} is empty or missing.")
     return normalized
 
 
@@ -296,6 +331,18 @@ def bootstrap_current_use() -> None:
         if key not in current_profiles:
             current["manifest"]["profiles"].append(copy.deepcopy(profile))
             changed = True
+        else:
+            # Additive schema metadata is shipped by the node. Preserve all
+            # existing editable profile choices while filling only new fields.
+            target_profile = current_profiles[key]
+            for metadata_key in (
+                "format_instruction_files",
+                "generation_format_instruction_files",
+                "bbox_mode",
+            ):
+                if metadata_key in profile and metadata_key not in target_profile:
+                    target_profile[metadata_key] = copy.deepcopy(profile[metadata_key])
+                    changed = True
     for metadata_key in ("generation_types", "formats", "nsfw_files"):
         source = original["manifest"].get(metadata_key) or {}
         target = current["manifest"].setdefault(metadata_key, {})
@@ -516,7 +563,15 @@ def selected_markdown_blocks(
         blocks.append((kind, safe_path, files.get(safe_path, ""), required))
 
     append("common", f"{folder}/split/common.md", True)
+    for relative in (profile.get("format_instruction_files") or {}).get(prompt_format, []):
+        append("format_instruction", f"{folder}/{relative}", True)
     append("generation_type", f"{folder}/split/{generation['filename']}", False)
+    for relative in (
+        (profile.get("generation_format_instruction_files") or {})
+        .get(generation_type, {})
+        .get(prompt_format, [])
+    ):
+        append("generation_format_instruction", f"{folder}/{relative}", True)
     if nsfw_enabled:
         append("nsfw", manifest["nsfw_files"][generation["output_medium"]], True)
     if generation["reference_supported"]:

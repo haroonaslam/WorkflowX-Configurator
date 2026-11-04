@@ -14,9 +14,6 @@ from .reference_store import (
 )
 from .prompt_presets import resolve_text as resolve_prompt_presets
 
-BBOX_LAYOUT_TARGETS = {"ideogram4", "krea2"}
-
-
 def _clean(value: object) -> str:
     return str(value or "").strip()
 
@@ -52,12 +49,13 @@ def _context_block(data: dict, target_model: str = "") -> str:
                 ("Reference / control notes", data.get("reference_or_control_notes")),
             ])
         lines = [f"{label}: {_clean(value)}" for label, value in fields if _clean(value)]
-    if target_model in BBOX_LAYOUT_TARGETS:
+    bbox_mode = get_profile(target_model).bbox_mode
+    if bbox_mode:
         layout = _clean(data.get("bbox_layout") or data.get("ideogram_layout"))
         palette = _clean(data.get("ideogram_palette"))
         if layout:
             lines.append(f"Layout JSON: {layout}")
-        if palette:
+        if palette and bbox_mode != "moss_image":
             lines.append(f"Palette: {palette}")
     return "\n".join(lines).strip()
 

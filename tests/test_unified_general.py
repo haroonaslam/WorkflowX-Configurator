@@ -264,7 +264,7 @@ def test_standard_add_audit_pass_preserves_negative_and_isolates_second_call(gen
     monkeypatch.setattr(routes, "dispatch_provider", dispatch)
     request = {
         "schema_version": 8,
-        "reference_schema_version": 2,
+        "reference_schema_version": 3,
         "backend": "openai",
         "model": "test-model",
         "target_model": "sdxl",
@@ -297,7 +297,7 @@ def test_standard_audit_only_ignores_generation_inputs_and_image_requirements(ge
     monkeypatch.setattr(routes, "dispatch_provider", dispatch)
     status, result = call("/generate", {
         "schema_version": 8,
-        "reference_schema_version": 2,
+        "reference_schema_version": 3,
         "backend": "openai",
         "model": "test-model",
         "target_model": "sdxl",
@@ -337,7 +337,7 @@ def test_audit_provider_failure_falls_back_but_audit_cancellation_does_not(gener
 
     monkeypatch.setattr(routes, "dispatch_provider", fail_audit)
     request = {
-        "schema_version": 8, "reference_schema_version": 2,
+        "schema_version": 8, "reference_schema_version": 3,
         "backend": "openai", "model": "test-model", "target_model": "sdxl",
         "prompt_format": "natural", "generation_type": "text_to_image",
         "negative_enabled": True, "audit_mode": "add_pass",
