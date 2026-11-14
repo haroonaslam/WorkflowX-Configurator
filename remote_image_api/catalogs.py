@@ -17,6 +17,14 @@ CONTRACT_PATH = Path(__file__).with_name("model_contracts.json")
 CONTRACTS = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
 
 LABELS = {
+    "gpt-image-2-6-sunburst": "GPT Image 2.6 Sunburst",
+    "gpt-image-2-6-flare": "GPT Image 2.6 Flare",
+    "gpt-image-2-5-sunburst": "GPT Image 2.5 Sunburst",
+    "qwen-image-3-pro": "Qwen Image 3.0 Pro",
+    "seedream-5-5": "Seedream 5.5",
+    "seedream-4-7": "Seedream 4.7",
+    "nano-banana-2-1": "Nano Banana 2.1",
+    "nano-banana-2-lite": "Nano Banana 2 Lite",
     "wan-2-7": "Wan 2.7",
     "wan-2-7-pro": "Wan 2.7 Pro",
     "grok-imagine": "Grok Imagine",
@@ -33,7 +41,7 @@ LABELS = {
     "kontext": "Flux Kontext",
 }
 
-REFERENCE_FIELDS = ("input_urls", "image_urls", "image_input", "image_url", "images", "image")
+REFERENCE_FIELDS = ("reference_image_urls", "reference_images", "input_urls", "image_urls", "image_input", "image_url", "images", "image")
 INTERNAL_FIELDS = {"model", "prompt", "n", "num_images", "enable_base64_output", *REFERENCE_FIELDS}
 FIELD_WIDGETS = {
     "aspect_ratio": "aspect_ratio",
@@ -170,7 +178,7 @@ def ui_fields(profile: dict[str, Any]) -> list[dict[str, Any]]:
     controls: list[dict[str, Any]] = []
     seen: set[str] = set()
     for field_id, field in profile["fields"].items():
-        if field_id in INTERNAL_FIELDS or field.get("contract_status") == "not-supported":
+        if field_id in INTERNAL_FIELDS or field.get("contract_status") == "not-supported" or "always_false_t2i_and_i2i" in field.get("send_rules", []):
             continue
         widget = FIELD_WIDGETS.get(field_id, field_id)
         if widget in seen:

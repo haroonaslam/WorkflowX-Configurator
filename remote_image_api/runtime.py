@@ -163,6 +163,19 @@ def validate_generation(profile: dict[str, Any], aspect_ratio: str, image_size: 
     formats = list(profile.get("output_formats") or [])
     if formats and str(settings.get("output_format", profile.get("default_output_format"))).lower() not in formats:
         raise ValueError(f"{profile['label']} supports output types: {', '.join(formats)}")
+    for field_id in ("background", "negative_prompt", "prompt_expansion_mode"):
+        field = profile.get("fields", {}).get(field_id)
+        if not field:
+            continue
+        value = settings.get(field_id, field.get("default", {}).get("value"))
+        supported = field.get("supported_values", {})
+        if supported.get("enum") and value not in supported["enum"]:
+            raise ValueError(f"Invalid {field_id} for {profile['label']}.")
+        if supported.get("max_length") and len(str(value).strip()) > supported["max_length"]:
+            raise ValueError(f"{field_id} exceeds {supported['max_length']} characters.")
+    if profile.get("provider") == "atlas" and profile.get("id") == "qwen-image-3-pro" and reference_count and image_size != "auto":
+        if max(int(edge) for edge in image_size.split("*")) > 1440:
+            raise ValueError("Qwen Image 3.0 Pro editing supports dimensions up to 1440px; select auto or a smaller size.")
     maximum_prompt = profile.get("prompt_max_length")
     if prompt is not None and not str(prompt or "").strip():
         raise ValueError("Prompt is required.")
@@ -238,7 +251,7 @@ def placeholder_tensor(profile: dict[str, Any], aspect: str, image_size: str, se
             except ValueError:
                 width = height = 64
         else:
-            tier = {"1K": 1024, "2K": 2048, "4K": 4096}.get(text.upper(), 1024)
+            tier = {"1K": 1024, "1.5K": 1536, "2K": 2048, "4K": 4096}.get(text.upper(), 1024)
             try:
                 left, right = (int(part) for part in str(aspect or "1:1").split(":", 1))
                 if left >= right:
@@ -342,7 +355,7 @@ def _build_payload(provider: str, profile: dict[str, Any], prompt: str, aspect: 
         rules = set(field.get("send_rules") or [])
         if field_id == "model" or "never" in rules:
             continue
-        if "t2i_only" in rules and has_refs:
+        if ("t2i_only" in rules or "omit_for_i2i" in rules) and has_refs:
             continue
         if "i2i_only" in rules and not has_refs:
             continue
@@ -352,10 +365,21 @@ def _build_payload(provider: str, profile: dict[str, Any], prompt: str, aspect: 
             continue
         if field_id == "seed" and provider == "kie" and not settings.get("seed_enabled"):
             continue
-        should_send = bool((field.get("default") or {}).get("send", False)) or field_id in settings
+        should_send = bool((field.get("default") or {}).get("send", False)) or field_id in settings or field_id in ("size", "resolution")
         if not should_send:
             continue
-        data[field_id] = _field_value(field_id, field, prompt, aspect, image_size, local_settings, provider)
+        value = _field_value(field_id, field, prompt, aspect, image_size, local_settings, provider)
+        if "always_false_t2i_and_i2i" in rules:
+            value = False
+        if "send_trimmed_non_empty_only" in rules:
+            value = str(value or "").strip()
+            if not value:
+                continue
+        if "omit_when_auto" in rules and value == "auto":
+            continue
+        data[field_id] = value
+    if provider == "atlas" and data.get("background") == "transparent" and data.get("output_format") in ("jpeg", "jpg"):
+        data["output_format"] = "png"
     if provider == "kie":
         return {"model": model, "input": data}
     return {"model": model, **data}

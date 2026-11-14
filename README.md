@@ -573,6 +573,8 @@ XFlows organizes ComfyUI workflows with folders, list/card views, tags, favorite
 
 XPrompts stores searchable prompts and reusable preset blocks for insertion and editing. It complements structured JsonX workflows without forcing prompt text into a workflow graph.
 
+**Image Prompt Library:** scan local images or folders for embedded ComfyUI prompts, group matching prompts with thumbnails, browse their images, search, and copy. Launch it independently with `Launch Image Prompt Library.cmd`, or use **Open image prompt library** in XPrompts. [Setup and extraction details](docs/image-prompt-library.md).
+
 ![XPrompts library](docs/images/workflowx-xprompts-prompt-list.png)
 
 ![Expanded XPrompts presets](docs/images/workflowx-xprompts-presets-expanded.png)

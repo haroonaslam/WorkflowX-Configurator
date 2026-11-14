@@ -1,4 +1,5 @@
 import copy
+import asyncio
 import base64
 import hashlib
 import io
@@ -11,17 +12,47 @@ import uuid
 import zipfile
 from collections import Counter, defaultdict
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from aiohttp import web
 
 import folder_paths
 from server import PromptServer
+from .image_prompt_library.launch import ensure_started as _start_image_prompt_library
 
 
 NODE_CLASS_MAPPINGS = {}
 NODE_DISPLAY_NAME_MAPPINGS = {}
 
 ROUTE_PREFIX = "/xflows"
+
+
+@PromptServer.instance.routes.post("/xflows/library/image-app/launch")
+async def launch_image_prompt_library(request):
+    origin = request.headers.get("Origin")
+    if not _image_library_origin_allowed(origin, request.scheme, request.host) or request.headers.get("Sec-Fetch-Site") == "cross-site":
+        return web.json_response({"error": "Origin rejected"}, status=403)
+    try:
+        url = await asyncio.to_thread(_start_image_prompt_library)
+        return web.json_response({"url": url})
+    except (OSError, RuntimeError) as error:
+        return web.json_response({"error": str(error)}, status=500)
+
+
+def _image_library_origin_allowed(origin, scheme, host):
+    if not origin:
+        return True
+    try:
+        source, target = urlsplit(origin), urlsplit(f"{scheme}://{host}")
+        # Match ComfyUI's origin middleware: some browsers omit the Origin port.
+        return (source.scheme == target.scheme and source.hostname == target.hostname
+                and source.hostname is not None and source.username is None
+                and not source.path.strip("/") and not source.query and not source.fragment
+                and (source.port is None or target.port is None or source.port == target.port))
+    except ValueError:
+        return False
+
+
 METADATA_VERSION = 1
 IGNORED_WORKFLOW_NAMES = {".index.json"}
 EXPORT_FILE_NAMES = {

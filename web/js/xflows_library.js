@@ -893,6 +893,19 @@ function sortedPrompts() {
 function renderPromptPanel(panel) {
   const count = XLIB.promptTab === "prompts" ? XLIB.prompts.length : XLIB.presets.length;
   const header = panelHeader(panel, "XPrompts", count);
+  header.append(button({ label: "Open image prompt library", iconName: "pi-images", onClick: async () => {
+    const target = window.open("about:blank", "workflowx-image-prompt-library");
+    try {
+      const response = await postJson(`${ROUTE}/image-app/launch`, {});
+      if (target) { target.opener = null; target.location.href = response.url; }
+      else {
+        header.append($el("a.xlib-btn", { textContent: "App ready — click to open", href: response.url, target: "_blank", rel: "noopener noreferrer" }));
+      }
+    } catch (error) {
+      if (target) target.close();
+      setMessage(`Image prompt library: ${error.message}`);
+    }
+  } }));
   const tabs = $el("div.xlib-segment", { parent: header });
   tabs.append(
     button({ label: "Prompts", iconName: "pi-align-left", className: XLIB.promptTab === "prompts" ? "active" : "", pressed: XLIB.promptTab === "prompts", onClick: () => { XLIB.promptTab = "prompts"; renderActivePanel(); } }),

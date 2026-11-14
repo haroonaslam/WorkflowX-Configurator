@@ -65,7 +65,7 @@ class RemoteImageAPINode:
     @classmethod
     def INPUT_TYPES(cls) -> dict[str, Any]:
         profiles = PROFILES[cls.provider]
-        default = profiles[0]
+        default = next(p for p in profiles if p["id"] == "wan-2-7")
         return {
             "required": {
                 "api_key": ("STRING", {"default": "", "password": True, "tooltip": f"Optional override; otherwise use {'KIE_API_KEY' if cls.provider == 'kie' else 'ATLAS_API_KEY or ATLASCLOUD_API_KEY'}."}),
@@ -75,14 +75,14 @@ class RemoteImageAPINode:
                 "image_size": (_union(cls.provider, "sizes", "1K"), {"default": default.get("default_size") or selected_size_options(default)[0]}),
                 "timeout_seconds": ("INT", {"default": 600, "min": 30, "max": 3600, "step": 1}),
                 "poll_interval_seconds": ("INT", {"default": 3, "min": 2, "max": 60, "step": 1}),
-                "quality": (["basic", "low", "medium", "high"], {"default": default.get("default_quality", "medium")}),
+                "quality": (_union(cls.provider, "quality_options", "medium"), {"default": default.get("default_quality", "medium")}),
                 "nsfw_checker": ("BOOLEAN", {"default": default.get("default_nsfw", True)}),
                 "thinking_mode": ("BOOLEAN", {"default": bool(default.get("default_thinking", cls.provider == "atlas"))}),
                 "watermark": ("BOOLEAN", {"default": False}),
                 "seed_enabled": ("BOOLEAN", {"default": False}),
                 "seed": ("INT", {"default": 0, "min": -1, "max": 2147483647}),
                 "enable_sequential": ("BOOLEAN", {"default": False}),
-                "output_format": (["default", "png", "jpg", "jpeg"], {"default": default.get("default_output_format", "default")}),
+                "output_format": (_union(cls.provider, "output_formats", "default"), {"default": default.get("default_output_format", "default")}),
                 "enable_pro": ("BOOLEAN", {"default": False}),
                 "input_fidelity": (["low", "high"], {"default": "high"}),
                 "enable_web_search": ("BOOLEAN", {"default": False}),
@@ -98,6 +98,9 @@ class RemoteImageAPINode:
                 "reference_max_edge": ("INT", {"default": 5120, "min": 512, "max": 8192, "step": 64}),
                 "show_payload": ("BOOLEAN", {"default": False}),
                 "retrieval_mode": (["generate", "force_retrieve"], {"default": "generate"}),
+                "background": (["auto", "opaque", "transparent"], {"default": "auto"}),
+                "negative_prompt": ("STRING", {"default": "", "multiline": True}),
+                "prompt_expansion_mode": (["standard", "fast"], {"default": "standard"}),
             },
             "optional": _FlexibleImageInputs(),
             "hidden": {"unique_id": "UNIQUE_ID"},
@@ -159,6 +162,9 @@ class RemoteImageAPINode:
         show_payload: bool = False,
         retrieval_mode: str = "generate",
         unique_id: object = None,
+        background: str = "auto",
+        negative_prompt: str = "",
+        prompt_expansion_mode: str = "standard",
         **kwargs: Any,
     ):
         key = resolve_api_key(self.provider, api_key)
@@ -172,6 +178,7 @@ class RemoteImageAPINode:
         pending = store.get(self.provider, node_id)
         client = self.client_class(key)
         settings = self._settings(
+            background=background, negative_prompt=negative_prompt, prompt_expansion_mode=prompt_expansion_mode,
             quality=quality, nsfw_checker=nsfw_checker, thinking_mode=thinking_mode,
             watermark=watermark, seed_enabled=seed_enabled, seed=seed,
             enable_sequential=enable_sequential, output_format=output_format,

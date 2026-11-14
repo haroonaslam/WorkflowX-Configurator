@@ -53,9 +53,49 @@ class FakeKieClient:
 
 
 class RemoteImageCatalogTests(unittest.TestCase):
+    def test_all_profiles_have_executable_controls_and_reference_payloads(self):
+        for provider, profiles in catalogs.PROFILES.items():
+            node = nodes.KieImageAPINode if provider == "kie" else nodes.AtlasImageAPINode
+            widgets = node.INPUT_TYPES()["required"]
+            for profile in profiles:
+                with self.subTest(provider=provider, model=profile["id"]):
+                    settings = {c["widget"]: c["default"] for c in catalogs.ui_fields(profile)}
+                    for control in catalogs.ui_fields(profile):
+                        self.assertIn(control["widget"], widgets)
+                        if isinstance(widgets[control["widget"]][0], list):
+                            self.assertTrue(set(control["options"]).issubset(widgets[control["widget"]][0]))
+                    size = (runtime.selected_size_options(profile) or [""])[0]
+                    aspect = profile["default_aspect"]
+                    for refs in ([], ["https://example.test/ref.png"]):
+                        runtime.validate_generation(profile, aspect, size, len(refs), "portrait", settings)
+                        payload = node()._build_payload(profile, "portrait", aspect, size, refs, settings)
+                        data = payload["input"] if provider == "kie" else payload
+                        self.assertEqual(data["prompt"], "portrait")
+                        if refs:
+                            self.assertEqual(data[profile["input_image_field"]], refs[0] if profile["single_image"] else refs)
+                        else:
+                            self.assertNotIn(profile["input_image_field"], data)
+
+    def test_new_model_send_rules(self):
+        for provider in ("kie", "atlas"):
+            profile = catalogs.PROFILE_MAPS[provider]["qwen-image-3-pro"]
+            build = runtime.build_kie_payload if provider == "kie" else runtime.build_atlas_payload
+            payload = build(profile, "p", "1:1", "auto" if provider == "atlas" else "1K", [], {"negative_prompt": "  blur  ", "prompt_extend": True})
+            data = payload["input"] if provider == "kie" else payload
+            self.assertEqual(data["negative_prompt"], "blur")
+            self.assertFalse(data["prompt_extend"])
+            if provider == "atlas":
+                self.assertNotIn("size", data)
+            with self.assertRaises(ValueError):
+                runtime.validate_generation(profile, "1:1", "auto" if provider == "atlas" else "1K", 0, "p", {"negative_prompt": "a" * 5001})
+        profile = catalogs.PROFILE_MAPS["atlas"]["gpt-image-2-6-sunburst"]
+        payload = runtime.build_atlas_payload(profile, "p", "1:1", "1024x1024", [], {"quality": "max", "background": "transparent", "output_format": "jpeg"})
+        self.assertEqual(payload["quality"], "max")
+        self.assertEqual(payload["output_format"], "png")
+
     def test_catalogs_match_selected_gemmobi_generative_scope(self):
-        self.assertEqual(len(catalogs.KIE_PROFILES), 12)
-        self.assertEqual(len(catalogs.ATLAS_PROFILES), 12)
+        self.assertEqual(len(catalogs.KIE_PROFILES), 19)
+        self.assertEqual(len(catalogs.ATLAS_PROFILES), 20)
         self.assertNotIn("topaz-upscale", catalogs.PROFILE_MAPS["kie"])
         self.assertEqual(catalogs.PROFILE_MAPS["kie"]["gpt2"]["max_references"], 14)
         self.assertEqual(catalogs.PROFILE_MAPS["atlas"]["kontext"]["max_references"], 1)
