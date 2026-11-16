@@ -7,7 +7,7 @@ Start with the self-contained [WorkflowX README](../README.md). It contains the 
 | Area | Guide |
 |---|---|
 | Configuration and canvas | [Config SelectorX](CONFIG_SELECTOR_X.md), [Quick MuteX and Quick BypassX](../README.md#quick-mutex-and-quick-bypassx), [Quick ToggleX and ToggleX Controller](../README.md#quick-togglex-and-togglex-controller) |
-| Image and video | [Image loaders](IMAGE_LOADERS.md), [Load VideoX Adv](LOAD_VIDEO_X_ADV.md), [Preview Video X](../README.md#preview-video-x), [Save Video X](SAVE_VIDEO_X.md), [View Image (Format)](VIEW_IMAGE_FORMAT.md), [Image ProcessorX](IMAGE_PROCESSOR_X.md), [Image Compare Edit X](IMAGE_COMPARE_EDIT_X_EDITOR.md), [DetailerX](detailer_x.md), [H3 RefMod](../h3_refmod/README.md) |
+| Image and video | [Image loaders](IMAGE_LOADERS.md), [Load VideoX Adv](LOAD_VIDEO_X_ADV.md), [Preview Video X](../README.md#preview-video-x), [Save Video X](SAVE_VIDEO_X.md), [View Image (Format)](VIEW_IMAGE_FORMAT.md), [Image ProcessorX](IMAGE_PROCESSOR_X.md), [Image Compare Edit X](IMAGE_COMPARE_EDIT_X_EDITOR.md), [DetailerX](detailer_x.md), [H3 RefMod](../h3_refmod/README.md), [RefModX Adapter](../h3_refmod/README.md#refmodx-adapter) |
 | Audio | [Load AudioX](LOAD_AUDIO_X.md), [Voice ChangerX](VOICE_CHANGER_X.md), [AuK](../auk/README.md), [AuK Chained Clone](../auk/docs/CHAINED_CLONE.md) |
 | Models and assets | [WorkflowX Downloader](../README.md#workflowx-downloader), [Load Diffusion Model X](LOAD_DIFFUSION_MODEL_X.md), [LoraX](LORAX.md), [Load Lora PickerX](LOAD_LORA_PICKER_X.md) |
 | Swap and APIs | [Anything Swap bridge](ANYTHING_SWAP_BRIDGE.md), [NanoBanana API](NANOBANANA_FULL_API.md), [Kie and Atlas APIs](KIE_ATLAS_API_NODES.md) |

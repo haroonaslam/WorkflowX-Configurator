@@ -29,7 +29,7 @@ WorkflowX provides up to 67 user-facing backend nodes, along with XFlows, XPromp
 
 WorkflowX settings let you enable or disable XFlows, XPrompts, and XNodes and export or import their local library data. Keep credentials and machine-specific paths out of workflows intended for sharing.
 
-Install Python dependencies using the Python executable that runs ComfyUI. See the [feature setup guides](docs/README.md#feature-requirements) for media tools, DetailerX, AuK, and H3 RefMod. The Image Prompt Library, expanded Kie and Atlas catalog, Prompt AssemblerX, and Quick controls require GitHub `main` or a release that includes those changes. They landed after the Comfy Registry 2.1.17 release commit.
+Install Python dependencies using the Python executable that runs ComfyUI. See the [feature setup guides](docs/README.md#feature-requirements) for media tools, DetailerX, AuK, and H3 RefMod. The Image Prompt Library, expanded Kie and Atlas catalog, Prompt AssemblerX, and Quick controls require GitHub `main` or a release that includes those changes. They are included in the 2.1.18 release.
 
 ![WorkflowX settings](docs/images/workflowx-settings-overview.png)
 
@@ -697,4 +697,13 @@ The AuK implementation and bundled tokenizer/configuration assets retain their u
 
 ## H3 RefMod nodes
 
-The bundled H3 RefMod workflow lives under **WorkflowX → Video → H3 Refmod**. Its registered nodes are `H3RCCreateFromFolder`, `H3RCPrepareThumbnail`, `H3RCCharacterPicker`, `H3RCImageReference`, `H3RCAudioReference`, `H3RCVideoReference`, `H3RCModReferenceToVideo`, and `H3RCInspectText`. See the [H3 RefMod guide](h3_refmod/README.md) and [example workflows](h3_refmod/example_workflows).
+The bundled H3 RefMod workflow lives under **WorkflowX → Video → H3 Refmod**. Its registered nodes are `H3RCCreateFromFolder`, `H3RCPrepareThumbnail`, `H3RCCharacterPicker`, `H3RCImageReference`, `H3RCAudioReference`, `H3RCVideoReference`, `H3RCModReferenceToVideo`, and `H3RCInspectText`, and `RefModXAdapter`. See the [H3 RefMod guide](h3_refmod/README.md) and [example workflows](h3_refmod/example_workflows).
+
+### RefModX Adapter
+
+Connect the H3 character picker's **character** output to **RefModX Adapter** under **WorkflowX → Video → H3 Refmod**. The adapter honours the picker's saved profiles, selected sources, order, video reductions and saved-voice choice.
+
+- **Original RefMod:** connect **refmods** to the original **Apply H3 RefMod** node. Reuses the selected encodings without VAE reconstruction; no VAE is required.
+- **Video frames:** choose a combined-video mode in the picker, connect the full H3 visual VAE to the adapter, and connect **reference frames** to native **MiniMax H3 Reference to Video → ref_video**. This output is an `IMAGE` frame batch, not a `VIDEO` object. The native node re-encodes it.
+
+Existing character connections and package files remain unchanged. See the [adapter guide](h3_refmod/README.md#refmodx-adapter) for limitations and wiring.

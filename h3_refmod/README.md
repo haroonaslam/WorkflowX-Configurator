@@ -118,3 +118,36 @@ Quiet room ambience.
 non_diegetic_music:
 None.
 ```
+
+## RefModX Adapter
+
+Use this separate node to send a character picker's resolved selection to other H3 workflows. The existing picker and WorkflowX generation path are unchanged. Find it under **WorkflowX → Video → H3 Refmod**.
+
+### Original RefMod mode
+
+1. Connect the picker's **character** output to the adapter's **character** input.
+2. Select **Original RefMod**.
+3. Connect **refmods** to the original extension's **Apply H3 RefMod → mods** input.
+4. Feed your H3 conditioning into Apply, then use Apply's conditioning output in the sampler.
+
+The adapter returns `H3_REF_MODS`, a list of RefMod objects with strength 1.0. It preserves the chosen encoded values, profiles, source order and saved-sample reductions. Saved voice is included as separate audio entries only when enabled in the picker. Apply may subsequently modify references according to its own strength settings. No adapter VAE is required, and no package is exported or rewritten. The original RefMod extension must be installed to use its Apply node.
+
+### Video frames mode
+
+1. In the picker, select **Saved combined video** or **Build combined video from selected references**, then choose the profile and sources there.
+2. Select **Video frames** in the adapter and connect the **full H3 visual VAE** to its **vae** input.
+3. Connect **reference frames** to native **MiniMax H3 Reference to Video → ref_video**. Connect the appropriate VAE to that native node as usual.
+
+The adapter decodes the final selected combined encoding into an `IMAGE` batch. It does not resize, repeat frames, or encode again. The receiving native node may resize and trim the batch and then re-encode it. This adds a reconstruction cycle and is not equivalent to preserving the saved encoding. A selection decoding to fewer than five frames is rejected rather than padded with repeated images. Separate-picture/clip modes are rejected; choose a compatible combined profile in the picker instead. Connecting the batch to **ref_image** would use only the first image.
+
+Video frames carries visuals only, without the saved voice. Use Original RefMod mode for direct encoded visual/audio reuse. The unused output is marked inactive and blocks downstream execution if connected. The VAE input is marked unused in Original RefMod mode.
+
+### Shared selections and prompt handling
+
+There are no duplicate selection controls: the adapter uses the same reference plan and saved-reference preparation functions as WorkflowX generation. It honours per-source profile overrides, combined profile choice, ordering and video budgets. Invalid selections remain errors; the adapter does not silently switch profiles or combine incompatible dimensions.
+
+Character descriptors, retain/change instructions and `@tag` expansion are not compiled by the adapter or automatically added to external nodes' prompts. Author prompts and reference numbering for the receiving workflow. The adapter does not make our multi-profile package directly readable by the original file loader.
+
+### Validation
+
+The adapter acceptance tests cover all four picker modes, profile overrides, combined subset ordering, saved-voice inclusion/exclusion, exact encoded-value equality, missing VAE errors and unchanged package bytes. The installed original Apply implementation accepted the adapter output. Video decoding was checked with a test VAE; full GPU decode and generation quality were not benchmarked. At release preparation, 46 of 48 H3 tests passed; two existing endpoint-tokenizer tests failed because their tokenizer fixture lacks `clip` in the installed ComfyUI version.
