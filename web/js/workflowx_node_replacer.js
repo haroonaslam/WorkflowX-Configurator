@@ -5,6 +5,12 @@ import {
   graphForGrouping,
   nodesForGrouping,
 } from "./workflowx_group_helpers.mjs?workflowx=2";
+import {
+  QUICK_MODES,
+  addQuickTarget,
+  isQuickModeController,
+  registerQuickModeNodes,
+} from "./workflowx_quick_modes.mjs";
 
 const EXTENSION_NAME = "Comfy.WorkflowXNodeReplacer";
 const MENU_LABEL = "WorkflowX: Replace node...";
@@ -17,7 +23,7 @@ let activeDialog = null;
 let toastTimer = null;
 
 function getGraph() {
-  return app.graph || app.canvas?.graph;
+  return app.rootGraph || app.graph || app.canvas?.graph;
 }
 
 function getCanvas() {
@@ -623,16 +629,49 @@ function installMenuHandler(nodeTypeDef) {
       content: GROUP_MENU_LABEL,
       callback: () => addToGroup(this, menuCanvas),
     });
+    options.push(...quickModeMenuItems(this));
 
     return result;
   };
   proto.__workflowXNodeReplacerMenu = true;
 }
 
+function quickModeMenuItems(node) {
+  if (isQuickModeController(node)) return [];
+  return QUICK_MODES.map((spec) => ({
+    content: `WorkflowX: Add to ${spec.title}`,
+    callback: () => {
+      try {
+        const { controller, added } = addQuickTarget(
+          getGraph(), node, spec, (type) => globalThis.LiteGraph.createNode(type), getCanvas(),
+        );
+        controller.refreshQuickTargets?.(true);
+        showToast(added ? `Added to ${spec.title}.` : `Already in ${spec.title}.`);
+      } catch (error) {
+        console.error("[WorkflowX] Quick target could not be added", error);
+        showToast(error.message);
+      }
+    },
+  }));
+}
+
 app.registerExtension({
   name: EXTENSION_NAME,
+  registerCustomNodes() {
+    registerQuickModeNodes(getGraph, getCanvas);
+  },
+  beforeRegisterVueAppNodeDefs(defs) {
+    for (const { type, title } of QUICK_MODES) {
+      const def = defs.find((entry) => entry.name === type);
+      if (def) def.display_name = title;
+    }
+  },
   beforeRegisterNodeDef(nodeTypeDef, nodeData) {
     registerCatalogEntry(nodeTypeDef, nodeData);
     installMenuHandler(nodeTypeDef);
+  },
+  getNodeMenuItems(node) {
+    // Native subgraph wrappers and frontend-only nodes can skip beforeRegisterNodeDef.
+    return node.__workflowXNodeReplacerMenu ? [] : quickModeMenuItems(node);
   },
 });

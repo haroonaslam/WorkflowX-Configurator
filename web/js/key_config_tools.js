@@ -15,6 +15,12 @@ import {
   graphNodes,
   resolveCandidates,
 } from "./key_config_graph.mjs?workflowx=2";
+import {
+  TOGGLE_CONTROLLER,
+  installToggleControllerHooks,
+  pruneToggleInputs,
+  registerQuickToggleDashboard,
+} from "./workflowx_quick_toggle.mjs";
 
 const EXTENSION_NAME = "key_config_tools.group_configurator";
 const DEBUG_LOG_ROUTE = "/workflowx_configurator/debug_log";
@@ -682,7 +688,10 @@ function installGraphToPromptPatch() {
     const inventory = assertQueueGraphValid();
     applySelectedConfigAndAdvancedOverrides();
     const promptResult = await originalGraphToPrompt(...args);
-    return materializeRecursiveSetGets(promptResult, inventory);
+    materializeRecursiveSetGets(promptResult, inventory);
+    return pruneToggleInputs(promptResult, args[0] && args[0] !== getGraph()
+      ? buildGraphInventory(args[0])
+      : inventory);
   };
 
   app.__workflowXRelayGraphToPromptPatched = true;
@@ -1280,8 +1289,18 @@ app.registerExtension({
     installGraphToPromptPatch();
   },
 
+  registerCustomNodes() {
+    if (globalThis.LiteGraph?.registered_node_types[TOGGLE_CONTROLLER]) {
+      registerQuickToggleDashboard(getGraph, getCanvas);
+    }
+  },
+
   async beforeRegisterNodeDef(nodeTypeDef, nodeData) {
     installGraphToPromptPatch();
+
+    if (nodeData.name === TOGGLE_CONTROLLER) {
+      installToggleControllerHooks(nodeTypeDef.prototype);
+    }
 
     if (
       nodeData.name === SELECTOR_TYPE ||

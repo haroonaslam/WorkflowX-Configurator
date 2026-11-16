@@ -906,6 +906,24 @@ _register_image_processor_x_routes()
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]
 
 try:
+    from .workflowx_toggle_x import ToggleXController
+
+    toggle_x_schema = ToggleXController.define_schema()
+    NODE_CLASS_MAPPINGS[toggle_x_schema.node_id] = ToggleXController
+    NODE_DISPLAY_NAME_MAPPINGS[toggle_x_schema.node_id] = toggle_x_schema.display_name
+except (ImportError, AttributeError):
+    logger.warning("ToggleX Controller requires ComfyUI Autogrow and MatchType support")
+
+try:
+    from .workflowx_prompt_assembler import PromptAssemblerX
+
+    prompt_assembler_schema = PromptAssemblerX.define_schema()
+    NODE_CLASS_MAPPINGS[prompt_assembler_schema.node_id] = PromptAssemblerX
+    NODE_DISPLAY_NAME_MAPPINGS[prompt_assembler_schema.node_id] = prompt_assembler_schema.display_name
+except (ImportError, AttributeError):
+    logger.warning("Prompt AssemblerX requires ComfyUI Autogrow support")
+
+try:
     register_view_image_format_routes()
 except Exception:
     logger.exception("WorkflowX View Image (Format) routes could not load")

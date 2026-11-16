@@ -96,7 +96,35 @@ def _load_package():
 
 def test_combined_package_exports_workflowx_and_afj_nodes():
     module = _load_package()
-    assert len(module.NODE_CLASS_MAPPINGS) == 77
+    try:
+        from comfy_api.latest import io as comfy_io
+
+    except ImportError:
+        comfy_io = None
+    supports_toggle_x = hasattr(getattr(comfy_io, "Autogrow", None), "TemplatePrefix") and hasattr(
+        getattr(comfy_io, "MatchType", None), "Template"
+    )
+    supports_assembler = hasattr(getattr(comfy_io, "Autogrow", None), "TemplateNames")
+    assert len(module.NODE_CLASS_MAPPINGS) == 77 + supports_toggle_x + supports_assembler
+    if supports_toggle_x:
+        controller = module.NODE_CLASS_MAPPINGS["WorkflowXToggleXController"]
+        assert module.NODE_DISPLAY_NAME_MAPPINGS["WorkflowXToggleXController"] == "ToggleX Controller"
+        assert controller.define_schema().inputs[0].template.min == 0
+        source_value = object()
+        assert controller.execute({"input2": source_value}).result == (source_value,)
+        assert "Select one connected input" in controller.validate_inputs({})
+    if supports_assembler:
+        assembler = module.NODE_CLASS_MAPPINGS["WorkflowXPromptAssemblerX"]
+        assert module.NODE_DISPLAY_NAME_MAPPINGS["WorkflowXPromptAssemblerX"] == "Prompt AssemblerX"
+        prompts = {"prompt_10": " moonlight ", "prompt_2": " fog ", "prompt_1": " silence ", "prompt_3": ""}
+        result, debug = assembler.execute("custom", prompts, " | ", '["prompt_2"]').result
+        assert result == "silence | moonlight"
+        assert "Slot 2: [OFF]" in debug
+        assert assembler.execute("newline", prompts, disabled_slots='["prompt_2"]').result[0] == "silence\n\nmoonlight"
+        assert assembler.execute("space", {}).result[0] == ""
+        assert assembler.check_lazy_status("space", {"prompt_2": None, "prompt_3": None}, disabled_slots='["prompt_2"]') == [
+            "prompts.prompt_3"
+        ]
     voice = module.NODE_CLASS_MAPPINGS["WorkflowX_VoiceChangerX"]
     assert module.NODE_DISPLAY_NAME_MAPPINGS["WorkflowX_VoiceChangerX"] == "Voice ChangerX"
     assert voice.CATEGORY == "WorkflowX/Audio"

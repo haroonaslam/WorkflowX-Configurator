@@ -44,17 +44,19 @@ export function intersects(first, second) {
   return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 }
 
-function logicalGraphs(rootGraph) {
+export function logicalGraphs(rootGraph) {
   const records = [];
   const seen = new Set();
 
-  function visit(graph, path) {
+  function visit(graph, path, rootNode = null) {
     const identity = graphIdentity(graph);
     if (!graph || seen.has(identity)) return;
     seen.add(identity);
-    records.push({ graph, path, isRoot: graph === rootGraph });
+    records.push({ graph, path, rootNode, isRoot: graph === rootGraph });
     for (const node of graphNodes(graph)) {
-      if (node?.subgraph) visit(node.subgraph, [...path, graphLabel(node.subgraph, node.title ?? node.type)]);
+      if (node?.subgraph) {
+        visit(node.subgraph, [...path, graphLabel(node.subgraph, node.title ?? node.type)], rootNode ?? node);
+      }
     }
   }
 
