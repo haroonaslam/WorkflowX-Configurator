@@ -34,6 +34,10 @@ INTERNAL_IDS = {
     "WorkflowX_DetailerXSelective",
     "WorkflowX_DetailerXConnectedSelective",
 }
+OPTIONAL_COMFY_API_IDS = {
+    "WorkflowXPromptAssemblerX",
+    "WorkflowXToggleXController",
+}
 EXAMPLE_COVERAGE_EXEMPT_IDS = {
     "H3RCPrepareThumbnail",
     "WorkflowX_Downloader",
@@ -41,6 +45,10 @@ EXAMPLE_COVERAGE_EXEMPT_IDS = {
     "WorkflowX_DetailerX",
     "WorkflowX_DetailerXPreview",
     "WorkflowX_DetailerXMasks",
+}
+EXAMPLE_RECIPES = {
+    "WorkflowXPromptAssemblerX": "Prompt AssemblerX",
+    "WorkflowXToggleXController": "Quick controls",
 }
 
 
@@ -85,8 +93,10 @@ def _heading_slug(text):
 def test_readme_is_the_complete_active_node_reference():
     text = README.read_text(encoding="utf-8")
     active = _active_node_ids()
-    assert len(active) == 65
-    missing = sorted(node_id for node_id in active if f"`{node_id}`" not in text)
+    assert len(active - OPTIONAL_COMFY_API_IDS) == 65
+    missing = sorted(
+        node_id for node_id in active | OPTIONAL_COMFY_API_IDS if f"`{node_id}`" not in text
+    )
     assert missing == [], missing
     for heading in (
         "Image and media loading",
@@ -102,7 +112,7 @@ def test_readme_is_the_complete_active_node_reference():
         assert f"## {heading}" in text
 
 
-def test_examples_are_reproducible_connected_and_cover_all_active_nodes():
+def test_examples_are_reproducible_connected_and_cover_expected_nodes():
     subprocess.run(
         [sys.executable, str(ROOT / "scripts" / "build_documentation_examples.py"), "--check"],
         cwd=ROOT,
@@ -114,8 +124,10 @@ def test_examples_are_reproducible_connected_and_cover_all_active_nodes():
         for document in coverage_documents.values()
         for node in document.get("nodes", [])
     }
-    assert _active_node_ids() - EXAMPLE_COVERAGE_EXEMPT_IDS <= example_types
+    assert _active_node_ids() - EXAMPLE_COVERAGE_EXEMPT_IDS - EXAMPLE_RECIPES.keys() <= example_types
     assert example_types.isdisjoint(DEPRECATED_IDS)
+    example_index = (EXAMPLES / "README.md").read_text(encoding="utf-8")
+    assert all(f"## {heading}\n" in example_index for heading in EXAMPLE_RECIPES.values())
 
     documents = _example_documents()
     for path, document in documents.items():
@@ -253,7 +265,6 @@ def test_live_object_info_contains_example_node_types_when_comfyui_is_running():
 
     package_ids = set(_package().NODE_CLASS_MAPPINGS)
     assert package_ids <= set(object_info)
-    assert len(package_ids) == 77
     example_types = {
         node["type"]
         for document in _example_documents().values()

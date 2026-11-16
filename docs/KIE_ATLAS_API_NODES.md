@@ -21,16 +21,23 @@ Each connected batch frame counts as one reference. The node validates the selec
 
 ## Dynamic Model Panel
 
-Both nodes use a rich in-node panel. Changing `model` rebuilds the generation card from WorkflowX's packaged copy of GemMobi's canonical Kie/Atlas model contracts. The panel distinguishes aspect ratio, named `1K`/`2K`/`4K` tiers, explicit `W×H` provider sizes, output quality, and output type instead of presenting one generic size control. Unsupported controls disappear and stale workflow values normalize to that model's documented defaults.
+Changing `model` rebuilds the generation card from WorkflowX's packaged copy of GemMobi's canonical Kie/Atlas model contracts. The panel distinguishes aspect ratio, named size tiers such as `1K`, `1.5K`, `2K`, and `4K`, explicit `W×H` provider sizes, output quality, and output format. Unsupported controls disappear and stale workflow values normalize to the selected model's defaults.
 
 The header reports `T2I` or `I2I`, the connected reference count, and the selected model's maximum. Models with documented custom dimensions expose width and height controls with the provider's exact edge and step limits. `Reference Resize Max Edge` resizes oversized inputs while preserving aspect ratio before upload; it defaults to 5120px and supports 512–8192px.
 
-Kie includes Wan 2.7/Pro, Grok Imagine, GPT Image 1.5, GPT2, Seedream 4.5/5 Lite/5 Pro, Nano Banana 2/Pro, Qwen2, and Flux2 Pro. Atlas includes Wan 2.7/Pro, GPT Image 1.5, GPT2, Seedream 4.5/5 Lite/5 Pro, Nano Banana 2/Pro, Qwen2, Qwen Image 2 Pro, and Kontext. Kie Topaz Upscale is intentionally excluded because these nodes are generation/edit nodes.
+| Availability | Packaged models |
+|---|---|
+| Both providers | Wan 2.7/Pro, GPT Image 1.5, GPT Image 2, GPT Image 2.5 Sunburst, GPT Image 2.6 Sunburst and Flare, Seedream 4.5/5 Lite/5 Pro/5.5, Nano Banana 2/Pro/2.1/2 Lite, Qwen2, and Qwen Image 3.0 Pro |
+| Kie | Grok Imagine and Flux2 Pro |
+| Atlas | Seedream 4.7, Qwen Image 2 Pro, and Flux Kontext |
 
 Model-dependent controls include:
 
 - Kie: quality, NSFW checker, thinking, watermark, fixed seed, sequential generation, output format, and Grok Pro mode.
 - Atlas: quality, thinking, fixed seed, output format, input fidelity, web/image search, media resolution, guidance scale, inference steps, and safety checker.
+- Qwen Image 3.0 Pro accepts an optional `negative_prompt` for generation and editing. On Atlas, editing accepts `auto` or explicit sizes up to 1440 px on either edge.
+- Atlas Seedream 4.7 offers **standard** and **fast** in `prompt_expansion_mode`.
+- Models exposing `background` show their supported background choices. Atlas requests PNG when **transparent** is paired with JPEG. The node decodes its workflow `IMAGE` output as RGB, so it drops any alpha returned by the provider.
 
 `timeout_seconds` controls the total polling window from 30 to 3600 seconds. `poll_interval_seconds` controls status-query spacing from 2 to 60 seconds. `Log Request Payload` adds a redacted payload view to the session log; reference URLs and credentials are not shown.
 

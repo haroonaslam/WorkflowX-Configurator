@@ -19,3 +19,8 @@ Do not add them to new workflows.
 6. Save under a new filename and reload it once before retiring the original.
 
 Typed Set/Get and Relay node IDs remain current; only the controller arrangement changes. See the [Config SelectorX guide](CONFIG_SELECTOR_X.md) and [advanced configured production example](../examples/07-advanced-configured-production.json).
+
+## Other compatibility nodes
+
+- View Image (Format) — Legacy JPG (`WorkflowX_SaveImageJpg`) remains available for old workflows. Use the current [View Image (Format)](VIEW_IMAGE_FORMAT.md) for new workflows.
+- AuK's deprecated queue targets `WorkflowXAuKChainedCloneReviewStep` and `WorkflowXAuKSegmentFinalize` support internal editor operations. Start with the [AuK Chained Clone guide](../auk/docs/CHAINED_CLONE.md) when building a workflow.

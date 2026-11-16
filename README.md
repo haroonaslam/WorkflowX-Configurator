@@ -4,7 +4,7 @@
 
 WorkflowX is a production toolkit for building, configuring, editing, organizing, and reusing ComfyUI workflows. It combines image and video nodes, model and LoRA controls, structured prompting, remote image APIs, reusable workflow libraries, scoped configuration, and canvas utilities in one package.
 
-> **Short project brief:** WorkflowX adds 42 active ComfyUI nodes plus XFlows, XPrompts, XNodes, and package-wide right-click utilities. Use it to build configurable workflows, manage LoRA stacks and VRAM, load, repair, convert, preview, and edit image/video/audio media, transform voices, create structured prompts, call supported image APIs, save video, store reusable graph fragments, group selections, and replace nodes without rebuilding compatible links.
+WorkflowX provides up to 67 user-facing backend nodes, along with XFlows, XPrompts, XNodes, and canvas controls. Available nodes depend on the installed ComfyUI APIs and feature dependencies.
 
 ## Capabilities
 
@@ -12,13 +12,13 @@ WorkflowX is a production toolkit for building, configuring, editing, organizing
 |---|---|---|
 | Media input | Thumbnail browsing, masks, visual video trimming/cropping, audio repair/conversion, dimensions, advanced geometry controls | [Image and media loading](#image-and-media-loading) |
 | Models | Ordered LoRA stacks and explicit model-component unloading | [Model and LoRA management](#model-and-lora-management) |
-| Prompting | Multi-backend prompt composition and structured JsonX tools | [Prompting and JsonX](#prompting-and-jsonx) |
+| Prompting | Prompt fragment assembly, model-specific authoring, and structured JsonX tools | [Prompting and JsonX](#prompting-and-jsonx) |
 | APIs | Gemini/NanoBanana, Kie, and Atlas image generation/editing | [Remote image APIs](#remote-image-apis) |
 | Image tools | Interactive compare/edit, deterministic processing, crop/stitch swap bridge | [Image editing, processing, and swapping](#image-editing-processing-and-swapping) |
 | Output | H.264, H.265, and AV1 video encoding with optional audio | [Video output](#video-output) |
 | Configuration | Config SelectorX, typed Set/Get values, and wildcard relay routing | [Workflow configuration and routing](#workflow-configuration-and-routing) |
 | Libraries | XFlows, XPrompts, and XNodes sidebar libraries | [Workflow libraries](#workflow-libraries) |
-| Canvas | Native grouping and compatible node replacement from every node menu | [Canvas right-click utilities](#canvas-right-click-utilities) |
+| Canvas | Native grouping, compatible node replacement, quick mute and bypass, and source selection | [Canvas right-click utilities](#canvas-right-click-utilities) |
 
 ## Installation and settings
 
@@ -28,6 +28,8 @@ WorkflowX is a production toolkit for building, configuring, editing, organizing
 4. Confirm **WorkflowX** appears in the node menu and **XFlows**, **XPrompts**, and **XNodes** appear in the interface.
 
 WorkflowX settings let you enable or disable XFlows, XPrompts, and XNodes and export or import their local library data. Keep credentials and machine-specific paths out of workflows intended for sharing.
+
+Install Python dependencies using the Python executable that runs ComfyUI. See the [feature setup guides](docs/README.md#feature-requirements) for media tools, DetailerX, AuK, and H3 RefMod. The Image Prompt Library, expanded Kie and Atlas catalog, Prompt AssemblerX, and Quick controls require GitHub `main` or a release that includes those changes. They landed after the Comfy Registry 2.1.17 release commit.
 
 ![WorkflowX settings](docs/images/workflowx-settings-overview.png)
 
@@ -73,7 +75,7 @@ The backend validates the selected path against ComfyUI's input directory and pa
 | `width` | `INT` | Result width. |
 | `height` | `INT` | Result height. |
 
-The serialized state travels with the workflow; source files do not. See the [advanced loader guide](docs/IMAGE_LOADERS.md).
+The serialized state travels with the workflow. Use **Normal** for durable input files or **Direct** for temporary uploads, drops, or clipboard images. See the [advanced loader guide](docs/IMAGE_LOADERS.md).
 
 ### Load VideoX Adv
 
@@ -226,6 +228,22 @@ Repository maintainers can publish a prepared ComfyUI asset tree with `scripts/u
 
 ## Prompting and JsonX
 
+### Prompt AssemblerX
+
+**Node ID / category** — `WorkflowXPromptAssemblerX` · `WorkflowX`. Requires ComfyUI Autogrow support.
+
+Connect `STRING` outputs to the growing prompt inputs, up to 100 slots. Each connected row has a switch so you can include or exclude its fragment while keeping the wiring. The node joins enabled, non-blank fragments in numeric slot order and trims whitespace at the edges of each fragment.
+
+| Control or port | Behavior |
+|---|---|
+| `separator` | **comma + space** (default), **newline** (a blank line between fragments), **space**, **period + space**, or **custom** |
+| `custom_separator` | Exact join text when **custom** is selected. Use an empty string for direct concatenation. |
+| `disabled_slots` | UI-managed JSON list of disabled slot names such as `["prompt_2"]`. The switches follow connections in the saved workflow and exclude those inputs from the node's upstream evaluation when queued. |
+| `assembled_prompt` | Joined `STRING`. Connect it to a text encoder, prompt input, or text display. |
+| `debug_info` | `STRING` report with the separator, active count, slot states, short text previews when available, and output length. |
+
+See the [Prompt AssemblerX recipe](examples/README.md#prompt-assemblerx).
+
 WorkflowX supports natural or structured prompting from images and text, then provides a connected JsonX toolchain for generating, inspecting, importing, and randomizing structured prompt documents.
 
 ### Unified Autoprompter X
@@ -250,7 +268,7 @@ WorkflowX supports natural or structured prompting from images and text, then pr
 | `positive` | `STRING` | Positive prompt channel. |
 | `negative` | `STRING` | Negative prompt channel when enabled. |
 
-**Controls:** one Provider dropdown for Gemini, Grok API, DeepSeek API, OpenAI Compatible, LM Studio, Unsloth Studio, Ollama, or Local GGUF; profile-aware Generation type; Prompt instructions; Detail level; On Generate or On Queue working mode; optional Add audit pass or Audit only validation; reusable character/scene presets expanded with `@tag`; NSFW/negative controls; dynamic Model settings; bounding-box tools; Profile settings; Generate and Cancel. Provider credentials and tuning remain browser-local. Qwen Image 2.1 has dedicated Text-to-Image and Image-to-Image natural-prompt guidance without a negative channel. See the [complete Autoprompter guide](docs/UNIFIED_AUTOPROMPTER_X.md).
+**Controls:** one Provider dropdown for Gemini, Grok API, DeepSeek API, OpenAI Compatible, LM Studio, Unsloth Studio, Ollama, or Local GGUF; profile-aware Generation type; Prompt instructions; Detail level; On Generate or On Queue working mode; optional Add audit pass or Audit only validation; reusable character/scene presets expanded with `@tag`; NSFW/negative controls; dynamic Model settings; bounding-box tools; Profile settings; Generate and Cancel. Provider credentials and tuning remain browser-local. MOSS-Image and FIBO 2 support Natural and JSON output for text-to-image and image-to-image. MOSS also has a model-specific BBox layout. Qwen Image 2.1 supports Natural output with an optional negative prompt. See the [complete Autoprompter guide](docs/UNIFIED_AUTOPROMPTER_X.md).
 
 Connected images are optional prompt-authoring evidence and never select the downstream generation path. Image-capable paths switch between with-reference and inferred-reference instructions; text-only paths can inspect connected media and combine visible evidence with the user's description without exposing reference commentary downstream. Standard-profile instructions are Markdown-backed: packaged defaults live under `unified_autoprompter/reference/original`, while the editable runtime copy lives under `reference/current_use`. Profile Settings edits the exact Common, selected Generation Path, Reference Usage, Output Contract, and Image/Video NSFW files without reformatting them. JsonX has an independently managed `reference/original/JsonX` and `reference/current_use/JsonX` subtree with exact editors for paths, conditions, user templates, context templates, presets, and stage contracts. Preview and dispatch share their respective backend payload builders and keep routing metadata out of model-facing text.
 
@@ -308,7 +326,7 @@ Empty credentials, provider errors, timeouts, and safety failures are surfaced. 
 | Polling | `timeout_seconds`, `poll_interval_seconds`, `retrieval_mode` | Submit/poll or force-retrieve behavior. |
 | Quality | `quality`, `guidance_scale`, `num_inference_steps`, `media_resolution`, `input_fidelity`, `enable_pro` | Provider/model-aware quality controls. |
 | Safety and provenance | `nsfw_checker`, `enable_safety_checker`, `watermark`, `show_payload` | Safety, watermark, and payload visibility. |
-| Generation options | `thinking_mode`, `seed_enabled`, `seed`, `enable_sequential`, `output_format`, `enable_web_search`, `enable_image_search` | Optional provider features. |
+| Generation options | `thinking_mode`, `seed_enabled`, `seed`, `enable_sequential`, `output_format`, `enable_web_search`, `enable_image_search`, `background`, `negative_prompt`, `prompt_expansion_mode` | Controls depend on the selected model and generation mode. |
 | Custom dimensions | `custom_size_enabled`, `custom_size_auto`, `custom_width`, `custom_height`, `reference_max_edge` | Custom output/reference sizing. |
 | References | Dynamic `image_1` … `image_14` | Frontend adds image sockets as references are connected. |
 
@@ -332,7 +350,7 @@ The frontend changes visible controls according to the selected model. Pending r
 
 **Node IDs / category:** `WorkflowX_DetailerX`, `WorkflowX_DetailerXPreview`, `WorkflowX_DetailerXMasks` · `WorkflowX/Image`
 
-DetailerX runs an ordered, draggable chain of upscaling, class-aware SAM detailers, realism processors, and DLSS5. It accepts MODEL, VAE, CLIP, positive/negative CONDITIONING, and IMAGE, then returns `final_image`, structured `processor_images`, and `detailer_masks`. Global SAM is the inherited default; each detailer can use its detector directly or override SAM1, SAM2.1, or SAM3. SAM3 includes BBox-controlled crop isolation for concept guidance that must remain inside each detector box. Repeatable custom detailers support detector-free, fully text-guided SAM3 concepts. Connect the structured outputs to DetailerX Preview and DetailerX Masks to inspect cumulative stages and detector/raw-SAM/final masks. See the [DetailerX guide](docs/detailer_x.md).
+DetailerX runs an ordered, draggable chain of upscaling, class-aware SAM detailers, realism processors, and DLSS5. It accepts MODEL, VAE, CLIP, positive/negative CONDITIONING, and IMAGE, then returns `final_image`, structured `processor_images`, and `detailer_masks`. Global SAM is the inherited default; each detailer can use its detector directly or override SAM1, SAM2.1, or SAM3. SAM3 includes BBox-controlled crop isolation for concept guidance inside each detector box. Repeatable custom detailers support detector-free, fully text-guided SAM3 concepts. Connect `processor_images` to DetailerX Preview and `detailer_masks` to DetailerX Masks to inspect cumulative stages and detector, raw SAM, and final masks. The [DetailerX guide](docs/detailer_x.md) covers global prompts, stage reruns, and DLAA reconstruction.
 
 ### Image ProcessorX
 
@@ -593,7 +611,7 @@ XNodes saves reusable nodes, selections, and native groups. Group snippets prese
 
 ## Canvas right-click utilities
 
-WorkflowX adds two options to every registered node's context menu.
+WorkflowX adds grouping, replacement, and quick mode actions to node context menus.
 
 ![WorkflowX context-menu utilities](docs/images/workflowx-context-menu-utilities.png)
 
@@ -616,6 +634,18 @@ On replacement, WorkflowX preserves position, colors, mode, flags, a custom titl
 Incompatible links are skipped rather than forced, and a result notification reports kept links, skipped links, and copied widget values. Arbitrary node-specific hidden properties are not guaranteed to transfer.
 
 ![Replacement result](docs/images/workflowx-replace-node-result.png)
+
+### Quick MuteX and Quick BypassX
+
+Right-click a target and choose **WorkflowX: Add to Quick MuteX** or **WorkflowX: Add to Quick BypassX**. The action adds it to the corresponding panel on the main canvas and creates the panel when needed. Targets can be on the main canvas or in a reachable subgraph. Turning a row off applies ComfyUI's native Mute or Bypass mode. Turning it on sets the target to Active. Removing a row leaves the target in its current mode. Config SelectorX can still apply its configured group modes when queueing.
+
+### Quick ToggleX and ToggleX Controller
+
+Add **ToggleX Controller** (`WorkflowXToggleXController`, category `WorkflowX`) where you need to choose among alternative sources. Connect up to 100 compatible inputs and wire the **selected** output to the consumer. Add **Quick ToggleX** from the WorkflowX node menu on the main canvas and pick a source in the controller's dropdown. The dashboard lists controllers on the main canvas and in reachable subgraphs. Repeated instances of one subgraph definition share its controller selection.
+
+The selection is saved with the workflow. Queueing passes only the selected input to the controller, so an unselected branch can still execute if it has another consumer. If a selected connection disappears, choose another source before queueing. ToggleX Controller requires ComfyUI Autogrow and MatchType support. Quick ToggleX, Quick MuteX, and Quick BypassX are frontend panels.
+
+See the [Quick controls recipe](examples/README.md#quick-controls).
 
 ## Examples
 

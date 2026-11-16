@@ -41,3 +41,5 @@ Get-node resolution metadata is UI-managed and should not be edited manually. Ty
 Use Relay for values that cannot be represented by the seven typed families. The Set Relay output remains on the execution path, while Get Relay resolves the selected value or its connected fallback.
 
 See the [configuration and routing example](../examples/01-configuration-and-routing.json), the [advanced production example](../examples/07-advanced-configured-production.json), and the exact [node contracts](../README.md#workflow-configuration-and-routing).
+
+For individual node mode switches, see [Quick MuteX and Quick BypassX](../README.md#quick-mutex-and-quick-bypassx). Selector-controlled groups can reapply their configured modes when queueing. To choose among wired sources, use [Quick ToggleX and ToggleX Controller](../README.md#quick-togglex-and-togglex-controller).

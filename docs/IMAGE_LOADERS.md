@@ -8,6 +8,8 @@ WorkflowX provides a standard loader and an advanced loader. Both return normali
 
 Choose or upload an image. The node returns `IMAGE` and an alpha-derived `MASK`, following the familiar ComfyUI loader contract.
 
+In **Browse Thumbnails**, enable batch selection, select input images, and choose **Delete**. Confirming permanently removes the selected files from ComfyUI's input directory. Saved workflows that reference a deleted image need a replacement.
+
 ## Load ImageX Adv
 
 The advanced loader adds mask editing, an inverted mask, and explicit width/height outputs. Its `workflowx_state` field is managed by the frontend editor and saved in the workflow; do not wire or edit it as an ordinary input.

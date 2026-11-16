@@ -13,5 +13,7 @@ Use these in-page sections:
 - [Workflow configuration and routing](../README.md#workflow-configuration-and-routing)
 - [Workflow libraries](../README.md#workflow-libraries)
 - [Canvas right-click utilities](../README.md#canvas-right-click-utilities)
+- [AuK audio nodes](../README.md#auk-audio-nodes)
+- [H3 RefMod nodes](../README.md#h3-refmod-nodes)
 
 Deprecated compatibility nodes are documented only in [legacy migration](LEGACY_MIGRATION.md).

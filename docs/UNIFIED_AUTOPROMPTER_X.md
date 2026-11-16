@@ -40,7 +40,8 @@ Built-in support:
 | Profiles | Supported generation types | Default |
 | --- | --- | --- |
 | Image profiles | Text to Image, Image to Image | Text to Image |
-| Qwen Image 2.1 | Text to Image, Image to Image; Natural output only; no negative channel | Text to Image |
+| MOSS-Image, FIBO 2 | Text to Image, Image to Image; Natural and JSON output; optional negative prompts | Text to Image |
+| Qwen Image 2.1 | Text to Image, Image to Image; Natural output only; optional negative prompt | Text to Image |
 | JsonX | Text to Image, Image to Image | Text to Image |
 | WAN 2.2, LTX 2.3 | Text to Video, First Frame, First–Last Frame | Text to Video |
 | MiniMax H3 Official | Text to Video, First Frame, First–Last Frame, Last Frame, Reference to Video | Text to Video |
@@ -48,15 +49,24 @@ Built-in support:
 
 Connected images are sent to the authoring LLM in socket order. A path's editable canonical reference-usage block defines their role: for example, First–Last Frame treats the first two as boundary frames, while Reference to Video assigns bounded authority. If no image is attached, the corresponding no-image block tells the LLM to derive only the reference assumptions explicitly present in the user's description. For text-only downstream paths, connected media remains authoring guidance: the LLM combines visible evidence with the user's description to infer intent without emitting reference commentary or implying that the downstream generator receives the media.
 
+### MOSS-Image and FIBO 2
+
+- For **MOSS-Image**, choose **JSON** when you need structured layout. Its BBox layout uses centered-pixel coordinates ordered `[ymin, xmin, ymax, xmax]`. Set the canvas dimensions used for the layout before placing boxes. Keep width and height divisible by 16 and use the same canvas dimensions in the downstream workflow.
+- For a new **FIBO 2** JSON image edit, use `edit_instruction` at the root beside the result caption fields, for example `{"short_description":"A room with blue walls","edit_instruction":"Repaint the walls blue and preserve the furniture."}`. The supported alternative puts the caption under `structured_caption` alongside root-level `edit_instruction`.
+
+These profiles author prompts for a downstream generator. For joining text already present in the graph, use [Prompt AssemblerX](../README.md#prompt-assemblerx).
+
 ## Minimal prompt assembly
 
 For standard profiles, Unified sends only exact Markdown file contents, in this order:
 
 1. `split/common.md`.
-2. The selected generation-type file from `split/`, when it is non-empty.
-3. `nsfw-image.md` or `nsfw-video.md`, only when NSFW is enabled.
-4. Exactly one profile-level reference-processing file from `Supporting/`.
-5. Exactly one profile-wide output-contract file from `Supporting/`, selected by output format and negative state.
+2. Profile instructions for the selected format, if configured in the manifest.
+3. The selected generation-type file from `split/`, when it is non-empty.
+4. Instructions for the selected generation type and format, if configured.
+5. `nsfw-image.md` or `nsfw-video.md`, only when NSFW is enabled.
+6. One profile-level reference-processing file from `Supporting/`.
+7. One profile-wide output-contract file from `Supporting/`, selected by output format and negative state.
 
 File contents are not trimmed, interpolated, summarized, converted, or reformatted. Unified inserts only a fixed blank-line separator between selected blocks. An enabled generation type may have a blank file, in which case that optional block is skipped.
 

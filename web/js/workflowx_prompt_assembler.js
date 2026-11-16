@@ -9,8 +9,8 @@ function promptRows(node) {
   const disabled = new Set(node.properties[DISABLED_LINKS] ?? []);
   return node.inputs.flatMap((input) => {
     const match = PROMPT_NAME.exec(input.name);
-    if (!match) return [];
-    const link = input.link == null ? null : String(input.link);
+    if (!match || input.link == null) return [];
+    const link = String(input.link);
     return [{ name: match[1], number: match[2], link, checked: !disabled.has(link) }];
   });
 }
@@ -18,14 +18,14 @@ function promptRows(node) {
 function storeToggle(node, name, checked) {
   const rows = promptRows(node);
   const row = rows.find((entry) => entry.name === name);
-  if (!node.graph || row?.link == null || row.checked === checked) return;
+  if (!node.graph || !row || row.checked === checked) return;
   const graph = node.graph.rootGraph ?? node.graph;
   const canvas = app.canvas;
   graph.beforeChange?.();
   canvas?.emitBeforeChange?.();
   try {
     node.properties[DISABLED_LINKS] = rows
-      .filter((entry) => entry.link !== null && !(entry === row ? checked : entry.checked))
+      .filter((entry) => !(entry === row ? checked : entry.checked))
       .map((entry) => entry.link);
   } finally {
     graph.afterChange?.();
@@ -103,9 +103,7 @@ function attachPromptSwitches(node) {
         labels.set(row.name, label);
       }
       if (list.children[index] !== label) list.insertBefore(label, list.children[index] ?? null);
-      const toggle = label.lastElementChild;
-      toggle.checked = row.checked;
-      toggle.disabled = row.link === null;
+      label.lastElementChild.checked = row.checked;
     });
   }
 

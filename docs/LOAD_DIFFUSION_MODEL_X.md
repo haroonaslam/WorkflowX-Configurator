@@ -7,3 +7,5 @@ The node returns one `MODEL` and delegates loading to ComfyUI's native `UNETLoad
 Rows are saved with the workflow. Adding a model makes it active, activating another row disables the previous row, and removing the active row promotes a remaining row. The picker can show LoRA Manager names, previews, tags, base-model information, and descriptions when that extension is installed. Without it, WorkflowX lists the same `diffusion_models` files known to ComfyUI and shows their folder, path, extension, and file size.
 
 Use the row context menu to activate, replace, or remove a model. The node preserves its chosen width while its height grows and shrinks with the saved model list.
+
+After moving a workflow or reorganizing model folders, use the header control **Remap moved diffusion models**. It checks saved SHA-256 identities against the local ComfyUI diffusion-model catalog and updates matching rows. Read the remapped, unchanged, unresolved, and duplicate counts in the result. Install the original model or choose a replacement for unresolved rows, and verify the chosen paths if duplicate matches were reported.
