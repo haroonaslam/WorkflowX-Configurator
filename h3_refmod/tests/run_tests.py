@@ -32,6 +32,46 @@ class Profiles(unittest.TestCase):
         return cr.create_selected(sources,vae=self.vae,display_name='Profiles',prompt_alias='alice',profiles=config(),**kw)['result'][0]
     def select(self,c,mode=rp.MODES[2],**options):return ch.configure_character(c,visual_references=mode,reference_selection=json.dumps({'character_id':c['character_id'],'modes':{mode:options}}))
 
+    def test_adapter_selection_and_combined(self):
+        from h3rc.adapter import RefModXAdapter
+        from comfy_execution.graph import ExecutionBlocker
+        adapter=RefModXAdapter();c=self.create()
+        before={p:Path(p).read_bytes() for p in c['visuals']+[c['path']]}
+        for mode in rp.MODES:
+            s=self.select(c,mode,**({'profile':'small','selected':['source-3','source-1'],'order':['source-3','source-1']} if mode in (rp.MODES[0],rp.MODES[3]) else {'defaults':{'image':'original','video':'small'}}))
+            blocked,mods=adapter.adapt(s)
+            self.assertIsInstance(blocked,ExecutionBlocker)
+            expected=gen.generate(Clip(),'@alice smiles',64,64,5,characters={'character_0':s},saved_character_conditioning=rp.CONDITIONING[1])[0][0][1]['minimax_refs']
+            self.assertEqual(len(mods),len(expected))
+            for (mod,strength),block in zip(mods,expected):
+                self.assertEqual(strength,1.0)
+                self.assertTrue(torch.equal(mod.ref_block(strength)['latent'],block['latent']))
+            if mode in (rp.MODES[0],rp.MODES[3]):
+                with self.assertRaisesRegex(ValueError,'full H3'):adapter.adapt(s,'Video frames')
+                frames,inactive=adapter.adapt(s,'Video frames',self.vae)
+                self.assertEqual(len(frames),5);self.assertIsInstance(inactive,ExecutionBlocker)
+            else:
+                with self.assertRaisesRegex(ValueError,'requires Saved combined'):adapter.adapt(s,'Video frames',self.vae)
+        self.assertTrue(all(Path(p).read_bytes()==data for p,data in before.items()))
+
+    def test_adapter_audio_and_original_apply(self):
+        from h3rc.adapter import RefModXAdapter
+        c=self.create();z=torch.rand(1,32,2,12)
+        voice=H3RefMod(name='Voice',kind='audio',latent=z,sample_rate=32000).save(str(self.root/'voice'))
+        c['voices']=[voice];before=Path(voice).read_bytes();s=self.select(c,rp.MODES[1])
+        mods=RefModXAdapter().adapt(s)[1]
+        self.assertTrue(torch.equal(mods[-1][0].ref_block(1)['audio_latent'],z))
+        original=Path(args.comfy_root)/'custom_nodes/ComfyUI-H3RefMods/nodes/refmod_apply.py'
+        if original.exists():
+            spec=importlib.util.spec_from_file_location('h3rc.vendor.nodes.adapter_apply_test',original)
+            module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+            output=module.H3RefModApplySimple.execute([[torch.zeros(1),{}]],mods)
+            self.assertEqual(len(output[0][0][1]['minimax_refs']),len(mods))
+            self.assertTrue(torch.equal(output[0][0][1]['minimax_refs'][-1]['audio_latent'],z))
+        disabled=dict(s,use_voice=False)
+        self.assertTrue(all(m.kind!='audio' for m,_ in RefModXAdapter().adapt(disabled)[1]))
+        self.assertEqual(Path(voice).read_bytes(),before)
+
     def test_saved_profiles_with_endpoints_both_modes(self):
         from comfy.text_encoders.minimax import MiniMaxH3Tokenizer
         class Text:

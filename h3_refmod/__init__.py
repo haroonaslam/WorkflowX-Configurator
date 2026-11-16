@@ -3,9 +3,11 @@ from .generation import CharacterPicker, ModReferenceToVideo, InspectText
 from .creation import CreateFolder
 from .preparation import PrepareThumbnail
 from .media import ImageReference, AudioReference, VideoReference
+from .adapter import RefModXAdapter
 from . import routes
 
 NODE_CLASS_MAPPINGS = {
+    'RefModXAdapter': RefModXAdapter,
     'H3RCInspectText': InspectText,
     'H3RCImageReference': ImageReference,
     'H3RCAudioReference': AudioReference,
@@ -16,6 +18,7 @@ NODE_CLASS_MAPPINGS = {
     'H3RCCreateFromFolder': CreateFolder,
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
+    'RefModXAdapter': 'RefModX Adapter',
     'H3RCInspectText': 'Inspect H3 Prompt or Assignments',
     'H3RCImageReference': 'H3 Image Reference',
     'H3RCAudioReference': 'H3 Audio Reference',
