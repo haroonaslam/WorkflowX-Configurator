@@ -11,6 +11,7 @@ import {
   isQuickModeController,
   registerQuickModeNodes,
 } from "./workflowx_quick_modes.mjs";
+import { installQuickGroupMenu } from "./workflowx_quick_group_menu.mjs?workflowx=2";
 
 const EXTENSION_NAME = "Comfy.WorkflowXNodeReplacer";
 const MENU_LABEL = "WorkflowX: Replace node...";
@@ -636,14 +637,14 @@ function installMenuHandler(nodeTypeDef) {
   proto.__workflowXNodeReplacerMenu = true;
 }
 
-function quickModeMenuItems(node) {
-  if (isQuickModeController(node)) return [];
+function quickModeMenuItems(target) {
+  if (isQuickModeController(target)) return [];
   return QUICK_MODES.map((spec) => ({
     content: `WorkflowX: Add to ${spec.title}`,
     callback: () => {
       try {
         const { controller, added } = addQuickTarget(
-          getGraph(), node, spec, (type) => globalThis.LiteGraph.createNode(type), getCanvas(),
+          getGraph(), target, spec, (type) => globalThis.LiteGraph.createNode(type), getCanvas(),
         );
         controller.refreshQuickTargets?.(true);
         showToast(added ? `Added to ${spec.title}.` : `Already in ${spec.title}.`);
@@ -657,6 +658,9 @@ function quickModeMenuItems(node) {
 
 app.registerExtension({
   name: EXTENSION_NAME,
+  setup() {
+    installQuickGroupMenu(quickModeMenuItems);
+  },
   registerCustomNodes() {
     registerQuickModeNodes(getGraph, getCanvas);
   },

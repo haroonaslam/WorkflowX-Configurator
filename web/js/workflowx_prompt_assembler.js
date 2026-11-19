@@ -3,15 +3,15 @@ import { installAutogrowLayoutHooks } from "./workflowx_autogrow_layout.mjs";
 
 const TYPE = "WorkflowXPromptAssemblerX";
 const DISABLED_LINKS = "workflowx_prompt_disabled_links";
-const PROMPT_NAME = /^prompts\.(prompt_(\d+))$/;
+const PROMPT_NAME = /^prompts\.(prompt_\d+)$/;
 
 function promptRows(node) {
   const disabled = new Set(node.properties[DISABLED_LINKS] ?? []);
-  return node.inputs.flatMap((input) => {
+  return node.inputs.flatMap((input, slot) => {
     const match = PROMPT_NAME.exec(input.name);
     if (!match || input.link == null) return [];
     const link = String(input.link);
-    return [{ name: match[1], number: match[2], link, checked: !disabled.has(link) }];
+    return [{ name: match[1], slot, link, checked: !disabled.has(link) }];
   });
 }
 
@@ -43,6 +43,8 @@ function installStyles() {
       overflow:auto; padding:2px 5px; color:var(--input-text, #ddd); font:12px sans-serif; }
     .workflowx-assembler-switches label { display:flex; align-items:center; justify-content:space-between;
       gap:5px; min-height:27px; }
+    .workflowx-assembler-switches label span { min-width:0; overflow:hidden; text-overflow:ellipsis;
+      white-space:nowrap; }
     .workflowx-assembler-switches input { appearance:none; flex:none; width:28px; height:16px; margin:0;
       border-radius:10px; border:1px solid #888; background:var(--comfy-input-bg, #333);
       display:grid; align-items:center; padding:2px; cursor:pointer; }
@@ -92,6 +94,7 @@ function attachPromptSwitches(node) {
       let label = labels.get(row.name);
       if (!label) {
         label = document.createElement("label");
+        const caption = document.createElement("span");
         const toggle = document.createElement("input");
         toggle.type = "checkbox";
         toggle.setAttribute("role", "switch");
@@ -99,10 +102,19 @@ function attachPromptSwitches(node) {
           storeToggle(node, row.name, toggle.checked);
           refresh();
         });
-        label.append(`Prompt ${row.number}`, toggle);
+        label.append(caption, toggle);
         labels.set(row.name, label);
       }
       if (list.children[index] !== label) list.insertBefore(label, list.children[index] ?? null);
+      const link = node.getInputLink(row.slot);
+      const source = link && node.graph.getNodeById(link.origin_id);
+      const port = !source && link ? node.graph.inputs?.[link.origin_slot] : null;
+      const title = source?.title || source?.constructor?.title || port?.label || port?.name || "Connected input";
+      const caption = label.firstElementChild;
+      if (caption.textContent !== title) {
+        caption.textContent = title;
+        caption.title = title;
+      }
       label.lastElementChild.checked = row.checked;
     });
   }

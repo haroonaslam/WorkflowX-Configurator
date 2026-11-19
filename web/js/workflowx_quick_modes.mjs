@@ -1,4 +1,4 @@
-import { graphNodes, intersects, logicalGraphs } from "./key_config_graph.mjs";
+import { graphGroups, graphNodes, intersects, logicalGraphs } from "./key_config_graph.mjs";
 
 export const QUICK_MODES = [
   { type: "WorkflowXQuickMute", title: "Quick MuteX", mode: 2 },
@@ -17,7 +17,9 @@ export function isQuickModeController(node) {
 
 function targetEntries(controller) {
   const value = controller.properties?.[TARGETS];
-  return Array.isArray(value) ? value.filter((ref) => ref && typeof ref.nodeId === "string") : [];
+  return Array.isArray(value)
+    ? value.filter((ref) => ref && (typeof ref.nodeId === "string" || typeof ref.groupId === "string"))
+    : [];
 }
 
 function graphId(graph) {
@@ -25,11 +27,11 @@ function graphId(graph) {
 }
 
 function titleOf(node) {
-  return String(node.title || node.constructor.title || node.type || "Node");
+  return String(node.title || node.constructor.title || node.type || (node.nodes ? "Group" : "Node"));
 }
 
 function sameTarget(a, b) {
-  return a.graphId === b.graphId && a.nodeId === b.nodeId && a.type === b.type;
+  return a.graphId === b.graphId && a.groupId === b.groupId && a.nodeId === b.nodeId && a.type === b.type;
 }
 
 function changeGraph(graph, canvas, change) {
@@ -58,15 +60,16 @@ function placeController(graph, controller, anchor) {
 
 export function addQuickTarget(graph, target, spec, createNode, canvas) {
   const location = logicalGraphs(graph).find((entry) => entry.graph === target.graph);
-  if (!location || !graphNodes(location.graph).includes(target) || isQuickModeController(target)) {
-    throw new Error("This node is outside the current workflow.");
+  const isGroup = graphGroups(location?.graph).includes(target);
+  if (!location || (!isGroup && !graphNodes(location.graph).includes(target)) || isQuickModeController(target)) {
+    throw new Error("This target is outside the current workflow.");
   }
+  if (target.id == null) throw new Error("This target has no saved ID.");
   const id = location.isRoot ? null : graphId(location.graph);
   if (id === "") throw new Error("This subgraph has no saved ID.");
   const ref = {
     graphId: id,
-    nodeId: String(target.id),
-    type: target.type,
+    ...(isGroup ? { groupId: String(target.id) } : { nodeId: String(target.id), type: target.type }),
     title: titleOf(target),
     path: location.path.join(" / "),
   };
@@ -98,27 +101,46 @@ export function quickTargetRows(graph, controller) {
   return refs.map((ref) => {
     const location = locations.get(ref.graphId);
     const targetGraph = location?.graph;
-    const target = targetGraph?.getNodeById?.(ref.nodeId)
+    const group = ref.groupId === undefined ? undefined
+      : graphGroups(targetGraph).find((candidate) => String(candidate.id) === ref.groupId);
+    const target = ref.nodeId === undefined ? undefined : targetGraph?.getNodeById?.(ref.nodeId)
       ?? graphNodes(targetGraph).find((candidate) => String(candidate.id) === ref.nodeId);
     const node = target?.type === ref.type ? target : undefined;
+    const entity = group ?? node;
     const lastKnown = lastKnownLabels.get(ref);
-    const title = node ? titleOf(node) : lastKnown?.title ?? ref.title ?? "Node";
+    const title = entity ? titleOf(entity) : lastKnown?.title ?? ref.title ?? (ref.groupId === undefined ? "Node" : "Group");
     const path = location?.path.join(" / ") ?? lastKnown?.path ?? ref.path ?? "";
-    if (node && (title !== lastKnown?.title || path !== lastKnown?.path)) {
+    if (entity && (title !== lastKnown?.title || path !== lastKnown?.path)) {
       lastKnownLabels.set(ref, { title, path });
     }
-    return { ref, node, title, path };
+    return { ref, node, group, title, path };
+  });
+}
+
+function groupMembers(group) {
+  // Match native group membership without its recompute step, which sorts the graph's groups.
+  const [x, y, width, height] = group.boundingRect ?? [...group.pos, ...group.size];
+  return graphNodes(group.graph).filter((node) => {
+    if (isQuickModeController(node)) return false;
+    const [left, top, w, h] = node.boundingRect ?? [...node.pos, ...node.size];
+    const cx = left + w / 2;
+    const cy = top + h / 2;
+    return cx >= x && cx <= x + width && cy >= y && cy <= y + height;
   });
 }
 
 export function setQuickTargetMode(graph, controller, ref, mode, enabled, canvas) {
-  const target = quickTargetRows(graph, controller).find((row) => sameTarget(row.ref, ref))?.node;
+  const row = quickTargetRows(graph, controller).find((entry) => sameTarget(entry.ref, ref));
+  const targets = row?.group ? groupMembers(row.group) : row?.node ? [row.node] : [];
   const nextMode = enabled ? ACTIVE : mode;
-  if (!target || target.mode === nextMode) return;
+  const changed = targets.filter((target) => target.mode !== nextMode);
+  if (!changed.length) return;
   changeGraph(graph, canvas, () => {
-    if (target.changeMode) target.changeMode(nextMode);
-    else target.mode = nextMode;
-    target.graph?.setDirtyCanvas?.(true, true);
+    for (const target of changed) {
+      if (target.changeMode) target.changeMode(nextMode);
+      else target.mode = nextMode;
+    }
+    (row.group ?? row.node).graph?.setDirtyCanvas?.(true, true);
   });
 }
 
@@ -158,6 +180,7 @@ function installStyles() {
     .workflowx-quick-toggle::before { content:""; width:10px; height:10px; border-radius:50%;
       background:currentColor; }
     .workflowx-quick-toggle:checked { justify-items:end; background:#39744c; color:#fff; }
+    .workflowx-quick-toggle:indeterminate { justify-items:center; color:#e2aa58; }
     .workflowx-quick-toggle:disabled { opacity:.45; cursor:default; }
     .workflowx-quick-remove { font:inherit; padding:2px 5px; border:0; border-radius:3px;
       color:inherit; background:transparent; cursor:pointer; }
@@ -187,8 +210,14 @@ function attachList(controller, mode, getRootGraph, getCanvas) {
     const graph = controller.graph;
     if (!graph || (!force && !list.isConnected)) return;
     const onMainCanvas = graph === getRootGraph();
-    const rows = onMainCanvas ? quickTargetRows(graph, controller) : [];
-    const view = rows.map(({ ref, node, title, path }) => [ref.graphId, ref.nodeId, ref.type, title, path, !node, node?.mode === ACTIVE]);
+    const rows = (onMainCanvas ? quickTargetRows(graph, controller) : []).map((row) => {
+      const members = row.group ? groupMembers(row.group) : row.node ? [row.node] : [];
+      const current = members[0]?.mode;
+      return { ...row, missing: !row.group && !row.node, empty: !members.length,
+        mixed: members.some((member) => member.mode !== current), active: current === ACTIVE };
+    });
+    const view = rows.map(({ ref, title, path, missing, empty, mixed, active }) =>
+      [ref.graphId, ref.groupId, ref.nodeId, ref.type, title, path, missing, empty, mixed, active]);
     const signature = JSON.stringify([onMainCanvas, view]);
     if (signature === previous) return;
     previous = signature;
@@ -198,24 +227,27 @@ function attachList(controller, mode, getRootGraph, getCanvas) {
     const scrollTop = list.scrollTop;
     list.replaceChildren();
     if (!rows.length) {
-      const message = onMainCanvas ? "Right-click a node to add it here." : "Use this controller on the main canvas.";
+      const message = onMainCanvas ? "Right-click a node or group to add it here." : "Use this controller on the main canvas.";
       list.append(element("div", "workflowx-quick-empty", message));
       return;
     }
-    for (const { ref, node, title, path } of rows) {
-      const key = JSON.stringify([ref.graphId, ref.nodeId, ref.type]);
+    for (const { ref, title, path, missing, empty, mixed, active } of rows) {
+      const key = JSON.stringify([ref.graphId, ref.groupId, ref.nodeId, ref.type]);
       const row = element("div", "workflowx-quick-row");
       const label = element("label", "workflowx-quick-label");
       const text = element("span", "workflowx-quick-text");
-      text.append(element("span", "workflowx-quick-name", node ? title : `${title} (missing)`));
+      text.append(element("span", "workflowx-quick-name", missing ? `${title} (missing)` : title));
       if (path) text.append(element("span", "workflowx-quick-path", path));
       text.title = path ? `${title} — ${path}` : title;
       const toggle = element("input", "workflowx-quick-toggle");
       toggle.type = "checkbox";
       toggle.dataset.quickControl = `toggle:${key}`;
-      toggle.setAttribute("role", "switch");
-      toggle.checked = node?.mode === ACTIVE;
-      toggle.disabled = !node;
+      if (ref.groupId === undefined) toggle.setAttribute("role", "switch");
+      toggle.checked = active && !mixed;
+      toggle.indeterminate = mixed;
+      toggle.disabled = empty;
+      if (mixed) toggle.title = "Mixed modes. Click to enable all group members.";
+      else if (empty && !missing) toggle.title = "No nodes in group";
       toggle.addEventListener("change", () => {
         setQuickTargetMode(graph, controller, ref, mode, toggle.checked, getCanvas());
         refresh(true);

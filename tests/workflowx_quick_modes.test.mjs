@@ -33,6 +33,63 @@ function makeGraph(id, ...nodes) {
 
 const createNode = (type) => makeNode(type, 10);
 
+test("group targets survive rename and reload, and apply to current members in one transaction", () => {
+  const first = makeNode("First", 1);
+  const second = makeNode("Second", 2, { pos: [400, 30] });
+  const graph = makeGraph("root", first, second);
+  const group = { id: 1, title: "Models", pos: [0, 0], size: [240, 200], graph };
+  graph.groups = [group, { ...group, id: 2, pos: [350, 0] }];
+  const { controller } = addQuickTarget(graph, group, mute, createNode);
+  addQuickTarget(graph, first, mute, createNode);
+  assert.equal(addQuickTarget(graph, group, mute, createNode).added, false);
+  assert.equal(first.mode, 0);
+  controller.properties = JSON.parse(JSON.stringify(controller.properties));
+  group.title = "Renamed models";
+  const [groupRow, nodeRow] = quickTargetRows(graph, controller);
+  assert.equal(groupRow.group, group);
+  assert.equal(groupRow.title, group.title);
+  assert.equal(nodeRow.node, first);
+
+  setQuickTargetMode(graph, controller, groupRow.ref, mute.mode, false);
+  assert.equal(first.mode, 2);
+  assert.equal(second.mode, 0);
+  second.pos = [10, 30];
+  first.pos = [400, 30];
+  setQuickTargetMode(graph, controller, groupRow.ref, mute.mode, false);
+  assert.equal(second.mode, 2);
+  setQuickTargetMode(graph, controller, groupRow.ref, mute.mode, true);
+  assert.equal(first.mode, 2);
+  assert.equal(second.mode, 0);
+  assert.equal(controller.mode, 0);
+  assert.deepEqual(graph.transactions, Array.from({ length: 5 }, () => ["before", "after"]).flat());
+
+  graph.groups.shift();
+  const [missing] = quickTargetRows(graph, controller);
+  assert.equal(missing.group, undefined);
+  assert.equal(missing.title, "Renamed models");
+});
+
+test("groups with the same ID in separate graphs resolve by saved graph ID", () => {
+  const rootNode = makeNode("Root target", 1);
+  const nestedNode = makeNode("Nested target", 1);
+  const nested = makeGraph("subgraph", nestedNode);
+  nested.name = "Nested workflow";
+  const root = makeGraph("root", rootNode, makeNode("Subgraph", 2, { subgraph: nested, pos: [400, 30] }));
+  const bounds = { id: 1, title: "Same group title", pos: [0, 0], size: [240, 200] };
+  root.groups = [{ ...bounds, graph: root }];
+  nested.groups = [{ ...bounds, graph: nested }];
+  const { controller } = addQuickTarget(root, nested.groups[0], bypass, createNode);
+  addQuickTarget(root, root.groups[0], bypass, createNode);
+  const [inner, outer] = quickTargetRows(root, controller);
+  assert.equal(inner.path, "Nested workflow");
+  assert.equal(inner.group, nested.groups[0]);
+  assert.equal(outer.group, root.groups[0]);
+  assert.equal(controller.graph, root);
+  setQuickTargetMode(root, controller, inner.ref, bypass.mode, false);
+  assert.equal(nestedNode.mode, 4);
+  assert.equal(rootNode.mode, 0);
+});
+
 test("add creates or reuses a controller without changing the target mode", () => {
   const first = makeNode("First", 1, { mode: 4 });
   const second = makeNode("Second", 2);
