@@ -47,6 +47,10 @@ EXAMPLE_COVERAGE_EXEMPT_IDS = {
     "WorkflowX_DetailerXMasks",
 }
 EXAMPLE_RECIPES = {
+    "CodeX": "CodeX",
+    "WorkflowX_RetainFaceX": "Retain FaceX",
+    "WorkflowX_ImageXSource": "ImageX Source",
+    "RefModXAdapter": "RefModX Adapter",
     "WorkflowXPromptAssemblerX": "Prompt AssemblerX",
     "WorkflowXToggleXController": "Quick controls",
 }
@@ -93,7 +97,7 @@ def _heading_slug(text):
 def test_readme_is_the_complete_active_node_reference():
     text = README.read_text(encoding="utf-8")
     active = _active_node_ids()
-    assert len(active - OPTIONAL_COMFY_API_IDS) == 65
+    assert len(active - OPTIONAL_COMFY_API_IDS) == 69
     missing = sorted(
         node_id for node_id in active | OPTIONAL_COMFY_API_IDS if f"`{node_id}`" not in text
     )

@@ -1,4 +1,5 @@
 import importlib.util
+import importlib
 import json
 import pathlib
 import sys
@@ -40,6 +41,7 @@ def _load_modules():
         advanced = importlib.util.module_from_spec(advanced_spec)
         sys.modules[advanced_spec.name] = advanced
         advanced_spec.loader.exec_module(advanced)
+        importlib.import_module(f"{package_name}.source")
         return advanced
     finally:
         if original_folder_paths is None:
@@ -49,6 +51,7 @@ def _load_modules():
 
 
 advanced = _load_modules()
+source = sys.modules["workflowx_load_image_x_adv_test.source"]
 direct_spec = importlib.util.spec_from_file_location("workflowx_direct_test", ROOT / "load_image_x/direct.py")
 direct = importlib.util.module_from_spec(direct_spec)
 direct_spec.loader.exec_module(direct)
@@ -94,6 +97,55 @@ def test_direct_animation_retains_all_frames(tmp_path):
     result = direct.store_direct_image(stream, "a" * 32, tmp_path)
     with Image.open(tmp_path / result["subfolder"] / result["name"]) as image:
         assert image.n_frames == 2
+
+
+def test_source_captures_batches_and_loader_keeps_the_selected_frame(tmp_path, monkeypatch):
+    monkeypatch.setattr(source.folder_paths, "get_temp_directory", lambda: str(tmp_path), raising=False)
+    monkeypatch.setattr(source, "captures", source.SourceCaptures())
+    store = source.captures
+    red = source.torch.tensor([1, 0, 0]).expand(1, 8, 8, 3)
+    blue = source.torch.tensor([0, 0, 1]).expand(1, 8, 8, 3)
+    batch = source.torch.cat([red, blue])
+    node = source.ImageXSource()
+    assert node.capture(batch, "5", {"workflow": {"id": "workflow-a"}})[0] is batch
+    key = source.source_key("workflow-a", "5")
+    first = store.describe(key)
+    assert first["count"] == 2
+    payload = store.copy(key, first["version"], 1, "a" * 32)
+    target = tmp_path / payload["subfolder"] / payload["name"]
+    with Image.open(target) as selected:
+        assert selected.getpixel((0, 0)) == (0, 0, 255)
+    held = target.read_bytes()
+    node.capture(red, "5", {"workflow": {"id": "workflow-a"}})
+    node.capture(blue, "5", {"workflow": {"id": "workflow-b"}})
+    with pytest.raises(source.CaptureChanged):
+        store.copy(key, first["version"], 1, "a" * 32)
+    with pytest.raises(FileNotFoundError):
+        store.describe(source.source_key("workflow-a", "6"))
+    assert target.read_bytes() == held
+    latest = store.describe(key)
+    store.copy(key, latest["version"], 0, "a" * 32)
+    with Image.open(target) as selected:
+        assert selected.getpixel((0, 0)) == (255, 0, 0)
+    assert len(list((tmp_path / "workflowx_image_x_sources").iterdir())) == 2
+
+
+def test_source_refresh_preserves_alpha_for_loader_crop_and_mask(tmp_path, monkeypatch):
+    monkeypatch.setattr(source.folder_paths, "get_temp_directory", lambda: str(tmp_path), raising=False)
+    monkeypatch.setattr(source.folder_paths, "get_output_directory", lambda: str(tmp_path), raising=False)
+    store = source.SourceCaptures()
+    key = source.source_key("workflow", "8")
+    rgba = source.torch.tensor([0, 0, 1, 0]).expand(1, 16, 24, 4)
+    store.publish(key, rgba)
+    capture = store.describe(key)
+    result = store.copy(key, capture["version"], 0, "b" * 32)
+    state = {"load_mode": "from_node", "crop_enabled": True, "crop_rect": {"x": 0, "y": 0, "w": .5, "h": .5}}
+    image, mask, inverse, width, height = advanced.LoadImageXAdv().load_image(
+        f"{result['subfolder']}/{result['name']} [temp]", json.dumps(state),
+    )
+    assert (width, height) == (12, 8)
+    assert image[0, 0, 0].tolist() == [0, 0, 1]
+    assert mask.min() == 1 and inverse.max() == 0
 
 
 def test_load_mode_migration_and_validation():

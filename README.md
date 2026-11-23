@@ -4,17 +4,17 @@
 
 WorkflowX is a production toolkit for building, configuring, editing, organizing, and reusing ComfyUI workflows. It combines image and video nodes, model and LoRA controls, structured prompting, remote image APIs, reusable workflow libraries, scoped configuration, and canvas utilities in one package.
 
-WorkflowX provides up to 67 user-facing backend nodes, along with XFlows, XPrompts, XNodes, and canvas controls. Available nodes depend on the installed ComfyUI APIs and feature dependencies.
+WorkflowX provides up to 71 user-facing backend nodes, along with XFlows, XPrompts, XNodes, and canvas controls. Available nodes depend on the installed ComfyUI APIs and feature dependencies.
 
 ## Capabilities
 
 | Area | What WorkflowX adds | Jump to |
 |---|---|---|
-| Media input | Thumbnail browsing, masks, visual video trimming/cropping, audio repair/conversion, dimensions, advanced geometry controls | [Image and media loading](#image-and-media-loading) |
+| Media input | Thumbnail browsing, temporary image handoffs between workflow stages, masks, visual trimming and cropping, audio repair and conversion | [Image and media loading](#image-and-media-loading) |
 | Models | Ordered LoRA stacks and explicit model-component unloading | [Model and LoRA management](#model-and-lora-management) |
-| Prompting | Prompt fragment assembly, model-specific authoring, and structured JsonX tools | [Prompting and JsonX](#prompting-and-jsonx) |
+| Prompting | Local Codex integration, prompt fragment assembly, model-specific authoring, and structured JsonX tools | [Prompting and JsonX](#prompting-and-jsonx) |
 | APIs | Gemini/NanoBanana, Kie, and Atlas image generation/editing | [Remote image APIs](#remote-image-apis) |
-| Image tools | Interactive compare/edit, deterministic processing, crop/stitch swap bridge | [Image editing, processing, and swapping](#image-editing-processing-and-swapping) |
+| Image tools | Face protection during refinement, interactive compare/edit, deterministic processing, crop/stitch swap bridge | [Image editing, processing, and swapping](#image-editing-processing-and-swapping) |
 | Output | H.264, H.265, and AV1 video encoding with optional audio | [Video output](#video-output) |
 | Configuration | Config SelectorX, typed Set/Get values, and wildcard relay routing | [Workflow configuration and routing](#workflow-configuration-and-routing) |
 | Libraries | XFlows, XPrompts, and XNodes sidebar libraries | [Workflow libraries](#workflow-libraries) |
@@ -75,7 +75,13 @@ The backend validates the selected path against ComfyUI's input directory and pa
 | `width` | `INT` | Result width. |
 | `height` | `INT` | Result height. |
 
-The serialized state travels with the workflow. Use **Normal** for durable input files or **Direct** for temporary uploads, drops, or clipboard images. See the [advanced loader guide](docs/IMAGE_LOADERS.md).
+The serialized state travels with the workflow. Use **Normal** for durable input files, **Direct** for temporary uploads, drops, or clipboard images, or **From Node** for manual refresh from **ImageX Source** (`WorkflowX_ImageXSource`). See the [advanced loader guide](docs/IMAGE_LOADERS.md).
+
+### ImageX Source
+
+**Node ID and category** — `WorkflowX_ImageXSource` · `WorkflowX/Image Loader`
+
+Takes an `IMAGE` and returns the same image or batch while capturing it in ComfyUI temp. Insert it before **Save Image** in Stage 1. In Stage 2, select it in **Load ImageX Adv → From Node** and click **Refresh Image**. For a batch, choose the frame to copy. Stage 2 keeps its existing copy until the next successful refresh. [Two-stage setup](docs/IMAGE_LOADERS.md#from-node)
 
 ### Load VideoX Adv
 
@@ -228,6 +234,23 @@ Repository maintainers can publish a prepared ComfyUI asset tree with `scripts/u
 
 ## Prompting and JsonX
 
+### CodeX
+
+**Node ID and category** — `CodeX` · `WorkflowX/Prompting`
+
+CodeX uses the local Codex installation and its existing sign-in, settings, and skills. ComfyUI must listen on loopback and run under the same user account as Codex.
+
+| Control or port | Behavior |
+|---|---|
+| **Instructions** and **text** | CodeX sends Instructions first, then a blank line and the connected `STRING`. Either input can supply the whole prompt. Mention an installed skill by name, such as `$unified-prompter`. |
+| `image_1`, `image_2`, … | Each connected image reveals another socket. Images and frames from input batches are attached in socket and batch order. |
+| **Model** and **Reasoning effort** | Choices come from the local Codex catalog. **Use Codex setting** inherits the configured model and effort. An alternate model uses its own default effort unless you select a supported level. |
+| **response** | Final Codex reply as a downstream `STRING`. |
+
+**Discard session after response** is enabled by default. Turn it off to keep context for follow-up runs in the same node. Sessions stay in memory and expire after 30 minutes idle. Enable **Reset session on next run** to clear the previous context before queueing, then switch it off if you want to continue the new session.
+
+See the [CodeX recipe](examples/README.md#codex).
+
 ### Prompt AssemblerX
 
 **Node ID / category** — `WorkflowXPromptAssemblerX` · `WorkflowX`. Requires ComfyUI Autogrow support.
@@ -345,6 +368,14 @@ The frontend changes visible controls according to the selected model. Pending r
 - [Kie and Atlas APIs](examples/05-kie-and-atlas-apis.json) uses separate provider branches with an optional shared reference image and output previews.
 
 ## Image editing, processing, and swapping
+
+### Retain FaceX
+
+**Node ID and category** — `WorkflowX_RetainFaceX` · `WorkflowX/Image Editing`
+
+Protect faces before a refiner samples the image. Connect the image going to VAE Encode to **original_image**, then insert **Retain FaceX** between the encoder and the refiner's latent input. The node detects all faces, preserves restrictions in any existing latent noise mask, and outputs a face protection mask for preview. **Protection strength** defaults to 100%. **Face margin** and **Feather** adjust the covered area and edge transition in image pixels.
+
+Use the same image for face detection and VAE Encode. Retain FaceX accepts standard four-dimensional image latents and single-frame five-dimensional latents such as the Qwen Image VAE output used in Krea 2 workflows. The refiner must honor ComfyUI's latent noise mask. VAE decoding can still introduce pixel-level differences in protected regions. See the [Retain FaceX recipe](examples/README.md#retain-facex).
 
 ### DetailerX, Preview, and Masks
 

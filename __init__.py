@@ -36,6 +36,8 @@ from .unified_autoprompter import (
     NODE_DISPLAY_NAME_MAPPINGS as UNIFIED_AUTOPROMPTER_NODE_DISPLAY_NAME_MAPPINGS,
     register_routes as register_unified_autoprompter_routes,
 )
+from .codex_x import CodeX, register_routes as register_codex_routes
+from .retain_face_x import RetainFaceX
 from .anything_swap_bridge import (
     NODE_CLASS_MAPPINGS as ANYTHING_SWAP_NODE_CLASS_MAPPINGS,
     NODE_DISPLAY_NAME_MAPPINGS as ANYTHING_SWAP_NODE_DISPLAY_NAME_MAPPINGS,
@@ -113,6 +115,8 @@ _WORKFLOWX_HASH_CACHE: OrderedDict[tuple[str, int, int], str] = OrderedDict()
 _WORKFLOWX_HASH_CACHE_LOCK = threading.Lock()
 
 NODE_CLASS_MAPPINGS = {
+    "WorkflowX_RetainFaceX": RetainFaceX,
+    "CodeX": CodeX,
     **VOICE_CHANGER_X_NODE_CLASS_MAPPINGS,
     **WORKFLOWX_NODE_CLASS_MAPPINGS,
     **AFJ_NODE_CLASS_MAPPINGS,
@@ -134,6 +138,8 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
+    "WorkflowX_RetainFaceX": "Retain FaceX",
+    "CodeX": "CodeX",
     **VOICE_CHANGER_X_NODE_DISPLAY_NAME_MAPPINGS,
     **WORKFLOWX_NODE_DISPLAY_NAME_MAPPINGS,
     **AFJ_NODE_DISPLAY_NAME_MAPPINGS,
@@ -803,6 +809,7 @@ def _register_unified_autoprompter_routes() -> None:
 
 
 _register_unified_autoprompter_routes()
+register_codex_routes()
 
 
 def _register_remote_image_api_routes() -> None:

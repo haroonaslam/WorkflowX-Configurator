@@ -14,15 +14,18 @@ from .advanced import (
     NODE_DISPLAY_NAME_MAPPINGS as LOAD_IMAGE_X_ADV_NODE_DISPLAY_NAME_MAPPINGS,
 )
 from .direct import direct_upload_handler
+from .source import SOURCE_NODE_ID, ImageXSource, register_source_routes
 
 
 NODE_CLASS_MAPPINGS = {
     **LOAD_IMAGE_X_NODE_CLASS_MAPPINGS,
     **LOAD_IMAGE_X_ADV_NODE_CLASS_MAPPINGS,
+    SOURCE_NODE_ID: ImageXSource,
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
     **LOAD_IMAGE_X_NODE_DISPLAY_NAME_MAPPINGS,
     **LOAD_IMAGE_X_ADV_NODE_DISPLAY_NAME_MAPPINGS,
+    SOURCE_NODE_ID: "ImageX Source",
 }
 
 
@@ -34,6 +37,7 @@ def register_routes(app) -> None:
     router.add_get("/workflowx_configurator/load_image_x/thumbnail", thumbnail_handler)
     router.add_post("/workflowx_configurator/load_image_x/delete", delete_images_handler)
     router.add_post("/workflowx_configurator/load_image_x/direct", direct_upload_handler)
+    register_source_routes(router)
     app._workflowx_load_image_x_routes = True
 
 

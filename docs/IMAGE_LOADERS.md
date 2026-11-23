@@ -14,10 +14,19 @@ In **Browse Thumbnails**, enable batch selection, select input images, and choos
 
 The advanced loader adds mask editing, an inverted mask, and explicit width/height outputs. Its `workflowx_state` field is managed by the frontend editor and saved in the workflow; do not wire or edit it as an ordinary input.
 
-The compact Resample dropdown sits beside **Mode: Normal / Direct**. Normal (the default for existing workflows) uploads to ComfyUI inputs. Direct routes Upload Photo, image drag-and-drop, and image clipboard paste to a private temporary slot instead. Select the node or focus its controls before pasting; text paste and node copy/paste are unaffected.
+**Mode** offers **Normal**, **Direct**, and **From Node**. Normal (the default for existing workflows) uploads to ComfyUI inputs. Direct routes Upload Photo, image drag-and-drop, and image clipboard paste to a private temporary slot instead. Select the node or focus its controls before pasting. Text paste and node copy/paste are unaffected.
 
 Direct retains the original file bytes, including alpha and multi-frame data. Each live node instance reuses one temporary file, atomically replacing it after validation. Different nodes/tabs use separate slots. Mode changes apply to the next upload and never move or delete the current source. Browse Thumbnails still selects existing input images.
 
-Temporary sources are not embedded in workflows and may disappear when ComfyUI restarts. Saved workflows retain the mode and source reference, but missing images must be uploaded or pasted again. Duplicates initially reference the same image; their next uploads use independent slots. Replacing a temporary source changes what a queued execution will read if it has not loaded that image yet. Use Normal for durable workflows and avoid replacing sources while their jobs are queued.
+ComfyUI temp cleanup can remove temporary images across restarts. Saved workflows retain the mode and source reference. Replace a missing Direct image by uploading or pasting it again. Duplicates initially reference the same image, then use separate slots for later uploads. Queue work after the intended image is loaded so an in-flight refresh cannot change what a waiting job reads.
+
+### From Node
+
+1. Wire **ImageX Source** between your Stage 1 image output and **Save Image**. You can also connect it to Save Image's `IMAGE` output and include ImageX Source in the Stage 1 run.
+2. In Stage 2, set **Load ImageX Adv** to **From Node** and select the source on the same workflow canvas. Sources with the same title show their node IDs.
+3. Click **Refresh Image**. A single-image capture is copied immediately. For a batch, pick a thumbnail. Cancelling the picker keeps the current image.
+4. Queue Stage 2. Its loader has its own temporary copy, so running Stage 1 again only updates the source capture.
+
+The copy uses the same temp storage and image processing as Direct. After temp cleanup, rerun Stage 1 and refresh again.
 
 See the [working image-tools example](../examples/03-image-loading-processing-and-comparison.json) and the [canonical contracts](../README.md#image-and-media-loading).

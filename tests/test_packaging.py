@@ -105,7 +105,9 @@ def test_combined_package_exports_workflowx_and_afj_nodes():
         getattr(comfy_io, "MatchType", None), "Template"
     )
     supports_assembler = hasattr(getattr(comfy_io, "Autogrow", None), "TemplateNames")
-    assert len(module.NODE_CLASS_MAPPINGS) == 77 + supports_toggle_x + supports_assembler
+    assert len(module.NODE_CLASS_MAPPINGS) == 81 + supports_toggle_x + supports_assembler
+    assert module.NODE_CLASS_MAPPINGS["WorkflowX_RetainFaceX"].RETURN_TYPES == ("LATENT", "MASK")
+    assert module.NODE_CLASS_MAPPINGS["CodeX"].RETURN_TYPES == ("STRING",)
     if supports_toggle_x:
         controller = module.NODE_CLASS_MAPPINGS["WorkflowXToggleXController"]
         assert module.NODE_DISPLAY_NAME_MAPPINGS["WorkflowXToggleXController"] == "ToggleX Controller"
@@ -173,6 +175,7 @@ def test_combined_package_exports_workflowx_and_afj_nodes():
     assert "WorkflowX_LoadImageXAdv" in module.NODE_CLASS_MAPPINGS
     assert module.NODE_DISPLAY_NAME_MAPPINGS["WorkflowX_LoadImageXAdv"] == "Load ImageX Adv"
     assert module.NODE_CLASS_MAPPINGS["WorkflowX_LoadImageXAdv"].RETURN_TYPES == ("IMAGE", "MASK", "MASK", "INT", "INT")
+    assert module.NODE_CLASS_MAPPINGS["WorkflowX_ImageXSource"].RETURN_TYPES == ("IMAGE",)
     assert "WorkflowX_LoadVideoXAdv" in module.NODE_CLASS_MAPPINGS
     assert module.NODE_DISPLAY_NAME_MAPPINGS["WorkflowX_LoadVideoXAdv"] == "Load VideoX Adv"
     assert module.NODE_CLASS_MAPPINGS["WorkflowX_LoadVideoXAdv"].CATEGORY == "WorkflowX/Video"

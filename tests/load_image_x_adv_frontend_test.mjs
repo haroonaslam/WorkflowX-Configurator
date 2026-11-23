@@ -21,7 +21,7 @@ test("Direct mode survives image-change normalization and uses a versioned state
   assert.equal(changed.crop_rect,null);
   assert.equal(normalizeAdvState(JSON.stringify(changed)).load_mode,"direct");
   const source=fs.readFileSync(new URL('../web/js/load_image_x_adv.js',import.meta.url),'utf8');
-  assert.match(source,/load_image_x_adv_helpers\.mjs\?v=direct-mode-2/);
+  assert.match(source,/load_image_x_adv_helpers\.mjs\?v=from-node-1/);
   assert.match(source,/stateWidget\.serializeValue = \(\) => JSON\.stringify\(ui\.state\)/);
 });
 
@@ -145,7 +145,7 @@ test("advanced image source row exposes thumbnail browsing and owned upload", ()
   assert.match(source, /grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
   assert.match(source, /button\("Browse Thumbnails"/);
   assert.match(source, /button\("Upload Photo"/);
-  assert.match(source, /upload.addEventListener\("click", \(\) => fileInput.click\(\)\)/);
+  assert.match(source, /if \(ui.state.load_mode === "from_node"\) refreshSource\(\);\s*else fileInput.click\(\);/);
   assert.match(source, /root\.append\(sourceActions, mainControls, configPanel, preview\)/);
 });
 
@@ -180,6 +180,9 @@ test("load mode defaults, validation and serialized snapshots", () => {
   assert.deepEqual(normalizeAdvState(JSON.stringify(state)), state);
   assert.equal(state.mode, 'pad');
   assert.equal(state.load_mode, 'direct');
+  const fromNode = normalizeAdvState({load_mode: 'from_node', source_node: '12'});
+  assert.equal(normalizeAdvState(JSON.stringify(fromNode)).source_node, '12');
+  assert.equal(clearCropForImageChange(fromNode).load_mode, 'from_node');
 });
 
 test("compact controls and all image ingestion paths share the mode-aware queue", () => {

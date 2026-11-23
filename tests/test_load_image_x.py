@@ -387,10 +387,15 @@ def test_route_registration_includes_batch_delete():
         assert [path for path, _handler in app.router.get_routes] == [
             "/workflowx_configurator/load_image_x/images",
             "/workflowx_configurator/load_image_x/thumbnail",
+            "/workflowx_configurator/load_image_x/source",
+            "/workflowx_configurator/load_image_x/source/thumbnail",
         ]
-        assert app.router.post_routes == [
+        assert app.router.post_routes[:2] == [
             ("/workflowx_configurator/load_image_x/delete", runtime.delete_images_handler),
             ("/workflowx_configurator/load_image_x/direct", module.direct_upload_handler),
+        ]
+        assert [path for path, _handler in app.router.post_routes[2:]] == [
+            "/workflowx_configurator/load_image_x/source",
         ]
     finally:
         if original_package is None:

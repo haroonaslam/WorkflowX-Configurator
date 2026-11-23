@@ -17,6 +17,7 @@ from .runtime import get_catalog, resolve_annotated_image_path
 DEFAULT_ADV_STATE: dict[str, Any] = {
     "version": 1,
     "load_mode": "normal",
+    "source_node": "",
     "mode": "off",
     "max_mp": 1.0,
     "longest_side": 1024,
@@ -81,8 +82,10 @@ def parse_adv_state(value: object) -> dict[str, Any]:
         if key in parsed:
             state[key] = parsed[key]
 
-    if state["load_mode"] not in ("normal", "direct"):
+    if state["load_mode"] not in ("normal", "direct", "from_node"):
         state["load_mode"] = "normal"
+    if not isinstance(state["source_node"], str):
+        state["source_node"] = ""
     if state["mode"] not in VALID_MODES:
         state["mode"] = "off"
     if state["resample"] not in VALID_RESAMPLE:
@@ -475,12 +478,16 @@ class LoadImageXAdv:
 
     @classmethod
     def VALIDATE_INPUTS(cls, image: str, workflowx_state: str = ""):
-        del workflowx_state
+        from_node = parse_adv_state(workflowx_state)["load_mode"] == "from_node"
+        if from_node and not str(image or "").strip():
+            return "Select an ImageX Source, run Stage 1, and click Refresh Image."
         try:
             _relative, image_path = resolve_annotated_image_path(image)
         except ValueError as exc:
             return str(exc)
         if not image_path.is_file():
+            if from_node:
+                return "Image unavailable. Run Stage 1 and click Refresh Image."
             if str(image).rstrip().lower().endswith("[temp]"):
                 return "Temporary image unavailable—upload or paste again, or use Normal mode for persistent inputs."
             return f"Invalid image file: {image}"

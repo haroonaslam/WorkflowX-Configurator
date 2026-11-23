@@ -9,8 +9,10 @@ import {
   normalizedRect,
   pixelRectFromState,
   snapCropRect,
-} from "./load_image_x_adv_helpers.mjs?v=direct-mode-2";
+} from "./load_image_x_adv_helpers.mjs?v=from-node-1";
 
+const SOURCE_NODE = "WorkflowX_ImageXSource";
+const SOURCE_ROUTE = "/workflowx_configurator/load_image_x/source";
 const ACCENT = "#7aa2f7";
 const MIN_WIDTH = 300;
 const PREVIEW_FLOOR = 170;
@@ -57,6 +59,23 @@ function installCSS() {
       grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:6px; }
     .workflowx-lixa-main-controls select, .workflowx-lixa-config-button { width:100%; min-width:0; height:32px;
       border:1px solid #4b5058; border-radius:4px; background:#202226; color:#d9dce2; cursor:pointer; padding:0 7px; }
+    .workflowx-lixa-source-select { width:100%; min-width:0; border:1px solid #4b5058; border-radius:4px;
+      background:#202226; color:#d9dce2; padding:0 7px; text-overflow:ellipsis; }
+    .workflowx-lixa-source-actions [hidden] { display:none; }
+    .workflowx-lixa-source-actions button:disabled { cursor:default; opacity:.55; }
+    .workflowx-lixa-frame-dialog { width:min(570px,calc(100vw - 32px)); max-height:calc(100dvh - 32px);
+      padding:16px; border:1px solid #5876a4; border-radius:8px; background:#202226; color:#eef4ff; }
+    .workflowx-lixa-frame-dialog::backdrop { background:#0009; }
+    .workflowx-lixa-frame-header { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+    .workflowx-lixa-frame-header h2 { margin:0; font-size:16px; }
+    .workflowx-lixa-frame-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(112px,100%),1fr));
+      gap:8px; margin-top:12px; }
+    .workflowx-lixa-frame-grid button { display:grid; gap:4px; padding:6px; border:1px solid #5876a4;
+      border-radius:4px; background:#263952; color:inherit; cursor:pointer; min-width:0; }
+    .workflowx-lixa-frame-grid button:focus-visible, .workflowx-lixa-frame-grid button:hover { border-color:#a8caff; }
+    .workflowx-lixa-frame-grid img { width:100%; aspect-ratio:1; object-fit:contain; background:#16181b; }
+    .workflowx-lixa-frame-dialog button { color:#eef4ff; }
+    .workflowx-lixa-frame-header button { border:1px solid #5876a4; border-radius:4px; background:#263952; padding:4px 9px; }
     .workflowx-lixa-config-button:hover, .workflowx-lixa-config-button[aria-expanded="true"] {
       border-color:var(--lixa-accent); color:#fff; background:#304b6d; }
     .workflowx-lixa-config-panel { position:absolute; z-index:8; left:8px; right:8px; top:86px; bottom:8px;
@@ -202,7 +221,10 @@ function createAdvancedUI(node, imageWidget, stateWidget, uploadWidget) {
   browse.title = "Browse images in ComfyUI input folders";
   const upload = button("Upload Photo", "workflowx-lixa-browse");
   upload.title = "Upload an image to ComfyUI input";
-  sourceActions.append(browse, upload);
+  const sourceSelect = document.createElement("select");
+  sourceSelect.className = "workflowx-lixa-source-select";
+  sourceSelect.setAttribute("aria-label", "Image source");
+  sourceActions.append(browse, sourceSelect, upload);
   const mainControls = document.createElement("div");
   mainControls.className = "workflowx-lixa-main-controls";
   const configButton = button("Config", "workflowx-lixa-config-button");
@@ -223,7 +245,7 @@ function createAdvancedUI(node, imageWidget, stateWidget, uploadWidget) {
   resample.className = "workflowx-lixa-resample";
   // Native selects must receive their default mouse/keyboard behavior without
   // the canvas interpreting the interaction as node selection or dragging.
-  for (const container of [mainControls, resample]) {
+  for (const container of [mainControls, resample, sourceSelect]) {
     for (const event of ["pointerdown", "mousedown", "click", "keydown", "keyup"]) {
       container.addEventListener(event, e => e.stopPropagation());
     }
@@ -292,6 +314,52 @@ function createAdvancedUI(node, imageWidget, stateWidget, uploadWidget) {
     node.setDirtyCanvas?.(true, true);
     node.graph?.change?.();
   }
+
+  function sourceNodes() {
+    const graph = app.graph;
+    if (node.graph !== graph || !graph?.id) return [];
+    return (graph._nodes || []).filter((candidate) => (candidate.comfyClass || candidate.type) === SOURCE_NODE);
+  }
+
+  let loadModeControl;
+  let sourceBusy = false;
+  let frameDialog;
+  function syncSourceControls() {
+    const fromNode = ui.state.load_mode === "from_node";
+    sourceSelect.hidden = !fromNode;
+    browse.hidden = fromNode;
+    upload.textContent = fromNode ? "Refresh Image" : "Upload Photo";
+    upload.title = fromNode ? "Copy the latest capture from the selected ImageX Source"
+      : ui.state.load_mode === "direct" ? "Upload a replaceable temporary image (not saved to inputs)"
+      : "Upload an image to ComfyUI input";
+    if (loadModeControl) loadModeControl.disabled = sourceBusy;
+    sourceSelect.disabled = sourceBusy;
+    if (!fromNode) {
+      upload.disabled = false;
+      return;
+    }
+    const sources = sourceNodes();
+    const titles = sources.map((source) => String(source.title || "ImageX Source"));
+    const counts = new Map();
+    for (const title of titles) counts.set(title, (counts.get(title) || 0) + 1);
+    const available = sources.some((source) => String(source.id) === ui.state.source_node);
+    const placeholder = ui.state.source_node && !available ? "Source unavailable"
+      : sources.length ? "Select ImageX Source" : "No ImageX Source on this canvas";
+    sourceSelect.replaceChildren(new Option(placeholder, ""));
+    for (const [index, source] of sources.entries()) {
+      const title = titles[index];
+      sourceSelect.add(new Option(counts.get(title) > 1 ? `${title} (#${source.id})` : title, String(source.id)));
+    }
+    sourceSelect.value = available ? ui.state.source_node : "";
+    upload.disabled = sourceBusy || !available;
+  }
+
+  sourceSelect.addEventListener("focus", syncSourceControls);
+  sourceSelect.addEventListener("pointerdown", syncSourceControls);
+  sourceSelect.addEventListener("change", () => {
+    commitState({ ...ui.state, source_node: sourceSelect.value }, { render: false });
+    syncSourceControls();
+  });
 
   function fixedContentHeight() {
     const children = [...root.children].filter(
@@ -605,9 +673,10 @@ function createAdvancedUI(node, imageWidget, stateWidget, uploadWidget) {
 
     mainControls.replaceChildren();
     const loadMode = document.createElement("select");
+    loadModeControl = loadMode;
     loadMode.setAttribute("aria-label", "Load mode");
-    loadMode.title = "Normal: uploads to inputs. Direct: replaces this node's temporary image; restart may clear it. Applies to the next upload, drop, or image paste.";
-    for (const [value, label] of [["normal", "Normal"], ["direct", "Direct"]]) {
+    loadMode.title = "Normal uploads to inputs. Direct uploads to temp. From Node copies a temporary source capture.";
+    for (const [value, label] of [["normal", "Normal"], ["direct", "Direct"], ["from_node", "From Node"]]) {
       const option = new Option(`Mode: ${label}`, value, false, ui.state.load_mode === value);
       loadMode.appendChild(option);
     }
@@ -615,10 +684,10 @@ function createAdvancedUI(node, imageWidget, stateWidget, uploadWidget) {
       // Ingestion policy is independent of the currently selected source.
       // Keep this select mounted so native selection/focus can finish normally.
       commitState({ ...ui.state, load_mode: loadMode.value }, { render: false });
-      upload.title = ui.state.load_mode === "direct" ? "Upload a replaceable temporary image (not saved to inputs)" : "Upload an image to ComfyUI input";
+      syncSourceControls();
     });
-    upload.title = ui.state.load_mode === "direct" ? "Upload a replaceable temporary image (not saved to inputs)" : "Upload an image to ComfyUI input";
     mainControls.append(loadMode, configButton);
+    syncSourceControls();
 
     toggles.replaceChildren();
     const cropToggle = button(`Crop: ${ui.state.crop_enabled ? "On" : "Off"}`, "workflowx-lixa-toggle");
@@ -762,7 +831,10 @@ function createAdvancedUI(node, imageWidget, stateWidget, uploadWidget) {
       ui.source = null;
       ui.sourcePath = selected;
       node.imgs = [];
-      setStatus(selected.endsWith("[temp]") ? "Temporary image unavailable—upload or paste again" : "Image unavailable—select or upload again", true);
+      setStatus(selected.endsWith("[temp]") ? (
+        ui.state.load_mode === "from_node" ? "Temporary image unavailable. Run Stage 1 and refresh."
+          : "Temporary image unavailable—upload or paste again"
+      ) : "Image unavailable—select or upload again", true);
       updateOutput();
       drawPreview();
     };
@@ -778,9 +850,109 @@ function createAdvancedUI(node, imageWidget, stateWidget, uploadWidget) {
   }));
   // Runtime-only slot: clones and other tabs never overwrite this instance's uploads.
   const slot = crypto.randomUUID().replaceAll("-", "");
+  const sourceSlot = crypto.randomUUID().replaceAll("-", "");
   let uploadQueue = Promise.resolve();
+  function selectTemporaryResult(payload, resetCrop) {
+    const path = [payload?.subfolder, payload?.name].filter(Boolean).join("/");
+    if (!path) throw new Error("Image response did not include an image name");
+    const selected = path + (payload.type === "temp" ? " [temp]" : "");
+    const values = imageWidget.options?.values;
+    if (Array.isArray(values) && !values.includes(selected)) values.push(selected);
+    // Reload even when the temporary path stayed the same.
+    node.imgs = [];
+    ui.pendingBrowserSelection = resetCrop;
+    imageWidget.value = selected;
+    imageWidget.callback?.(selected);
+    markChanged();
+  }
+
+  function chooseFrame(params, capture) {
+    return new Promise((resolve) => {
+      const dialog = document.createElement("dialog");
+      frameDialog = dialog;
+      dialog.className = "workflowx-lixa-frame-dialog";
+      dialog.setAttribute("aria-label", "Choose source image");
+      const header = document.createElement("div");
+      header.className = "workflowx-lixa-frame-header";
+      const title = document.createElement("h2");
+      title.textContent = "Choose source image";
+      const cancel = button("Cancel");
+      cancel.addEventListener("click", () => dialog.close());
+      header.append(title, cancel);
+      const grid = document.createElement("div");
+      grid.className = "workflowx-lixa-frame-grid";
+      let chosen = null;
+      for (let index = 0; index < capture.count; index++) {
+        const item = button(`Image ${index + 1}`);
+        const thumbnail = new Image();
+        thumbnail.alt = "";
+        thumbnail.loading = "lazy";
+        thumbnail.src = `${SOURCE_ROUTE}/thumbnail?${new URLSearchParams({
+          ...params, version: capture.version, frame: String(index),
+        })}`;
+        item.prepend(thumbnail);
+        item.addEventListener("click", () => {
+          chosen = index;
+          dialog.close();
+        });
+        grid.append(item);
+      }
+      dialog.append(header, grid);
+      dialog.addEventListener("close", () => {
+        dialog.remove();
+        frameDialog = null;
+        resolve(chosen);
+      }, { once: true });
+      document.body.append(dialog);
+      dialog.showModal();
+    });
+  }
+
+  async function refreshSource() {
+    const source = ui.state.source_node;
+    if (sourceBusy || !sourceNodes().some((candidate) => String(candidate.id) === source)) return;
+    const params = { workflow: String(app.graph.id), source };
+    sourceBusy = true;
+    syncSourceControls();
+    try {
+      setStatus("Reading source capture…");
+      let changed = false;
+      while (!ui.disposed) {
+        const response = await fetch(`${SOURCE_ROUTE}?${new URLSearchParams(params)}`, { cache: "no-store" });
+        const capture = await response.json();
+        if (!response.ok) throw new Error(capture.error || `HTTP ${response.status}`);
+        if (ui.disposed) return;
+        const index = capture.count === 1 && !changed ? 0 : await chooseFrame(params, capture);
+        if (index === null || ui.disposed) {
+          setStatus();
+          return;
+        }
+        const result = await fetch(SOURCE_ROUTE, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...params, version: capture.version, frame: index, slot: sourceSlot }),
+        });
+        const payload = await result.json();
+        if (result.status === 409) {
+          changed = true;
+          setStatus(payload.error);
+          continue;
+        }
+        if (!result.ok) throw new Error(payload.error || `HTTP ${result.status}`);
+        if (!ui.disposed) selectTemporaryResult(payload, false);
+        return;
+      }
+    } catch (error) {
+      if (!ui.disposed) setStatus(error.message || String(error), true);
+    } finally {
+      sourceBusy = false;
+      if (!ui.disposed) syncSourceControls();
+    }
+  }
+
   function ingestImage(file) {
     const mode = ui.state.load_mode;
+    if (mode === "from_node") return;
     uploadQueue = uploadQueue.then(async () => {
       if (ui.disposed) return;
       setStatus(`Uploading ${mode === "direct" ? "temporary image" : "image"}…`);
@@ -794,17 +966,7 @@ function createAdvancedUI(node, imageWidget, stateWidget, uploadWidget) {
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error || `HTTP ${response.status}`);
       if (ui.disposed) return;
-      const path = [payload?.subfolder, payload?.name].filter(Boolean).join("/");
-      if (!path) throw new Error("Upload response did not include an image name");
-      const selected = path + (payload.type === "temp" ? " [temp]" : "");
-      const values = imageWidget.options?.values;
-      if (Array.isArray(values) && !values.includes(selected)) values.push(selected);
-      // Also refresh when the path is unchanged but the temporary bytes were replaced.
-      node.imgs = [];
-      ui.pendingBrowserSelection = true;
-      imageWidget.value = selected;
-      imageWidget.callback?.(selected);
-      markChanged();
+      selectTemporaryResult(payload, true);
     }).catch((error) => {
       setStatus(error.message || String(error), true);
       console.error("WorkflowX Load ImageX Adv upload failed", error);
@@ -819,8 +981,12 @@ function createAdvancedUI(node, imageWidget, stateWidget, uploadWidget) {
     if (file) ingestImage(file);
     fileInput.value = "";
   });
-  upload.addEventListener("click", () => fileInput.click());
+  upload.addEventListener("click", () => {
+    if (ui.state.load_mode === "from_node") refreshSource();
+    else fileInput.click();
+  });
   const pasteImage = (event) => {
+    if (ui.state.load_mode === "from_node") return;
     const target = event.target;
     if (target?.closest?.("input,textarea,[contenteditable='true']")) return;
     const selectedNodes = Object.values(app.canvas?.selected_nodes || {});
@@ -851,6 +1017,7 @@ function createAdvancedUI(node, imageWidget, stateWidget, uploadWidget) {
   };
   root.addEventListener("dragenter", (event) => {
     if (!isFileDrag(event)) return;
+    if (ui.state.load_mode === "from_node") return;
     fileDragDepth += 1;
     root.classList.add("is-file-dragging");
     event.preventDefault();
@@ -858,7 +1025,7 @@ function createAdvancedUI(node, imageWidget, stateWidget, uploadWidget) {
   });
   root.addEventListener("dragover", (event) => {
     if (!isFileDrag(event)) return;
-    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    if (event.dataTransfer) event.dataTransfer.dropEffect = ui.state.load_mode === "from_node" ? "none" : "copy";
     root.classList.add("is-file-dragging");
     event.preventDefault();
     event.stopPropagation();
@@ -1060,6 +1227,7 @@ function createAdvancedUI(node, imageWidget, stateWidget, uploadWidget) {
 
   ui.dispose = () => {
     ui.disposed = true;
+    frameDialog?.close();
     document.removeEventListener("pointerdown", dismissConfig, true);
     document.removeEventListener("keydown", handleConfigKeydown, true);
     window.removeEventListener("paste", pasteImage, true);

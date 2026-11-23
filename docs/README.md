@@ -12,6 +12,8 @@ Start with the self-contained [WorkflowX README](../README.md). It contains the 
 | Models and assets | [WorkflowX Downloader](../README.md#workflowx-downloader), [Load Diffusion Model X](LOAD_DIFFUSION_MODEL_X.md), [LoraX](LORAX.md), [Load Lora PickerX](LOAD_LORA_PICKER_X.md) |
 | Swap and APIs | [Anything Swap bridge](ANYTHING_SWAP_BRIDGE.md), [NanoBanana API](NANOBANANA_FULL_API.md), [Kie and Atlas APIs](KIE_ATLAS_API_NODES.md) |
 | Prompting | [Prompt AssemblerX](../README.md#prompt-assemblerx), [Unified Autoprompter X](UNIFIED_AUTOPROMPTER_X.md), [JsonX user guide](afj-awesome-flex-json/USER_GUIDE.md) |
+| Local Codex | [CodeX controls](../README.md#codex), [text and image recipe](../examples/README.md#codex) |
+| Image handoff and refinement | [From Node and ImageX Source](IMAGE_LOADERS.md#from-node), [Retain FaceX](../README.md#retain-facex) |
 | Libraries | [XFlows](XFLOWS.md), [XPrompts](XPROMPTS.md), [Image Prompt Library](image-prompt-library.md), [XNodes](XNODES.md) |
 | Compatibility | [Legacy migration](LEGACY_MIGRATION.md) |
 
@@ -22,6 +24,8 @@ Start with the self-contained [WorkflowX README](../README.md). It contains the 
 | Video and audio media | FFmpeg is used for media conversion, repair, or encoding where described in the node guide. The [WorkflowX Downloader](../README.md#workflowx-downloader) can provision WorkflowX's FFmpeg bundle on Windows. [Load AudioX](LOAD_AUDIO_X.md) · [Save Video X](SAVE_VIDEO_X.md) |
 | Voice ChangerX | Install the declared PyWORLD, NumPy, and SciPy dependencies into ComfyUI's Python environment. [Installation](VOICE_CHANGER_X.md#installation) |
 | DetailerX | Install the Python dependencies and provision the models and runtime assets for the stages you enable. DLSS5 has platform-specific requirements. [Assets and runtime](detailer_x.md#local-assets) |
+| Retain FaceX | Uses the DetailerX face detector, with a fallback to `models/ultralytics/bbox/face_yolov8m.pt`, and a sampler that honors latent noise masks. [Wiring recipe](../examples/README.md#retain-facex) |
+| CodeX | Run ComfyUI on loopback under the user account that has Codex installed and signed in. [Controls and session behavior](../README.md#codex) |
 | AuK and H3 RefMod | AuK uses optional Python dependencies and separate model files. H3 RefMod needs ComfyUI with native MiniMax H3 support and the appropriate H3 VAEs. [AuK setup](../auk/README.md) · [H3 RefMod setup](../h3_refmod/README.md) |
 | Prompt AssemblerX and ToggleX Controller | Prompt AssemblerX requires ComfyUI Autogrow. ToggleX Controller requires Autogrow and MatchType. [Prompt AssemblerX](../README.md#prompt-assemblerx) · [ToggleX Controller](../README.md#quick-togglex-and-togglex-controller) |
 | Image Prompt Library | The standalone app uses Python and Pillow. The XPrompts entry works with a local ComfyUI browser session. [Launch and storage](image-prompt-library.md) |

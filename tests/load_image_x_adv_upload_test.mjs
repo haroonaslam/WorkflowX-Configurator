@@ -25,9 +25,9 @@ test('loaded image does not lock mode; next upload uses the changed mode', async
   let change;
   const loadMode={value:'direct',addEventListener:(_,handler)=>{change=handler;}};
   const start=source.indexOf('    loadMode.addEventListener("change"');
-  const end=source.indexOf('\n    upload.title',start);
-  new Function('loadMode','ui','commitState','upload',source.slice(start,end))(
-    loadMode,h.ui,(state,options)=>{assert.equal(options.render,false);h.ui.state=state;},{});
+  const end=source.indexOf('\n    mainControls.append',start);
+  new Function('loadMode','ui','commitState','syncSourceControls',source.slice(start,end))(
+    loadMode,h.ui,(state,options)=>{assert.equal(options.render,false);h.ui.state=state;},()=>{});
   change();
   assert.equal(h.widget.value,'existing.png');assert.equal(h.ui.source,original);
   assert.equal(h.ui.state.load_mode,'direct');
@@ -74,4 +74,38 @@ test('upload errors retain source and next upload recovers; instances isolate sl
   assert.equal(slots[0],slots[1]);
   assert.notEqual(slots[1],slots[2]);
   assert.equal(a.widget.value,'image [temp]');
+});
+
+test('a changed capture reopens the picker and cancelling preserves the held image', async () => {
+  const start = source.indexOf('  async function refreshSource()');
+  const end = source.indexOf('  function ingestImage', start);
+  const refresh = new Function(
+    'ui','app','sourceNodes','fetch','chooseFrame','selectTemporaryResult',
+    `let sourceBusy = false;
+     const SOURCE_ROUTE = '/source', sourceSlot = 'slot';
+     function syncSourceControls() {}
+     function setStatus() {}
+     ${source.slice(start, end)}
+     return refreshSource;`,
+  );
+  const selected = [], frames = [], posts = [];
+  const response = (status, body) => ({status, ok:status === 200, json:async () => body});
+  let count = 0;
+  const run = refresh(
+    {state:{source_node:'5'}}, {graph:{id:'workflow'}}, () => [{id:5}],
+    async (_url, opts) => {
+      if (opts.method !== 'POST') return response(200,{version:`version-${++count}`,count:2});
+      posts.push(JSON.parse(opts.body));
+      return response(409,{error:'A newer batch is ready'});
+    },
+    async (_params, capture) => {
+      frames.push(capture.version);
+      return frames.length === 1 ? 1 : null;
+    },
+    (payload) => selected.push(payload),
+  );
+  await run();
+  assert.deepEqual(frames, ['version-1', 'version-2']);
+  assert.deepEqual(posts.map((post) => post.frame), [1]);
+  assert.deepEqual(selected, []);
 });
