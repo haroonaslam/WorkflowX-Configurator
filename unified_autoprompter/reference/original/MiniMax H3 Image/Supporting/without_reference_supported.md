@@ -1,0 +1,1 @@
+Use established reference roles and numbering when the brief already specifies them. Avoid inventing image contents, order, or additional reference tokens. If an essential source role is unknown, surface the missing information through the applicable clarification path.

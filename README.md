@@ -16,7 +16,7 @@ WorkflowX provides up to 71 user-facing backend nodes, along with XFlows, XPromp
 | APIs | Gemini/NanoBanana, Kie, and Atlas image generation/editing | [Remote image APIs](#remote-image-apis) |
 | Image tools | Face protection during refinement, interactive compare/edit, deterministic processing, crop/stitch swap bridge | [Image editing, processing, and swapping](#image-editing-processing-and-swapping) |
 | Output | H.264, H.265, and AV1 video encoding with optional audio | [Video output](#video-output) |
-| Configuration | Config SelectorX, typed Set/Get values, and wildcard relay routing | [Workflow configuration and routing](#workflow-configuration-and-routing) |
+| Configuration | Config SelectorX, typed Set/Get values, wildcard relay routing, selective execution, stop points, and image handoffs | [Workflow configuration and routing](#workflow-configuration-and-routing) |
 | Libraries | XFlows, XPrompts, and XNodes sidebar libraries | [Workflow libraries](#workflow-libraries) |
 | Canvas | Native grouping, compatible node replacement, quick mute and bypass, and source selection | [Canvas right-click utilities](#canvas-right-click-utilities) |
 
@@ -257,6 +257,8 @@ See the [CodeX recipe](examples/README.md#codex).
 
 Connect `STRING` outputs to the growing prompt inputs, up to 100 slots. Each connected row has a switch so you can include or exclude its fragment while keeping the wiring. The node joins enabled, non-blank fragments in numeric slot order and trims whitespace at the edges of each fragment.
 
+Only connected inputs appear in the toggle list, labeled with the connected node's name. The spare input remains available for the next connection without adding an empty toggle row.
+
 | Control or port | Behavior |
 |---|---|
 | `separator` | **comma + space** (default), **newline** (a blank line between fragments), **space**, **period + space**, or **custom** |
@@ -294,6 +296,8 @@ WorkflowX supports natural or structured prompting from images and text, then pr
 **Controls:** one Provider dropdown for Gemini, Grok API, DeepSeek API, OpenAI Compatible, LM Studio, Unsloth Studio, Ollama, or Local GGUF; profile-aware Generation type; Prompt instructions; Detail level; On Generate or On Queue working mode; optional Add audit pass or Audit only validation; reusable character/scene presets expanded with `@tag`; NSFW/negative controls; dynamic Model settings; bounding-box tools; Profile settings; Generate and Cancel. Provider credentials and tuning remain browser-local. MOSS-Image and FIBO 2 support Natural and JSON output for text-to-image and image-to-image. MOSS also has a model-specific BBox layout. Qwen Image 2.1 supports Natural output with an optional negative prompt. See the [complete Autoprompter guide](docs/UNIFIED_AUTOPROMPTER_X.md).
 
 Connected images are optional prompt-authoring evidence and never select the downstream generation path. Image-capable paths switch between with-reference and inferred-reference instructions; text-only paths can inspect connected media and combine visible evidence with the user's description without exposing reference commentary downstream. Standard-profile instructions are Markdown-backed: packaged defaults live under `unified_autoprompter/reference/original`, while the editable runtime copy lives under `reference/current_use`. Profile Settings edits the exact Common, selected Generation Path, Reference Usage, Output Contract, and Image/Video NSFW files without reformatting them. JsonX has an independently managed `reference/original/JsonX` and `reference/current_use/JsonX` subtree with exact editors for paths, conditions, user templates, context templates, presets, and stage contracts. Preview and dispatch share their respective backend payload builders and keep routing metadata out of model-facing text.
+
+**MiniMax H3 Image** supports Natural or JSON authoring for Text to Image and Image to Image. The separate negative output is disabled; requested exclusions stay inside the positive prompt. Its model-specific blocks cover pose, support, visibility, framing, focus, and reference handling. See the [MiniMax H3 Image profile](docs/UNIFIED_AUTOPROMPTER_X.md#minimax-h3-image).
 
 ### JsonX visual and template tools
 
@@ -604,6 +608,24 @@ Set Reference mute applies only to Get Reference nodes with the same key. Muting
 
 The larger [advanced configured production workflow](examples/07-advanced-configured-production.json) shows the same relay pattern inside a model → LoRA → sampler → cleanup → video pipeline.
 
+### Segment RunX and Run TargetX
+
+Add **Run TargetX** (`WorkflowXRunTargetX`) from the WorkflowX menu and choose an output node. Add **Segment RunX** to display the available targets, then press **▶** beside the path you want to run. Labels use node names and subgraph paths.
+
+Only the selected output and its upstream dependencies are submitted. The queued path can use muted or bypassed nodes without changing their canvas modes, so a normal workflow queued while it runs keeps its own configured state. WorkflowX relay routing and ToggleX selection are resolved when preparing the submitted path. One Segment RunX job is monitored at a time per open workflow; switching workflows stops monitoring without cancelling the queued job.
+
+### StopX and image transfers
+
+**StopX**, **Image SourceX**, and **Image TargetX** are free-floating controls under `WorkflowX`; they need no canvas wires. Selections are saved with the workflow, include reachable subgraph paths, and the panels can be resized in both node renderers.
+
+- **StopX** selects a node after which a normal run stops scheduling further nodes. A cached completion counts. It does not activate an inactive or unreachable path and is ignored by Segment RunX and supported selected-output queues.
+- **Image SourceX** selects a native Save Image, Preview Image, Load Image, Load ImageX, or Load ImageX Adv node. It captures the first produced image.
+- **Image TargetX** selects an Image SourceX and a destination loader. **Prepare next run** updates the loader's saved selection while the submitted job uses its existing input. **Use in this run** orders the source before the executing destination and supplies the new image to it.
+
+Image copies finish before StopX stops the job. A muted or bypassed destination still receives its copy and retains its mode. Load ImageX Adv switches to **Direct** mode; dimensions and alpha are preserved in the transferred PNG. Installing these changes requires a ComfyUI restart and browser refresh.
+
+See [execution controls and image handoffs](docs/EXECUTION_CONTROLS.md) for setup, selective-run behavior, ordering limits, and temporary-file lifetime.
+
 ## Workflow libraries
 
 These are sidebar features rather than executable nodes, so they are demonstrated as interface workflows instead of artificial JSON nodes.
@@ -669,6 +691,8 @@ Incompatible links are skipped rather than forced, and a result notification rep
 ### Quick MuteX and Quick BypassX
 
 Right-click a target and choose **WorkflowX: Add to Quick MuteX** or **WorkflowX: Add to Quick BypassX**. The action adds it to the corresponding panel on the main canvas and creates the panel when needed. Targets can be on the main canvas or in a reachable subgraph. Turning a row off applies ComfyUI's native Mute or Bypass mode. Turning it on sets the target to Active. Removing a row leaves the target in its current mode. Config SelectorX can still apply its configured group modes when queueing.
+
+Both individual nodes and groups are supported. Use the node context menu for a node and the separate group context menu for a group. Group rows apply the mode to the group's current members. The menu action only adds a target; the panel toggles remain the controls. Added targets persist in the saved workflow.
 
 ### Quick ToggleX and ToggleX Controller
 

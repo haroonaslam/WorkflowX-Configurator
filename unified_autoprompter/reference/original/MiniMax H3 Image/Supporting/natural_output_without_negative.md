@@ -1,0 +1,1 @@
+Return one JSON response object with "positive" containing the complete Natural prompt and "negative" set to the empty string. Keep any optional final exclusion clause inside "positive". Return only the object, without Markdown fences or commentary.

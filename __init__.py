@@ -912,6 +912,14 @@ _register_image_processor_x_routes()
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]
 
+from .workflowx_run_controls import NODE_CLASS_MAPPINGS as RUN_CONTROL_MAPPINGS
+NODE_CLASS_MAPPINGS.update(RUN_CONTROL_MAPPINGS)
+try:
+    from .workflowx_run_controls import install_execution_hooks
+    install_execution_hooks()
+except (ImportError, AttributeError):
+    logger.warning("StopX and image transfer execution require a supported ComfyUI scheduler")
+
 try:
     from .workflowx_toggle_x import ToggleXController
 

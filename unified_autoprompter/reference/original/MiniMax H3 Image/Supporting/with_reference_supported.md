@@ -1,0 +1,1 @@
+Use the supplied images in their actual order as <Picture 1>, <Picture 2>, and so on. Identify each image's contribution and limit it to that role. Ground references in visible evidence and use <Subject N> only where helpful.

@@ -130,6 +130,7 @@ def test_prompt_profiles_capture_allowed_formats_and_negative_rules():
         "krea2",
         "moss_image",
         "fibo2",
+        "minimax_h3_image",
         "jsonx",
     }
     assert profiles.normalize_format("z_image", "json") == "natural"
@@ -141,7 +142,7 @@ def test_prompt_profiles_capture_allowed_formats_and_negative_rules():
     assert profiles.normalize_format("minimax_h3_official", "json") == "natural"
     assert profiles.normalize_format("minimax_h3_alternate", "tags") == "natural"
     for profile in profiles.profile_options():
-        if profile in {"minimax_h3_official", "minimax_h3_alternate"}:
+        if profile in {"minimax_h3_official", "minimax_h3_alternate", "minimax_h3_image"}:
             assert profiles.supports_negative(profile) is False
         else:
             assert profiles.supports_negative(profile) is True
@@ -151,7 +152,7 @@ def test_granular_defaults_cover_enabled_formats_and_image_modes():
     profiles, _prompt_io, _prompt_builder, _node, _profile_config = _load_package_modules()
     store = importlib.import_module("workflowx_unified_autoprompter_test.reference_store")
     bundle = store.current_bundle()
-    assert len(bundle["manifest"]["profiles"]) == 15
+    assert len(bundle["manifest"]["profiles"]) == 16
     assert "video_to_video" in bundle["manifest"]["generation_types"]
     for metadata in bundle["manifest"]["profiles"]:
         folder = metadata["folder"]
@@ -166,6 +167,9 @@ def test_granular_defaults_cover_enabled_formats_and_image_modes():
     all_profiles = profiles.all_profiles()
     assert set(all_profiles["jsonx"].generation_paths) == {"text_to_image", "image_to_image"}
     assert all_profiles["minimax_h3_official"].negative_supported is False
+    assert all_profiles["minimax_h3_image"].enabled_formats() == ("natural", "json")
+    assert tuple(all_profiles["minimax_h3_image"].generation_paths) == ("text_to_image", "image_to_image")
+    assert all_profiles["minimax_h3_image"].bbox_mode == ""
     assert all_profiles["krea2"].json_supported is True
 
 

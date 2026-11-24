@@ -222,7 +222,7 @@ def test_standard_profiles_payload_contains_routing_metadata_not_instruction_tex
     profiles, _store, _builder = _modules()
     payload = profiles.profiles_payload()
     standard = [profile for profile in payload["profiles"] if profile["engine"] == "standard"]
-    assert len(standard) == 15
+    assert len(standard) == 16
     assert payload["reference_schema_version"] == 3
     for profile in standard:
         assert profile["notes"] == ""

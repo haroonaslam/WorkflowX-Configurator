@@ -107,6 +107,32 @@
       "builtin": true
     },
     {
+      "key": "minimax_h3_image",
+      "label": "MiniMax H3 Image",
+      "folder": "MiniMax H3 Image",
+      "media_type": "image",
+      "enabled_formats": [
+        "natural",
+        "json"
+      ],
+      "default_format": "natural",
+      "enabled_generation_types": [
+        "text_to_image",
+        "image_to_image"
+      ],
+      "default_generation_type": "text_to_image",
+      "negative_supported": false,
+      "builtin": true,
+      "format_instruction_files": {
+        "natural": [
+          "Supporting/natural_authoring.md"
+        ],
+        "json": [
+          "Supporting/json_authoring.md"
+        ]
+      }
+    },
+    {
       "key": "moss_image",
       "label": "MOSS-Image",
       "folder": "MOSS-Image",

@@ -1,6 +1,8 @@
 # WorkflowX image loaders
 
-WorkflowX provides a standard loader and an advanced loader. Both return normalized image/mask tensors; the advanced loader also supports temporary images outside the input directory.
+WorkflowX provides a standard loader and an advanced loader. Both return normalized image/mask tensors and can load annotated temporary images received from Image TargetX.
+
+For automatic, free-floating image handoffs between native or WorkflowX loaders, see [Image SourceX and Image TargetX](EXECUTION_CONTROLS.md#image-sourcex-and-image-targetx). Copies reach muted or bypassed destination loaders while preserving their modes. Load ImageX Adv switches to Direct automatically.
 
 ![Load ImageX and Load ImageX Adv](images/workflowx-image-loaders.png)
 
@@ -22,7 +24,7 @@ ComfyUI temp cleanup can remove temporary images across restarts. Saved workflow
 
 ### From Node
 
-1. Wire **ImageX Source** between your Stage 1 image output and **Save Image**. You can also connect it to Save Image's `IMAGE` output and include ImageX Source in the Stage 1 run.
+1. Connect the Stage 1 image producer to **ImageX Source**, then forward ImageX Source's `IMAGE` output to **Save Image** if you want to save it. Include ImageX Source in the Stage 1 run; native Save Image has no image output to connect back from.
 2. In Stage 2, set **Load ImageX Adv** to **From Node** and select the source on the same workflow canvas. Sources with the same title show their node IDs.
 3. Click **Refresh Image**. A single-image capture is copied immediately. For a batch, pick a thumbnail. Cancelling the picker keeps the current image.
 4. Queue Stage 2. Its loader has its own temporary copy, so running Stage 1 again only updates the source capture.

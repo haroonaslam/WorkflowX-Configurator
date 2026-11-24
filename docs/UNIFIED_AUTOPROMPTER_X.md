@@ -42,12 +42,19 @@ Built-in support:
 | Image profiles | Text to Image, Image to Image | Text to Image |
 | MOSS-Image, FIBO 2 | Text to Image, Image to Image; Natural and JSON output; optional negative prompts | Text to Image |
 | Qwen Image 2.1 | Text to Image, Image to Image; Natural output only; optional negative prompt | Text to Image |
+| MiniMax H3 Image | Text to Image, Image to Image; Natural or JSON; exclusions stay inside the positive prompt | Text to Image |
 | JsonX | Text to Image, Image to Image | Text to Image |
 | WAN 2.2, LTX 2.3 | Text to Video, First Frame, First–Last Frame | Text to Video |
 | MiniMax H3 Official | Text to Video, First Frame, First–Last Frame, Last Frame, Reference to Video | Text to Video |
 | MiniMax H3 Alternate | Text to Video, First Frame, First–Last Frame, Reference to Video | Text to Video |
 
 Connected images are sent to the authoring LLM in socket order. A path's editable canonical reference-usage block defines their role: for example, First–Last Frame treats the first two as boundary frames, while Reference to Video assigns bounded authority. If no image is attached, the corresponding no-image block tells the LLM to derive only the reference assumptions explicitly present in the user's description. For text-only downstream paths, connected media remains authoring guidance: the LLM combines visible evidence with the user's description to infer intent without emitting reference commentary or implying that the downstream generator receives the media.
+
+### MiniMax H3 Image
+
+Choose **MiniMax H3 Image** for still-image prompt authoring in **Natural** or **JSON**, with **Text to Image** or **Image to Image** selected explicitly. Its separate negative output is disabled. Short requested exclusions remain inside the positive prompt. Connected images serve the selected path's reference rules; this profile authors text and does not call an image-generation API.
+
+The reference blocks cover pose, support, anatomical and camera-relative sides, visibility, framing, focus, and lighting. JSON keeps those details in the relevant scene fields, including the overall pose summary. Original and current-use blocks are bundled independently so the installed profile remains editable.
 
 ### MOSS-Image and FIBO 2
 

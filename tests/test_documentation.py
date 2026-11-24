@@ -28,6 +28,9 @@ DEPRECATED_NAMES = {
 }
 FRONTEND_ONLY_TYPES = {"Note"}
 INTERNAL_IDS = {
+    "WorkflowX_RunControls",
+    "WorkflowX_ImageTransferLoader",
+    "WorkflowX_ImageTransferLoaderAdv",
     "WorkflowX_DetailerXCapture",
     "WorkflowX_DetailerXSnapshot",
     "WorkflowX_DetailerXReplay",

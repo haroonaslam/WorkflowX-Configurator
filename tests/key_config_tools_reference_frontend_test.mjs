@@ -26,9 +26,9 @@ test("all Set/Get families use the recursive runtime resolver", () => {
   ]) {
     assert.ok(source.includes(type), `${type} should be registered`);
   }
-  assert.match(source, /function materializeRecursiveSetGets\(promptResult, inventory\)/);
+  assert.match(source, /function materializeRecursiveSetGets\(promptResult, inventory, segment = null\)/);
   assert.match(source, /for \(const record of inventory\.instances\)/);
-  assert.match(source, /resolveCandidates\(candidates, family, key\)/);
+  assert.match(source, /resolveCandidates\([^;]*family, key\)/);
 });
 
 test("Scopes and Configs display breadcrumbs without changing stored group names", () => {

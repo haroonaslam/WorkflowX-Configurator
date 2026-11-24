@@ -5,12 +5,12 @@ import hashlib
 import json
 import os
 import pathlib
-import shutil
 import sys
 import tempfile
 import types
 import zipfile
 import io
+import pytest
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -94,6 +94,17 @@ def _load_package():
     return module
 
 
+@pytest.fixture(autouse=True)
+def isolate_package_profile(tmp_path, monkeypatch):
+    # Dependencies may preload real folder_paths/aiohttp before our stubs.
+    # Never let these package tests resolve the user's live ComfyUI profile.
+    package = _load_package()
+    xflows = sys.modules[f"{package.__name__}.xflows_manager"]
+    monkeypatch.setattr(xflows, "_user_root", lambda: tmp_path / "disposable-profile")
+    monkeypatch.setattr(xflows, "web", types.SimpleNamespace(
+        json_response=lambda data, status=200, **kwargs: {"data": data, "status": status}))
+
+
 def test_combined_package_exports_workflowx_and_afj_nodes():
     module = _load_package()
     try:
@@ -105,7 +116,7 @@ def test_combined_package_exports_workflowx_and_afj_nodes():
         getattr(comfy_io, "MatchType", None), "Template"
     )
     supports_assembler = hasattr(getattr(comfy_io, "Autogrow", None), "TemplateNames")
-    assert len(module.NODE_CLASS_MAPPINGS) == 81 + supports_toggle_x + supports_assembler
+    assert len(module.NODE_CLASS_MAPPINGS) == 84 + supports_toggle_x + supports_assembler
     assert module.NODE_CLASS_MAPPINGS["WorkflowX_RetainFaceX"].RETURN_TYPES == ("LATENT", "MASK")
     assert module.NODE_CLASS_MAPPINGS["CodeX"].RETURN_TYPES == ("STRING",)
     if supports_toggle_x:
@@ -528,7 +539,7 @@ def test_xflows_hidden_auto_tags_survive_metadata_merge():
 def test_xflows_move_preserves_metadata_and_returns_workflow():
     module = _load_package()
     xflows = sys.modules[f"{module.__name__}.xflows_manager"]
-    shutil.rmtree(ROOT / ".test_user", ignore_errors=True)
+    assert xflows._user_root().name == "disposable-profile"
     try:
         workflow_root = xflows._workflow_root()
         (workflow_root / "folder").mkdir(parents=True, exist_ok=True)
@@ -562,7 +573,7 @@ def test_xflows_move_preserves_metadata_and_returns_workflow():
         assert metadata["target/sample.json"]["manual_tags"] == ["keep"]
         assert metadata["target/sample.json"]["run_count"] == 7
     finally:
-        shutil.rmtree(ROOT / ".test_user", ignore_errors=True)
+        assert xflows._user_root().name == "disposable-profile"
 
 
 def test_xflows_move_routes_return_paths_folders_and_batch_results():
@@ -576,7 +587,7 @@ def test_xflows_move_routes_return_paths_folders_and_batch_results():
         async def json(self):
             return self._body
 
-    shutil.rmtree(ROOT / ".test_user", ignore_errors=True)
+    assert xflows._user_root().name == "disposable-profile"
     try:
         workflow_root = xflows._workflow_root()
         (workflow_root / "source").mkdir(parents=True, exist_ok=True)
@@ -606,13 +617,13 @@ def test_xflows_move_routes_return_paths_folders_and_batch_results():
         assert [result["ok"] for result in batch["data"]["results"]] == [True, True, False]
         assert "target" in batch["data"]["folders"]
     finally:
-        shutil.rmtree(ROOT / ".test_user", ignore_errors=True)
+        assert xflows._user_root().name == "disposable-profile"
 
 
 def test_xflows_batch_move_preserves_metadata_collisions_and_failures():
     module = _load_package()
     xflows = sys.modules[f"{module.__name__}.xflows_manager"]
-    shutil.rmtree(ROOT / ".test_user", ignore_errors=True)
+    assert xflows._user_root().name == "disposable-profile"
     try:
         workflow_root = xflows._workflow_root()
         workflow_root.mkdir(parents=True, exist_ok=True)
@@ -661,13 +672,13 @@ def test_xflows_batch_move_preserves_metadata_collisions_and_failures():
         assert (workflow_root / "target" / "a (2).json").exists()
         assert (workflow_root / "target" / "b.json").exists()
     finally:
-        shutil.rmtree(ROOT / ".test_user", ignore_errors=True)
+        assert xflows._user_root().name == "disposable-profile"
 
 
 def test_xflows_deeper_duplicate_groups_compare_names_nodes_and_values():
     module = _load_package()
     xflows = sys.modules[f"{module.__name__}.xflows_manager"]
-    shutil.rmtree(ROOT / ".test_user", ignore_errors=True)
+    assert xflows._user_root().name == "disposable-profile"
 
     def workflow(seed, prompt, node_ids, layout):
         link_id = node_ids[0] + node_ids[1]
@@ -749,13 +760,13 @@ def test_xflows_deeper_duplicate_groups_compare_names_nodes_and_values():
         }
         assert response["data"]["same_name_nodes"][0]["name_key"] == "flow"
     finally:
-        shutil.rmtree(ROOT / ".test_user", ignore_errors=True)
+        assert xflows._user_root().name == "disposable-profile"
 
 
 def test_xflows_library_storage_helpers_roundtrip():
     module = _load_package()
     xflows = sys.modules[f"{module.__name__}.xflows_manager"]
-    shutil.rmtree(ROOT / ".test_user", ignore_errors=True)
+    assert xflows._user_root().name == "disposable-profile"
     try:
         prompt = xflows._upsert_prompt({
             "title": "Portrait prompt",
@@ -791,13 +802,13 @@ def test_xflows_library_storage_helpers_roundtrip():
         assert xflows._delete_preset_category(category["id"]) is True
         assert xflows._delete_node_snip(snip["id"]) is True
     finally:
-        shutil.rmtree(ROOT / ".test_user", ignore_errors=True)
+        assert xflows._user_root().name == "disposable-profile"
 
 
 def test_xflows_export_import_roundtrip_with_backup_and_safe_zip():
     module = _load_package()
     xflows = sys.modules[f"{module.__name__}.xflows_manager"]
-    shutil.rmtree(ROOT / ".test_user", ignore_errors=True)
+    assert xflows._user_root().name == "disposable-profile"
     try:
         workflow_root = xflows._workflow_root()
         workflow_root.mkdir(parents=True, exist_ok=True)
@@ -831,7 +842,7 @@ def test_xflows_export_import_roundtrip_with_backup_and_safe_zip():
         assert pathlib.Path(result["backup_path"]).exists()
         assert (pathlib.Path(result["backup_path"]) / "workflows" / "folder" / "sample.json").exists()
     finally:
-        shutil.rmtree(ROOT / ".test_user", ignore_errors=True)
+        assert xflows._user_root().name == "disposable-profile"
 
 
 def test_xflows_import_rejects_zip_path_traversal():

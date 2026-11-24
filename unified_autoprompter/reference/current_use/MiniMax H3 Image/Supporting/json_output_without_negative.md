@@ -1,0 +1,1 @@
+Return one JSON response object with "prompt_json" containing the complete scene object and "negative" set to the empty string. When used, keep the short exclusion in the scene object's final "negative" key inside "prompt_json". Return only the object, without Markdown fences or commentary.

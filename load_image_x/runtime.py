@@ -326,7 +326,7 @@ class LoadImageX:
     FUNCTION = "load_image"
 
     def load_image(self, image: str):
-        _relative, image_path = resolve_input_path(image)
+        _relative, image_path = resolve_annotated_image_path(image)
         with Image.open(image_path) as opened:
             output_images = []
             output_masks = []
@@ -366,7 +366,7 @@ class LoadImageX:
 
     @classmethod
     def IS_CHANGED(cls, image: str):
-        _relative, image_path = resolve_input_path(image)
+        _relative, image_path = resolve_annotated_image_path(image)
         digest = hashlib.sha256()
         with image_path.open("rb") as handle:
             while chunk := handle.read(1024 * 1024):
@@ -376,7 +376,7 @@ class LoadImageX:
     @classmethod
     def VALIDATE_INPUTS(cls, image: str):
         try:
-            _relative, image_path = resolve_input_path(image)
+            _relative, image_path = resolve_annotated_image_path(image)
         except ValueError as exc:
             return str(exc)
         if not image_path.is_file():

@@ -21,6 +21,7 @@ import {
   pruneToggleInputs,
   registerQuickToggleDashboard,
 } from "./workflowx_quick_toggle.mjs";
+import { segmentExecutionGraph } from "./segment_run_x_graph.mjs";
 
 const EXTENSION_NAME = "key_config_tools.group_configurator";
 const DEBUG_LOG_ROUTE = "/workflowx_configurator/debug_log";
@@ -574,7 +575,7 @@ function showResolutionWarnings(warnings) {
   }
 }
 
-function materializeRecursiveSetGets(promptResult, inventory) {
+function materializeRecursiveSetGets(promptResult, inventory, segment = null) {
   const output = promptResult?.output;
   if (!output) return promptResult;
   const { selectedConfig, modes, recursive } = selectedConfigContext();
@@ -587,14 +588,17 @@ function materializeRecursiveSetGets(promptResult, inventory) {
     if (!promptNode || !family) continue;
     const key = String(promptScalar(promptNode.inputs?.key, keyForSetNode(record.node)) || "").trim();
     if (!key) continue;
-    const state = effectiveRecordState(record, effectiveModes, recursive);
+    if (segment && !segment.lookups.has(`${family}\u0000${key}`)) continue;
+    const stateRecord = segment ? { ...record, node: { mode: segment.modes.get(record.node) },
+      ancestors: record.ancestors.map((ancestor) => ({ ...ancestor, node: { mode: segment.modes.get(ancestor.node) } })) } : record;
+    const state = effectiveRecordState(stateRecord, effectiveModes, recursive);
     if (state.overlap) {
       throw new Error(
         `[WorkflowX_Configurator] ${family} Set ${record.executionId} intersects multiple controlled groups: ${state.controlledGroups.map(({ name }) => name).join(", ")}.`,
       );
     }
-    const tier = candidateTier(record, effectiveModes, recursive);
-    if (tier === null) continue;
+    const tier = candidateTier(stateRecord, effectiveModes, recursive);
+    if (tier === null && !segment) continue;
     const lookup = `${family}\u0000${key}`;
     const candidates = candidatesByLookup.get(lookup) ?? [];
     candidates.push({
@@ -603,7 +607,8 @@ function materializeRecursiveSetGets(promptResult, inventory) {
       key,
       node: record.node,
       promptNode,
-      tier,
+      tier: tier ?? (record.isRoot ? 0 : 2),
+      inactive: tier === null,
       groupNames: record.containingGroups.map(({ name }) => name),
     });
     candidatesByLookup.set(lookup, candidates);
@@ -612,8 +617,10 @@ function materializeRecursiveSetGets(promptResult, inventory) {
   const resolved = new Map();
   const resolutionWarnings = [];
   for (const [lookup, candidates] of candidatesByLookup) {
+    if (segment && !segment.lookups.has(lookup)) continue;
     const [family, key] = lookup.split("\u0000");
-    const result = resolveCandidates(candidates, family, key);
+    const activeCandidates = candidates.filter((candidate) => !candidate.inactive);
+    const result = resolveCandidates(segment && activeCandidates.length ? activeCandidates : candidates, family, key);
     for (const warning of result.warnings) {
       resolutionWarnings.push(warning);
       console.warn(`[WorkflowX_Configurator] ${warning}`);
@@ -684,7 +691,9 @@ function installGraphToPromptPatch() {
   }
 
   const originalGraphToPrompt = app.graphToPrompt.bind(app);
+  const segmentRequests = new WeakSet();
   app.graphToPrompt = async function (...args) {
+    if (args[1] && segmentRequests.has(args[1])) return originalGraphToPrompt(...args);
     const inventory = assertQueueGraphValid();
     applySelectedConfigAndAdvancedOverrides();
     const promptResult = await originalGraphToPrompt(...args);
@@ -695,6 +704,43 @@ function installGraphToPromptPatch() {
   };
 
   app.__workflowXRelayGraphToPromptPatched = true;
+
+  app.workflowxCompileSegment = async (root, targetId) => {
+    if (root !== getGraph()) throw new Error("The selected workflow is no longer open.");
+    const inventory = assertQueueGraphValid();
+    const modes = new Map(inventory.instances.map(({ node }) => [node, node.mode]));
+    const request = {};
+    segmentRequests.add(request);
+    let result;
+    try {
+      result = await app.graphToPrompt(segmentExecutionGraph(root), request);
+    } finally {
+      segmentRequests.delete(request);
+    }
+    pruneToggleInputs(result, inventory);
+    const lookups = new Set();
+    const walk = (id, seen = new Set()) => {
+      if (seen.has(id)) return;
+      seen.add(id);
+      const entry = result.output[id];
+      if (!entry) return;
+      const family = FAMILY_BY_GET_TYPE[entry.class_type];
+      if (family) {
+        const key = String(promptScalar(entry.inputs?.key, "") || "").trim();
+        lookups.add(`${family}\u0000${key}`);
+      }
+      for (const input of Object.values(entry.inputs ?? {})) {
+        if (Array.isArray(input) && input.length === 2 && Number.isInteger(input[1])) walk(String(input[0]), seen);
+      }
+    };
+    let count = -1;
+    while (count !== lookups.size) {
+      count = lookups.size;
+      walk(targetId);
+      materializeRecursiveSetGets(result, inventory, { modes, lookups });
+    }
+    return { result, inventory };
+  };
 }
 
 function updateComboValues(widget, values) {

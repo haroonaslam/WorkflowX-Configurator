@@ -284,6 +284,103 @@ def test_standard_add_audit_pass_preserves_negative_and_isolates_second_call(gen
     assert result["audit"] == {"mode": "add_pass", "status": "completed", "changed": True, "error": ""}
 
 
+@pytest.mark.parametrize("prompt_format", ["natural", "json"])
+@pytest.mark.parametrize("generation_type", ["text_to_image", "image_to_image"])
+@pytest.mark.parametrize("with_exclusion", [False, True])
+def test_minimax_image_preview_generation_and_audit(
+    general_routes, monkeypatch, prompt_format, generation_type, with_exclusion
+):
+    routes, call, _ = general_routes
+    folder = "MiniMax H3 Image"
+    editing = generation_type == "image_to_image"
+    images = []
+    if editing:
+        for color in ("white", "blue"):
+            stream = io.BytesIO()
+            Image.new("RGB", (8, 8), color).save(stream, format="PNG")
+            images.append(base64.b64encode(stream.getvalue()).decode())
+
+    subject = "Eyes look left of the lens, brows relaxed, and parted lips lift at the corners."
+    pose = {
+        "torso": "She lies on her right side with her shoulder and hip supported by the mattress.",
+        "hands": "Her right hand rests on the pillow. Her left hand lies open on the sheet beside her waist.",
+        "legs": "Her knees bend forward with the upper knee slightly ahead of the lower one.",
+        "feet": "Both bare feet rest on the cotton sheet, with the left foot slightly forward.",
+    }
+    camera = {
+        "viewpoint": "A slightly raised bedside view, angled down toward her and across the bed.",
+        "framing": "The frame includes her from crown to toes, with printed bedding beyond both ends.",
+        "capture": "A 35 mm equivalent lens at f/8 keeps her eyes, hands, and toes clearly resolved.",
+    }
+    edit = "Keep the pose and framing from <Picture 1>. Use <Picture 2> for the bedsheet color only."
+    exclusion = "No lettering on the pillowcase."
+    scene = {"subject": subject, "pose": pose, "camera": camera}
+    if editing:
+        scene["target"] = edit
+    if with_exclusion:
+        scene["negative"] = exclusion
+    prose_parts = [edit] if editing else []
+    prose_parts.extend([subject, *pose.values(), *camera.values()])
+    if with_exclusion:
+        prose_parts.append(exclusion)
+    prose = " ".join(prose_parts)
+    expected = json.dumps(scene, indent=2) if prompt_format == "json" else prose
+    wrapper = {"prompt_json": scene} if prompt_format == "json" else {"positive": prose}
+    wrapper["negative"] = "unexpected provider negative"
+    calls = []
+
+    async def dispatch(data, system, user, inputs, format_, cancel, stage="single"):
+        calls.append((system, user, len(inputs), format_, stage))
+        if stage == "audit":
+            return user.replace("look left", "look slightly left")
+        return json.dumps(wrapper)
+
+    monkeypatch.setattr(routes, "dispatch_provider", dispatch)
+    request = {
+        "schema_version": routes.SCHEMA_VERSION,
+        "reference_schema_version": routes.REFERENCE_SCHEMA_VERSION,
+        "backend": "openai",
+        "model": "test-model",
+        "target_model": "minimax_h3_image",
+        "generation_type": generation_type,
+        "prompt_format": prompt_format,
+        "negative_enabled": True,
+        "nsfw_enabled": with_exclusion,
+        "audit_mode": "add_pass" if with_exclusion else "",
+        "images_b64": images,
+        "image_count": len(images),
+        "fields": {
+            "prompt_text": "H3 side-lying bedroom fixture. "
+            + (edit if editing else subject)
+            + (f" {exclusion}" if with_exclusion else ""),
+        },
+    }
+    status, preview = call("/preview", request)
+    assert status == 200, preview
+    reference = "with_reference_supported" if editing else "without_reference_unsupported"
+    assert [block["path"] for block in preview["activated_blocks"]] == [
+        f"{folder}/split/common.md",
+        f"{folder}/Supporting/{prompt_format}_authoring.md",
+        f"{folder}/split/{generation_type.replace('_', '-')}.md",
+        *(["nsfw-image.md"] if with_exclusion else []),
+        f"{folder}/Supporting/{reference}.md",
+        f"{folder}/Supporting/{prompt_format}_output_without_negative.md",
+    ]
+    status, result = call("/generate", request)
+    assert status == 200, result
+    assert calls[0] == (preview["system"], preview["user"], len(images), prompt_format, "single")
+    if with_exclusion:
+        assert calls[1:] == [(routes.audit_block(), expected, 0, prompt_format, "audit")]
+        expected = expected.replace("look left", "look slightly left")
+        assert result["audit"]["status"] == "completed"
+    else:
+        assert len(calls) == 1
+        assert result["audit"]["status"] == "not_requested"
+    assert result["prompt"] == result["positive"] == expected
+    assert result["negative"] == ""
+    assert result["negative_enabled"] is False
+
+
 def test_standard_audit_only_ignores_generation_inputs_and_image_requirements(general_routes, monkeypatch):
     routes, call, _ = general_routes
     candidate = "  candidate exactly  "

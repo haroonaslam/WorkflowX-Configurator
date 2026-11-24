@@ -866,6 +866,13 @@ function createAdvancedUI(node, imageWidget, stateWidget, uploadWidget) {
     markChanged();
   }
 
+  node.workflowxReceiveImage = (payload) => {
+    ui.state.load_mode = "direct";
+    stateWidget.value = JSON.stringify(ui.state);
+    renderControls();
+    selectTemporaryResult(payload, false);
+  };
+
   function chooseFrame(params, capture) {
     return new Promise((resolve) => {
       const dialog = document.createElement("dialog");

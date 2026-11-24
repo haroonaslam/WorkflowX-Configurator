@@ -178,8 +178,7 @@ def normalize_prompt_json(target_model: str, prompt_format: str, payload: Any) -
 
 def parse_generation_response(target_model: str, prompt_format: str, raw_text: str, negative_enabled: bool) -> dict[str, str]:
     prompt_format = normalize_format(target_model, prompt_format)
-    if target_model in MINIMAX_H3_TARGETS:
-        negative_enabled = False
+    negative_enabled = negative_enabled and get_profile(target_model).negative_supported
     raw_text = str(raw_text or "").strip()
     if target_model in MINIMAX_H3_TARGETS:
         raw_text = _normalize_minimax_plain_text(raw_text)

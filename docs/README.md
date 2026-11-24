@@ -6,14 +6,14 @@ Start with the self-contained [WorkflowX README](../README.md). It contains the 
 
 | Area | Guide |
 |---|---|
-| Configuration and canvas | [Config SelectorX](CONFIG_SELECTOR_X.md), [Quick MuteX and Quick BypassX](../README.md#quick-mutex-and-quick-bypassx), [Quick ToggleX and ToggleX Controller](../README.md#quick-togglex-and-togglex-controller) |
+| Configuration and canvas | [Config SelectorX](CONFIG_SELECTOR_X.md), [Segment RunX, StopX, and image transfers](EXECUTION_CONTROLS.md), [Quick MuteX and Quick BypassX](../README.md#quick-mutex-and-quick-bypassx), [Quick ToggleX and ToggleX Controller](../README.md#quick-togglex-and-togglex-controller) |
 | Image and video | [Image loaders](IMAGE_LOADERS.md), [Load VideoX Adv](LOAD_VIDEO_X_ADV.md), [Preview Video X](../README.md#preview-video-x), [Save Video X](SAVE_VIDEO_X.md), [View Image (Format)](VIEW_IMAGE_FORMAT.md), [Image ProcessorX](IMAGE_PROCESSOR_X.md), [Image Compare Edit X](IMAGE_COMPARE_EDIT_X_EDITOR.md), [DetailerX](detailer_x.md), [H3 RefMod](../h3_refmod/README.md), [RefModX Adapter](../h3_refmod/README.md#refmodx-adapter) |
 | Audio | [Load AudioX](LOAD_AUDIO_X.md), [Voice ChangerX](VOICE_CHANGER_X.md), [AuK](../auk/README.md), [AuK Chained Clone](../auk/docs/CHAINED_CLONE.md) |
 | Models and assets | [WorkflowX Downloader](../README.md#workflowx-downloader), [Load Diffusion Model X](LOAD_DIFFUSION_MODEL_X.md), [LoraX](LORAX.md), [Load Lora PickerX](LOAD_LORA_PICKER_X.md) |
 | Swap and APIs | [Anything Swap bridge](ANYTHING_SWAP_BRIDGE.md), [NanoBanana API](NANOBANANA_FULL_API.md), [Kie and Atlas APIs](KIE_ATLAS_API_NODES.md) |
 | Prompting | [Prompt AssemblerX](../README.md#prompt-assemblerx), [Unified Autoprompter X](UNIFIED_AUTOPROMPTER_X.md), [JsonX user guide](afj-awesome-flex-json/USER_GUIDE.md) |
 | Local Codex | [CodeX controls](../README.md#codex), [text and image recipe](../examples/README.md#codex) |
-| Image handoff and refinement | [From Node and ImageX Source](IMAGE_LOADERS.md#from-node), [Retain FaceX](../README.md#retain-facex) |
+| Image handoff and refinement | [Image SourceX and Image TargetX](EXECUTION_CONTROLS.md#image-sourcex-and-image-targetx), [From Node and ImageX Source](IMAGE_LOADERS.md#from-node), [Retain FaceX](../README.md#retain-facex) |
 | Libraries | [XFlows](XFLOWS.md), [XPrompts](XPROMPTS.md), [Image Prompt Library](image-prompt-library.md), [XNodes](XNODES.md) |
 | Compatibility | [Legacy migration](LEGACY_MIGRATION.md) |
 
@@ -21,6 +21,7 @@ Start with the self-contained [WorkflowX README](../README.md). It contains the 
 
 | Feature | Setup |
 |---|---|
+| Segment RunX, StopX, and image transfers | Use the current WorkflowX frontend and a supported ComfyUI execution scheduler. Restart ComfyUI and refresh the browser after installing the backend changes. [Execution controls](EXECUTION_CONTROLS.md) |
 | Video and audio media | FFmpeg is used for media conversion, repair, or encoding where described in the node guide. The [WorkflowX Downloader](../README.md#workflowx-downloader) can provision WorkflowX's FFmpeg bundle on Windows. [Load AudioX](LOAD_AUDIO_X.md) · [Save Video X](SAVE_VIDEO_X.md) |
 | Voice ChangerX | Install the declared PyWORLD, NumPy, and SciPy dependencies into ComfyUI's Python environment. [Installation](VOICE_CHANGER_X.md#installation) |
 | DetailerX | Install the Python dependencies and provision the models and runtime assets for the stages you enable. DLSS5 has platform-specific requirements. [Assets and runtime](detailer_x.md#local-assets) |
