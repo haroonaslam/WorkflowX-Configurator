@@ -622,7 +622,7 @@ Only the selected output and its upstream dependencies are submitted. The queued
 - **Image SourceX** selects a native Save Image, Preview Image, Load Image, Load ImageX, or Load ImageX Adv node. It captures the first produced image.
 - **Image TargetX** selects an Image SourceX and a destination loader. **Prepare next run** updates the loader's saved selection while the submitted job uses its existing input. **Use in this run** orders the source before the executing destination and supplies the new image to it.
 
-Image copies finish before StopX stops the job. A muted or bypassed destination still receives its copy and retains its mode. Load ImageX Adv switches to **Direct** mode; dimensions and alpha are preserved in the transferred PNG. Installing these changes requires a ComfyUI restart and browser refresh.
+Image copies finish before StopX stops the job. A muted or bypassed destination still receives its copy and retains its mode. Load ImageX Adv switches to **Direct** mode; dimensions and alpha are preserved in the transferred PNG. These execution controls are included in version **2.1.19**. Restart ComfyUI and refresh the browser after installing them.
 
 See [execution controls and image handoffs](docs/EXECUTION_CONTROLS.md) for setup, selective-run behavior, ordering limits, and temporary-file lifetime.
 
